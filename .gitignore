@@ -1,0 +1,17 @@
+# 运行产物
+server.log
+debug.log
+
+# 数据（不落版本库，存 %LOCALAPPDATA%\AgentBoard\data.json）
+*.db
+*.dat
+*.db-shm
+*.db-wal
+data.json
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# Node
+node_modules/
