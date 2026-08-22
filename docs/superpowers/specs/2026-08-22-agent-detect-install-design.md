@@ -1,6 +1,6 @@
 # Agent Board：应用探测与安装管理 —— 设计文档
 
-日期：2026-08-22（v2，参考 EchoBird 安装规范汇总重写）
+日期：2026-08-22（v3，用 EchoBird 官方一手安装定义数据核实并重写）
 对应商业化路线图"阶段 1：安装体验"中"自动检测已装 Agent + 设置页里按需安装"部分（本设计只覆盖阶段 1，不涉及账号/鉴权/打包分发；路线图本身存在会话历史中，不在本仓库内）
 
 ## 背景
@@ -13,21 +13,30 @@ agent-board 目前对 8 个 AI Agent（claude / codex / workbuddy / deepseek / m
 
 ## 参考资料与可信度
 
-两份参考，可信度不同，处理方式也不同：
+三份参考，可信度从高到低：
 
-1. **本机 EchoBird 安装目录** `%LOCALAPPDATA%\EchoBird\_up_\tools\`（一手，可直接读）
-   - 每个工具一份 `paths.json`（各平台下二进制的候选位置，用于探测）+ `config.json`（该工具的模型配置文件位置与读写映射）
-   - **这个目录里没有任何安装命令** —— EchoBird 把安装定义放在仓库的 `docs/api/tools/install/<id>.json`，本机安装包里没带
-   - 本设计的**探测路径直接复用这份数据**（属于"这个工具通常装在哪"的事实性技术信息）
+1. **EchoBird 仓库官方一手安装定义** `github.com/edison7009/EchoBird/docs/api/tools/install/<id>.json`（最高可信度，直接读的原始文件）
+   - 每个工具一份 JSON，字段包括 `install`(多种安装方式)、`install_flow.agent_steps`(给内置 AI 的执行步骤)、`install_flow.tell_user`(必须告知用户的信息清单)、`network_requirements`(测试用 URL + 被墙地区 + 镜像)、`identity_guard`(防装错说明)
+   - 已取到并核实：`claudecode` / `codex` / `pi` / `dsh` / `workbuddy` / `zcode` 六个，与 agent-board 现有 8 个 adapter 中的 6 个对应
+   - **本设计的安装命令、网络策略、identity guard 均以这份数据为准**，之前版本里"未证实"的 WorkBuddy winget id 在这里得到确认：`Tencent.WorkBuddy`
+   - 这些文件的字段设计（`note`/`WARNING`/`agent_steps` 都是自然语言）表明 EchoBird 真实的安装执行者是**内置 AI 读这份"菜谱"现场决定命令并口头播报**，不是纯确定性脚本解释器直接执行这个 JSON。本设计仍选择确定性脚本引擎（理由见下方"架构选择"），但会把这份"菜谱"里的命令和自然语言警告拆开，分别放进机器可读的字段和人类可读的提示文案
 
-2. **`F:\AIagent自动安装包\EchoBird_AI_Agent_App_Manager_安装与配置规范汇总.md`**（二手，AI 从 EchoBird 仓库整理，正文含 `fileciteturn` 引用残留）
-   - 提供了安装命令、依赖版本、identity guard、镜像策略、用户路径覆盖等设计，价值很高
-   - 但**属于 AI 生成的汇总，个别条目需落地前再验证**。已抽查两条：
-     - ✅ `@deepseek-ai/dsh` 属实（npm 上真实存在，Node ^22.19 或 ≥24，`dsh web` 起在 127.0.0.1:3080）
-     - ❌ `winget install --id Tencent.WorkBuddy` **未能证实**（能查到 `Tencent.WeChat` / `Tencent.TencentDocs` 等其他腾讯 winget 包，唯独没有 WorkBuddy）——本设计按"未证实"处理
-   - ✅ `@earendil-works/pi-coding-agent` 与用户提供的真实安装记录一致，可信
+2. **本机 EchoBird 安装目录** `%LOCALAPPDATA%\EchoBird\_up_\tools\`（一手，可直接读）
+   - 每个工具一份 `paths.json`（各平台下二进制的候选位置，用于探测）+ `config.json`（模型配置文件位置与读写映射，本设计不需要）
+   - 本设计的**探测路径直接复用这份数据**
 
-**实现约定：所有安装命令在写进代码前必须各自实跑一次验证，不得直接照抄本文档。**
+3. **`F:\AIagent自动安装包\EchoBird_AI_Agent_App_Manager_安装与配置规范汇总.md`**（二手，AI 整理的汇总，已被第 1 份一手数据基本取代，仅在一手数据未覆盖的工具上——比如豆包/Marvis——作为背景参考）
+
+**实现约定：所有安装命令在写进代码前必须各自实跑一次验证，即便来自一手数据也要跑一遍，因为工具版本/发布渠道会变。**
+
+### 架构选择：为什么不直接抄 EchoBird 的"AI 读菜谱执行"模式
+
+EchoBird 的真实做法（推测）是内置一个通用 LLM，把 `install/<id>.json` 当 few-shot 式的领域知识喂给它，由它决定要跑哪条命令、怎么处理报错、怎么措辞跟用户播报。这个模式的好处是灵活（遇到没写全的边缘情况 AI 能现场应变），坏处是：
+- 每次安装都要调用一次模型 API，产品要么自建模型网关要么帮用户出这笔 token 费
+- 执行的具体命令不是 100% 确定的，两次安装同一个工具理论上可能跑出不完全一样的命令，出问题不好复现/调试
+- 一个"能在用户机器上现场决定并执行 shell 命令"的模块，是这个产品里唯一一处会被安全审查重点关照的地方，作为收费产品应尽量避免
+
+本设计延续 v2 的决定：用**确定性脚本引擎**消费一份结构上向 EchoBird 看齐、但语义上分离干净的静态配置（命令是命令、警告是警告，不混在一起让人/AI 去读）。灵活性换成了"这轮先覆盖已知场景，覆盖不到的场景就诚实报错 + 引导用户去看官方文档"，而不是让 AI 现场兜底。
 
 ## 范围
 
@@ -71,16 +80,16 @@ lib/adapters/*.js       每个文件新增 detect 导出（8 个文件都要改�
 ## 数据模型：adapter 的 `detect` 导出
 
 ```js
-// lib/adapters/pi.js 新增
+// lib/adapters/pi.js 新增（命令直接取自 EchoBird install/pi.json，字段拆分见下）
 detect: {
   tier: 'cli',                  // 'cli' | 'gui' —— 描述它「是什么」，不描述能否自动装
 
-  identityGuard: {              // 防止装错近名产品；实现时用于日志与 UI 提示
-    is: 'Pi coding agent (earendil-works)，CLI 命令为 pi',
-    isNot: ['npm 上的同名 pi 包', 'Pi 币 / Pi Network', 'π 相关数学库'],
+  identityGuard: {               // 结构照抄 EchoBird 的 identity_guard
+    description: 'Pi 指 Earendil Works 开发的开源 CLI coding agent（pi.dev）',
+    notToConfuseWith: ['Pi Network（加密货币 App）', 'Inflection AI 的 Pi 助手', 'Raspberry Pi 相关工具'],
   },
 
-  requirements: { node: '>=18' },
+  requirements: { node: '>=18' },   // Windows/npm 路径才需要；curl 安装器自带处理
 
   probe: {
     kind: 'path',
@@ -96,34 +105,68 @@ detect: {
     darwin: [...], linux: [...],   // 一并搬入，本轮不验证
   },
 
-  // 按优先级排列，前一个失败自动降级到下一个
+  // 按优先级排列，前一个失败自动降级到下一个；命令取自 EchoBird install/pi.json 的 install 字段
   install: {
     methods: [
-      { kind: 'script', win32: 'irm https://pi.dev/install.ps1 | iex',
-                        posix: 'curl -fsSL https://pi.dev/install.sh | sh' },
-      { kind: 'npm',    pkg: '@earendil-works/pi-coding-agent', flags: ['--ignore-scripts'] },
+      { kind: 'script', posix: 'curl -fsSL https://pi.dev/install.sh | sh' },        // macOS/Linux 首选
+      { kind: 'npm', pkg: '@earendil-works/pi-coding-agent', flags: ['--ignore-scripts'] }, // Windows 走这条
     ],
+    warning: "npm 包名必须是 @earendil-works/pi-coding-agent，不能单独装 'pi'（那是个无关的 Python 工具包）",
+  },
+
+  network: {                      // 结构照抄 EchoBird 的 network_requirements
+    testUrls: ['https://pi.dev', 'https://registry.npmjs.org/@earendil-works/pi-coding-agent'],
     mirrors: { npm: 'https://registry.npmmirror.com' },   // 仅失败后降级使用
+    blockedRegions: {},           // Pi 没有被墙问题，留空
   },
 
   verify: { cmd: 'pi --version' },
+
+  afterInstall: {                 // 结构照抄 EchoBird 的 tell_user，装完必须展示给用户
+    tellUser: [
+      '用的是 curl 安装器还是 npm（Windows 走 npm，需要先有 Node.js ≥18）',
+      '装完可能要点"刷新"或重启 agent-board 才能识别到新装的 pi（当前进程看不到装之前不存在的 PATH）',
+    ],
+  },
 },
 ```
 
-`tier: 'gui'` 的（WorkBuddy / ZCode / 豆包 / Marvis）：
+`tier: 'gui'` 的（WorkBuddy / ZCode / 豆包 / Marvis），命令取自 `install/zcode.json` / `install/workbuddy.json`：
 
 ```js
 // lib/adapters/zcode.js
 detect: {
   tier: 'gui',
-  identityGuard: { is: 'Z.AI 的 ZCode 桌面版', isNot: ['OpenCode CLI', 'OpenCode Desktop'] },
+  identityGuard: { description: 'ZCode 是 Z.AI(智谱) 基于 OpenCode 做的桌面版 coding agent',
+                    notToConfuseWith: ['OpenCode CLI', 'OpenCode Desktop'] },
   probe: {
     kind: 'registry',                                     // 路径 + Windows 卸载注册表双重探测
     win32: ['%LOCALAPPDATA%\\Programs\\ZCode\\ZCode.exe'],
     registryHints: { displayNamePrefixes: ['ZCode'] },
   },
   install: {
-    methods: [{ kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' }],
+    methods: [{ kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' }],  // 无 winget，只能下载
+  },
+  afterInstall: {
+    tellUser: ['下载文件的完整路径', '安装向导已打开', '需要用户自己点完向导，程序不会替你点'],
+  },
+},
+
+// lib/adapters/workbuddy.js —— 有 winget，可以全自动
+detect: {
+  tier: 'gui',
+  identityGuard: { description: 'WorkBuddy 是腾讯 CodeBuddy 的"办公版"桌面 Agent',
+                    notToConfuseWith: ['CodeBuddy 编程 IDE（配置目录是 ~/.codebuddy，完全分开）'] },
+  probe: {
+    kind: 'registry',
+    win32: ['%LOCALAPPDATA%\\Programs\\WorkBuddy\\WorkBuddy.exe'],
+    registryHints: { displayNamePrefixes: ['WorkBuddy'], publisher: 'Tencent' },
+  },
+  install: {
+    methods: [
+      { kind: 'winget', id: 'Tencent.WorkBuddy', flags: ['--accept-package-agreements', '--accept-source-agreements'] },
+      { kind: 'download', url: 'https://www.codebuddy.cn/work/' },   // winget 不可用时降级
+    ],
   },
 },
 ```
@@ -132,16 +175,18 @@ detect: {
 
 ## 各 agent 的配置结果
 
-| agent | tier | 探测 | 安装方式（优先级从高到低） | 依赖 |
+数据来源标注：🟢 = EchoBird 一手 `install/<id>.json` 已核实；🟡 = EchoBird 探测数据 + 需另查安装信息
+
+| agent | tier | 探测 | 安装方式（优先级从高到低，🟢来源） | 依赖 / 特别注意 |
 |---|---|---|---|---|
-| claude | cli | EchoBird `claudecode/paths.json`（npm/bun/pnpm/winget 多路径） | ① 原生安装器 `irm https://claude.ai/install.ps1 \| iex`（官方推荐，能自动更新）② `winget install Anthropic.ClaudeCode` ③ `npm i -g @anthropic-ai/claude-code` | — |
-| codex | cli | EchoBird `codex/paths.json` | ① `irm https://chatgpt.com/codex/install.ps1 \| iex` ② `npm i -g @openai/codex` | Node ≥22 |
-| pi | cli | EchoBird `pi/paths.json` | ① `irm https://pi.dev/install.ps1 \| iex` ② `npm i -g --ignore-scripts @earendil-works/pi-coding-agent` | Node ≥18 |
-| deepseek (dsh) | cli | EchoBird `dsh/paths.json` | `npm i -g @deepseek-ai/dsh` ✅已核实 | Node ^22.19 或 ≥24 |
-| zcode | gui | 路径 + 注册表（`displayNamePrefixes: ['ZCode']`） | 下载页 `zcode.z.ai/cn#all-downloads`，打开安装器交给用户 | — |
-| workbuddy | gui | 路径 + 注册表（发行商 Tencent） | 下载页 `codebuddy.cn/work/`；`winget Tencent.WorkBuddy` **未证实，实现时先验证，成立则升为首选** | — |
-| doubao | gui | 沿用现有 `doubao.js` 的数据目录判断 | 下载页 URL **待确定**（不在 EchoBird 覆盖范围） | — |
-| marvis | gui | 沿用现有 `marvis.js` 的数据目录判断 | 下载页 URL **待确定**（同上） | — |
+| claude | cli 🟢 | `claudecode/paths.json`（npm/bun/pnpm/winget 多路径） | ① macOS/Linux: `curl -fsSL https://claude.ai/install.sh \| bash` ② Windows: `irm https://claude.ai/install.ps1 \| iex` ③ `winget install Anthropic.ClaudeCode` ④ `npm i -g @anthropic-ai/claude-code`（官方仍列为有效方式，但不是首选） | **中国大陆无法直连 claude.ai，且没有镜像替代**（EchoBird 原话："success rate is nearly zero without a VPN/proxy"）。这个 agent 的安装失败时，UI 不应该建议"重试"或"换镜像"，而应直接提示"需要代理/VPN，无镜像可用" |
+| codex | cli 🟢 | `codex/paths.json` | ① `npm i -g @openai/codex`（官方首选） ② macOS/Linux: `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` ③ Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex` | Node ≥22；**包名必须精确是 `@openai/codex`**，不能单独装 `codex`（那是别的包）；Windows 直接用 PowerShell，不要 WSL；npm 失败可降级 `--registry=https://registry.npmmirror.com` |
+| pi | cli 🟢 | `pi/paths.json` | ① macOS/Linux: `curl -fsSL https://pi.dev/install.sh \| sh` ② Windows: `npm i -g --ignore-scripts @earendil-works/pi-coding-agent` | Node ≥18（仅 Windows/npm 路径需要）；包名必须精确，不能单独装 `pi`；npm 失败可降级 `--registry=https://registry.npmmirror.com` |
+| deepseek (dsh) | cli 🟢 | `dsh/paths.json` | ① `npm i -g @deepseek-ai/dsh` ② 退化用法：`npx @deepseek-ai/dsh web`（一次性，不装到 PATH） | Node ≥22.19 或 ≥24；装完用 `dsh web` 起本地服务在 127.0.0.1:3080，不会自动开浏览器 |
+| workbuddy | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['WorkBuddy']`, publisher: Tencent） | ① `winget install --id Tencent.WorkBuddy --accept-package-agreements --accept-source-agreements`（**winget id 已核实**）② 降级：打开 `codebuddy.cn/work/` 下载页交给用户 | Linux 不支持；winget 失败（比如系统没装 winget 或源不可用）才降级到下载页 |
+| zcode | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['ZCode']`） | 只有下载页 `zcode.z.ai/cn#all-downloads`（EchoBird 自己也没有更自动的方式），打开安装器交给用户点完 | 没有 winget/命令行安装方式 |
+| doubao | gui 🟡 | 沿用现有 `doubao.js` 的数据目录判断 | 下载页 URL **待确定**（不在 EchoBird 28 个支持工具范围内） | — |
+| marvis | gui 🟡 | 沿用现有 `marvis.js` 的数据目录判断 | 下载页 URL **待确定**（同上） | — |
 
 原先设计里的 `tier: 'manual'` 档位这轮用不上（8 个 agent 都有正规安装渠道），从 schema 中移除；将来真遇到私有工具，等价效果是给它一个空的 `install.methods` 数组。
 
@@ -154,18 +199,23 @@ Identity guard 提示（UI 显示"即将安装 X，它不是 Y/Z"）
    ↓
 检测 OS / 架构
    ↓
+network.blockedRegions 命中当前地区？
+   ├─ 是（如 claude 在中国大陆）→ 直接提示"需要代理/VPN，无镜像可用"，不尝试安装，中断
+   └─ 否 ↓
 检查 requirements（node --version 等）
-   ├─ 缺失 → 提示"需先安装 Node.js ≥22" + 官网链接，中断
+   ├─ 缺失 → 提示"需先安装 Node.js ≥22" + 官网链接（Windows 可提示 `winget install OpenJS.NodeJS` 作为可复制命令，但不自动跑），中断
    └─ 满足 ↓
-确认卡片（展示：装什么、用哪条命令、装到哪）→ 用户确认
+确认卡片（展示：装什么、用哪条命令、装到哪、install.warning 里的措辞如有）→ 用户确认
    ↓
 按 install.methods 顺序尝试
-   ├─ 官方安装器/winget 失败 → 降级下一个 method
-   └─ npm 失败且疑似网络问题 → 加 --registry 镜像重试一次
+   ├─ 某个 method 失败 → 降级下一个 method
+   └─ npm 方式失败且疑似网络问题 → 加 network.mirrors.npm 镜像重试一次
    ↓
 verify.cmd 验证版本
    ↓
 重新 probe（重新扫路径，不依赖当前进程的 PATH）
+   ↓
+展示 afterInstall.tellUser 清单（比如"可能需要点刷新才能识别新装的工具"）
    ↓
 完成
 ```
@@ -228,10 +278,10 @@ verify.cmd 验证版本
 
 ## 落地前必须先确认的事项
 
-1. **逐条实跑验证安装命令**（本文档的命令来自二手汇总，不可直接照抄进代码）
-2. **`winget Tencent.WorkBuddy` 是否真实存在** —— 成立则 WorkBuddy 升级为全自动安装，不成立就只保留下载页
-3. **豆包 / Marvis 的官方下载页 URL** —— 不在 EchoBird 覆盖范围，需单独查证
-4. **Windows 卸载注册表的探测实现细节** —— 读 `HKLM/HKCU` 下 `Uninstall` 子键并按 `DisplayName` 前缀 / `Publisher` 匹配，需确认在非管理员权限下也能读到
+1. **逐条实跑验证安装命令**（即便来自 EchoBird 一手数据也要跑一遍，工具发布渠道会变）
+2. **豆包 / Marvis 的官方下载页 URL** —— 不在 EchoBird 支持范围，需单独查证
+3. **Windows 卸载注册表的探测实现细节** —— 读 `HKLM/HKCU` 下 `Uninstall` 子键并按 `DisplayName` 前缀 / `Publisher` 匹配，需确认在非管理员权限下也能读到
+4. **`network.blockedRegions` 判断依据** —— EchoBird 用的是"地区代码"（如 `zh-CN`），agent-board 要不要做地区判断、还是干脆固定按"中国大陆网络环境"处理 claude 这一条（不用猜测用户地区，反正 agent-board 这轮就是给你自己/中文用户用的），实现时定一下，避免过度设计一套地区检测机制
 
 ## 后续可做（不在本轮）
 
