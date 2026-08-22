@@ -137,15 +137,18 @@ detect: {
 // lib/adapters/zcode.js
 detect: {
   tier: 'gui',
-  identityGuard: { description: 'ZCode 是 Z.AI(智谱) 基于 OpenCode 做的桌面版 coding agent',
+  identityGuard: { description: 'ZCode 是 Z.AI(智谱) 自研的桌面版 coding agent，可切换多种 CLI backend(含 OpenCode)',
                     notToConfuseWith: ['OpenCode CLI', 'OpenCode Desktop'] },
   probe: {
     kind: 'registry',                                     // 路径 + Windows 卸载注册表双重探测
-    win32: ['%LOCALAPPDATA%\\Programs\\ZCode\\ZCode.exe'],
+    win32: ['%LOCALAPPDATA%\\ZCode\\ZCode.exe'],           // 2026-08-22 实现阶段核实：没有 \Programs\ 这一段
     registryHints: { displayNamePrefixes: ['ZCode'] },
   },
   install: {
-    methods: [{ kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' }],  // 无 winget，只能下载
+    methods: [                                              // 2026-08-22 实现阶段核实：其实有 winget(ZhipuAI.ZCode)
+      { kind: 'winget', id: 'ZhipuAI.ZCode', flags: ['--accept-package-agreements', '--accept-source-agreements'] },
+      { kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' },
+    ],
   },
   afterInstall: {
     tellUser: ['下载文件的完整路径', '安装向导已打开', '需要用户自己点完向导，程序不会替你点'],
@@ -184,7 +187,7 @@ detect: {
 | pi | cli 🟢 | `pi/paths.json` | ① macOS/Linux: `curl -fsSL https://pi.dev/install.sh \| sh` ② Windows: `npm i -g --ignore-scripts @earendil-works/pi-coding-agent` | Node ≥18（仅 Windows/npm 路径需要）；包名必须精确，不能单独装 `pi`；npm 失败可降级 `--registry=https://registry.npmmirror.com` |
 | deepseek (dsh) | cli 🟢 | `dsh/paths.json` | ① `npm i -g @deepseek-ai/dsh` ② 退化用法：`npx @deepseek-ai/dsh web`（一次性，不装到 PATH） | Node ≥22.19 或 ≥24；装完用 `dsh web` 起本地服务在 127.0.0.1:3080，默认会自动打开浏览器（可用 --no-open 关掉） |
 | workbuddy | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['WorkBuddy']`, publisher: Tencent） | ① `winget install --id Tencent.WorkBuddy --accept-package-agreements --accept-source-agreements`（**winget id 已核实**）② 降级：打开 `codebuddy.cn/work/` 下载页交给用户 | Linux 不支持；winget 失败（比如系统没装 winget 或源不可用）才降级到下载页 |
-| zcode | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['ZCode']`） | 只有下载页 `zcode.z.ai/cn#all-downloads`（EchoBird 自己也没有更自动的方式），打开安装器交给用户点完 | 没有 winget/命令行安装方式 |
+| zcode | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['ZCode']`） | ① winget `ZhipuAI.ZCode`（2026-08-22 实现阶段核实存在，EchoBird 当时可能没查到）② 降级：下载页 `zcode.z.ai/cn#all-downloads` | — |
 | doubao | gui 🟡 | 沿用现有 `doubao.js` 的数据目录判断 | 下载页 URL **待确定**（不在 EchoBird 28 个支持工具范围内） | — |
 | marvis | gui 🟡 | 沿用现有 `marvis.js` 的数据目录判断 | 下载页 URL **待确定**（同上） | — |
 

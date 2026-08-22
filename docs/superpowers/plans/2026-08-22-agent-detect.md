@@ -971,20 +971,23 @@ git commit -m "feat(workbuddy): 新增 detect 探测/安装配置（含 winget i
 const detect = {
   tier: 'gui',
   identityGuard: {
-    description: 'ZCode 是 Z.AI(智谱) 基于 OpenCode 做的桌面版 coding agent',
+    description: 'ZCode 是 Z.AI(智谱) 自研的桌面版 coding agent，可切换多种 CLI backend(含 OpenCode)',
     notToConfuseWith: ['OpenCode CLI', 'OpenCode Desktop'],
   },
   requirements: {},
   probe: {
     kind: 'registry',
-    win32: ['%LOCALAPPDATA%\\Programs\\ZCode\\ZCode.exe'],
+    win32: ['%LOCALAPPDATA%\\ZCode\\ZCode.exe'],
     darwin: ['/Applications/ZCode.app/Contents/MacOS/ZCode'],
     linux: ['/opt/ZCode/zcode', '~/.local/bin/zcode'],
     registryHints: { displayNamePrefixes: ['ZCode'] },
   },
   install: {
-    methods: [{ kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' }],
-    warning: '没有 winget/命令行安装方式，只能下载安装包交给用户点完向导',
+    methods: [
+      { kind: 'winget', id: 'ZhipuAI.ZCode', flags: ['--accept-package-agreements', '--accept-source-agreements'] },
+      { kind: 'download', url: 'https://zcode.z.ai/cn#all-downloads' },
+    ],
+    warning: '优先用 winget 静默安装；winget 不可用时会打开下载页，需要自己点完安装向导',
   },
   network: { testUrls: ['https://zcode.z.ai'], mirrors: {}, blockedRegions: {} },
   afterInstall: {
