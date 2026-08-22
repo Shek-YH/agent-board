@@ -8,6 +8,10 @@ const state = {
   board: {}, agentIds: [], colOrder: null,
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
+  // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
+  recentDone: new Map(),
+  // 用户手动点「已读」取消高亮的 ref 集合（localStorage 持久化，避免刷新后重新点亮）
+  dismissedRecent: new Set(),
   loading: false,
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
@@ -25,8 +29,11 @@ function effectiveCols() {
   const def = state.colOrder || ['all', ...state.agentIds];
   const valid = new Set(['all', ...state.agentIds]);
   const out = def.filter((c) => valid.has(c));
-  // 确保配置里没有但实际存在的 agent 也补上
-  for (const id of state.agentIds) if (!out.includes(id)) out.push(id);
+  // 只在默认模式（colOrder 为 null，用户从未手动配置）下自动补全新出现的 agent；
+  // 一旦用户通过列设置保存过 colOrder，就完全尊重用户的选择（隐藏的列不补回）。
+  if (!state.colOrder) {
+    for (const id of state.agentIds) if (!out.includes(id)) out.push(id);
+  }
   return out;
 }
 
@@ -48,6 +55,21 @@ const clip = (txt) => navigator.clipboard.writeText(txt).then(() => true, () => 
 function fmtClock(ts) {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function fmtTimeLabel(ts) {
+  // 会话卡 s-time 显示：今天/昨天 → "今天 09:11" / "昨天 09:11"；更早 → "MM-DD HH:MM" / "YYYY-MM-DD HH:MM"
+  const d = new Date(ts);
+  const n = new Date();
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (sameDay(d, n)) return `今天 ${t}`;
+  const y = new Date(n); y.setDate(n.getDate() - 1);
+  if (sameDay(d, y)) return `昨天 ${t}`;
+  const sameYear = d.getFullYear() === n.getFullYear();
+  const dateStr = sameYear
+    ? `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${dateStr} ${t}`;
 }
 function dayLabel(ts, now) {
   const d = new Date(ts);
@@ -233,6 +255,72 @@ function removeFromBoard(b, agent, sessionId) {
   return out;
 }
 
+/* ---------- 「刚完成」流光标记 ---------- */
+// 会话刚离开活跃窗口（进行中 → 已完成）时打绿色流光 + 「已读」按钮；
+// 点击「已读」→ 恢复普通已完成样式；超过 TTL 自动取消。localStorage 持久化。
+const RECENT_DONE_TTL = 30 * 60 * 1000; // 高亮保留时长：30 分钟
+function loadRecentDone() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('ab-recent-done') || '{}');
+    const now = Date.now();
+    for (const k of Object.keys(raw)) if (now - raw[k] < RECENT_DONE_TTL) state.recentDone.set(k, raw[k]);
+  } catch {}
+  try { state.dismissedRecent = new Set(JSON.parse(localStorage.getItem('ab-recent-dismissed') || '[]')); } catch {}
+}
+function persistRecentDone() {
+  try {
+    const obj = {}; for (const [k, v] of state.recentDone) obj[k] = v;
+    localStorage.setItem('ab-recent-done', JSON.stringify(obj));
+    localStorage.setItem('ab-recent-dismissed', JSON.stringify([...state.dismissedRecent]));
+  } catch {}
+}
+function isRecentCompleted(ref) {
+  const t = state.recentDone.get(ref);
+  if (!t || state.dismissedRecent.has(ref)) return false;
+  if (Date.now() - t > RECENT_DONE_TTL) { state.recentDone.delete(ref); persistRecentDone(); return false; }
+  return true;
+}
+function markRecentlyCompleted(ref) {
+  state.dismissedRecent.delete(ref); // 新一轮完成重新点亮，忽略之前的「已读」
+  state.recentDone.set(ref, Date.now());
+  persistRecentDone();
+}
+function dismissRecent(ref) {
+  state.recentDone.delete(ref);
+  state.dismissedRecent.add(ref);
+  persistRecentDone();
+}
+// 按最新状态刷新单张卡的流光装饰（SSE 逐卡差异更新 + 已读点击共用）
+function applyFlowDecor(el, ref, nowLive) {
+  const recent = !nowLive && isRecentCompleted(ref);
+  el.classList.toggle('flow-red', nowLive);
+  el.classList.toggle('flow-green', recent);
+  let btn = el.querySelector('.s-flow-dismiss');
+  if (recent && !btn) {
+    btn = document.createElement('button');
+    btn.className = 's-flow-dismiss';
+    btn.title = '取消「刚完成」流光高亮，恢复普通已完成样式';
+    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissRecent(ref);
+      syncFlowDecor(ref);
+      toast('已恢复普通已完成样式');
+    });
+    const more = el.querySelector('.s-more');
+    (more ? more.parentElement : el).insertBefore(btn, more);
+  } else if (!recent && btn) {
+    btn.remove();
+  }
+}
+// 同一会话会在「全部」列和 agent 列各出现一次，同步所有列的流光装饰
+function syncFlowDecor(ref) {
+  document.querySelectorAll('#board .s-card').forEach((el) => {
+    const r = el.querySelector('.s-more')?.dataset.ref;
+    if (r === ref) applyFlowDecor(el, r, state.liveRefs.has(r));
+  });
+}
+
 function renderBoard() {
   const board = $('board');
   board.innerHTML = '';
@@ -293,8 +381,9 @@ function buildCard(s, colKey) {
   // 状态唯一权威来源：liveRefs（SSE 实时维护），不用后端快照 s.status——
   // 后端 status 在请求瞬间计算，心跳窗口边缘可能算成 done，重建时会把进行中闪回已完成
   const live = state.liveRefs.has(s.id);
+  const recent = !live && isRecentCompleted(s.id);
   const card = document.createElement('div');
-  card.className = 's-card ' + (live ? 'active' : 'done');
+  card.className = 's-card ' + (live ? 'active' : 'done') + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
   const isAll = colKey === 'all';
   const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
@@ -311,7 +400,7 @@ function buildCard(s, colKey) {
     : `<span style="font-size:12px;font-weight:700;color:${meta.color}">${esc((meta.name||'?').charAt(0))}</span>`;
   card.innerHTML = `
     <div class="s-row1">
-      <span class="s-time">${fmtClock(s.last_seen)}</span>
+      <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
       ${agentTag}
       ${titleHtml}
       ${statusHtml}
@@ -320,22 +409,34 @@ function buildCard(s, colKey) {
     <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
     <div class="s-row2">
       <span class="s-msg">${s.msg_count} 条</span>
+      ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
       <button class="s-more" data-ref="${esc(s.id)}" title="更多操作">···</button>
       <button class="s-jump" data-ref="${esc(s.id)}" data-agent="${esc(s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
         ${iconHtml}
       </button>
     </div>`;
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.s-jump') || e.target.closest('.s-more')) return;
+    if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss')) return;
     openSession(s.id);
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
     e.stopPropagation();
     launchAgent(s.agent);
+    // 点击跳转 = 视为已读：若该卡是「刚完成」绿色流光状态，同步取消高亮
+    if (isRecentCompleted(s.id)) {
+      dismissRecent(s.id);
+      syncFlowDecor(s.id);
+    }
   });
   card.querySelector('.s-more').addEventListener('click', (e) => {
     e.stopPropagation();
     openPopover(s, e.currentTarget);
+  });
+  card.querySelector('.s-flow-dismiss')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dismissRecent(s.id);
+    syncFlowDecor(s.id);
+    toast('已恢复普通已完成样式');
   });
   return card;
 }
@@ -363,6 +464,11 @@ function openPopover(s, anchorEl) {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
       <span>${s.project ? '复制项目路径' : '无项目路径'}</span>
     </button>
+    <button class="pop-item" data-act="set-status">
+      ${s.manual_done
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg><span>恢复自动判定（取消手动完成）</span>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg><span>标记为已完成（关闭心跳）</span>'}
+    </button>
     <button class="pop-item" data-act="hide">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><path d="M3 3l18 18"/></svg>
       <span>隐藏此会话（不在看板显示）</span>
@@ -389,6 +495,20 @@ function openPopover(s, anchorEl) {
       closePopover();
     }
     else if (act === 'copy-path') { await clip(s.project); toast('已复制：' + s.project); closePopover(); }
+    else if (act === 'set-status') {
+      const target = s.manual_done ? 'auto' : 'done';
+      try {
+        const res = await fetch('/api/set-status', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent: s.agent, sessionId: s.session_id, status: target }) });
+        const d = await res.json();
+        if (d.ok) {
+          toast(target === 'done' ? '已标记为已完成，心跳已关闭' : '已恢复自动判定');
+          closePopover();
+          loadBoard();
+          loadState();
+        } else { toast('操作失败：' + (d.error || '')); closePopover(); }
+      } catch { toast('请求失败'); closePopover(); }
+    }
     else if (act === 'hide') {
       try {
         await fetch('/api/hide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -407,7 +527,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
-  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden')) closePopover();
+  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-cols')) closePopover();
 });
 
 /* ---------- 详情抽屉 ---------- */
@@ -688,10 +808,14 @@ $('active-range').addEventListener('change', (e) => {
   loadState();
 });
 $('btn-rescan').onclick = async () => {
-  toast('正在重新扫描数据源…');
-  try { await fetch('/api/rescan', { method: 'POST' }); } catch {}
-  await loadState(); await loadBoard();
-  toast('扫描完成');
+  toast('开始重新扫描数据源，完成后自动刷新…');
+  try {
+    const r = await fetch('/api/rescan', { method: 'POST' });
+    const d = await r.json();
+    if (r.status === 409) { toast(d.error || '当前正在扫描，请稍后再试'); return; }
+    // 后端已异步后台扫描：响应立即返回，board 由 SSE 'scan' finished 事件自动刷新
+    toast('扫描已在后台进行…');
+  } catch { toast('扫描请求失败'); }
 };
 $('mask').onclick = closeDrawer;
 
@@ -842,6 +966,15 @@ function connectSSE() {
           .filter(Boolean)
       );
       state.liveRefs = liveSet; // 权威状态
+      // 进行中 → 已完成 迁移检测：用上一份快照对比本次快照（覆盖 liveRefs 之前取旧值），
+      // 离开活跃窗口的会话标记为「刚完成」（绿色流光）。首次快照只建立基线，不误标。
+      if (state._activeInit) {
+        for (const ref of state._prevRefs) {
+          if (!liveSet.has(ref)) markRecentlyCompleted(ref);
+        }
+      }
+      state._activeInit = true;
+      state._prevRefs = liveSet;
       // 逐卡差异化更新：新状态与卡上记录的当前状态（data-live）对比——
       // 一样的完全跳过（不触碰 DOM），只有变化的卡才单独切换。
       // 避免对全部 session 卡做无意义的 class/标签重写造成视觉闪烁。
@@ -850,17 +983,20 @@ function connectSSE() {
         if (!ref) return;
         const nowLive = liveSet.has(ref);
         const prevLive = el.dataset.live === '1';
-        if (nowLive === prevLive) return; // 状态一致，无需任何操作
-        // 状态变化：单独更新这一张卡
-        el.dataset.live = nowLive ? '1' : '0';
-        el.classList.toggle('active', nowLive);
-        el.classList.toggle('done', !nowLive);
-        const lbl = el.querySelector('.s-status');
-        if (lbl) {
-          lbl.outerHTML = nowLive
-            ? '<span class="s-status on"><span class="pulse"></span>进行中</span>'
-            : '<span class="s-status">已完成</span>';
+        if (nowLive !== prevLive) {
+          // 状态变化：单独更新这一张卡
+          el.dataset.live = nowLive ? '1' : '0';
+          el.classList.toggle('active', nowLive);
+          el.classList.toggle('done', !nowLive);
+          const lbl = el.querySelector('.s-status');
+          if (lbl) {
+            lbl.outerHTML = nowLive
+              ? '<span class="s-status on"><span class="pulse"></span>进行中</span>'
+              : '<span class="s-status">已完成</span>';
+          }
         }
+        // 流光装饰与状态解耦刷新：新完成迁移后立即点亮绿色流光（含「已读」按钮）
+        applyFlowDecor(el, ref, nowLive);
       });
     } catch {}
   });
@@ -894,6 +1030,7 @@ function toast(msg) {
 
 /* ---------- 启动 ---------- */
 (async () => {
+  loadRecentDone();
   await loadState();
   await loadBoard();
   connectSSE();

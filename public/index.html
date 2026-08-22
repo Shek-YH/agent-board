@@ -96,13 +96,35 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 /* session 卡片 */
 .s-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:0;cursor:pointer;transition:.18s;position:relative;border-left:3px solid var(--border2);box-shadow:var(--shadow);overflow:hidden}
 .s-card:hover{border-color:var(--border2);box-shadow:var(--shadow-lg);transform:translateY(-1px)}
-.s-card.active{border-left-color:#16A34A;background:#FAFEFB;border-color:#86EFAC;box-shadow:0 0 0 1px rgba(22,163,74,.15),0 2px 8px rgba(22,163,74,.10)}
-.s-card.active::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#22C55E,transparent);animation:activebar 1.8s ease-in-out infinite}
-@keyframes activebar{0%{opacity:.9}50%{opacity:.35}100%{opacity:.9}}
+.s-card.active{border-left-color:#EF4444;background:#FEF7F7;border-color:#FCA5A5;box-shadow:0 0 0 1px rgba(239,68,68,.12),0 2px 8px rgba(239,68,68,.10)}
+.s-card.active .s-status.on{background:#FEE2E2;color:#B91C1C}
+.s-card.active .s-status .pulse{background:#EF4444}
 .s-card.done{border-left-color:#E4E7EC}
 .s-card.done .s-title{color:var(--text2)}
+
+/* 渐变边框流光：进行中=红色；刚完成（新监控到进行中后结束）=绿色 + 「已读」按钮。
+   只保留 2px 边缘渐变环流动（mask 挖空中间），无外层光晕 */
+.s-card.flow-red{--flow-grad:linear-gradient(90deg,#FF2D2D,#FF6B6B,#DC2626,#FF2D2D);border-color:transparent}
+.s-card.flow-green{--flow-grad:linear-gradient(90deg,#16A34A,#4ADE80,#22C55E,#16A34A);border-color:transparent;background:#FCFEFC}
+.s-card.flow-red:hover,.s-card.flow-green:hover{border-color:transparent}
+.s-card.flow-red::before,.s-card.flow-green::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;z-index:2;pointer-events:none;
+  padding:3px;
+  background:var(--flow-grad);
+  background-size:400% 100%;
+  animation:flow-grad 2.8s linear infinite;
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;
+          mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+          mask-composite:exclude;
+}
+.s-card.flow-green::before{animation-duration:4.5s;opacity:.9}
+.s-card.flow-red>*,.s-card.flow-green>*{position:relative;z-index:1}
+@keyframes flow-grad{0%{background-position:0% 0}100%{background-position:400% 0}}
+.s-flow-dismiss{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:#15803D;background:#DCFCE7;border:1px solid #86EFAC;border-radius:999px;padding:2px 9px;cursor:pointer;transition:.12s;line-height:1.6}
+.s-flow-dismiss:hover{background:#BBF7D0;border-color:#4ADE80;box-shadow:var(--shadow)}
 .s-row1{display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap}
-.s-time{font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;flex:0 0 auto;min-width:44px}
+.s-time{font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;flex:0 0 auto;min-width:84px;white-space:nowrap}
 .s-title{font-size:13px;font-weight:600;color:var(--text);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .s-sid{font-size:10px;color:var(--text3);font-family:ui-monospace,Consolas,monospace;border:1px dashed var(--border);border-radius:5px;padding:0 5px;cursor:copy;transition:.12s;flex-shrink:0}
 .s-sid:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
@@ -294,6 +316,7 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
     <select id="f-range">
       <option value="0">全部时间</option>
       <option value="1">今天</option>
+      <option value="-1">最近 24 小时</option>
       <option value="3">近 3 天</option>
       <option value="7">近 7 天</option>
       <option value="30">近 30 天</option>

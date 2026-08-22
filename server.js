@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { exec, spawn } = require('child_process');
+const { exec, spawn, spawnSync } = require('child_process');
 const store = require('./lib/store');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
@@ -13,6 +13,8 @@ const workbuddy = require('./lib/adapters/workbuddy');
 const deepseek = require('./lib/adapters/deepseek');
 const marvis = require('./lib/adapters/marvis');
 const doubao = require('./lib/adapters/doubao');
+const zcode = require('./lib/adapters/zcode');
+const pi = require('./lib/adapters/pi');
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const PUBLIC = path.join(__dirname, 'public');
@@ -28,6 +30,10 @@ const AGENT_DEFS = {
   marvis:    { name: 'Marvis',           color: '#7C3AED', icon: 'marvis.png',    proc: 'Marvis',    scheme: null,            launch: null,
     launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\marvis-launch.bat"' },
   doubao:    { name: '豆包',              color: '#00A6F0', icon: 'doubao.jpg',    proc: 'Doubao',    scheme: 'doubao://',     launch: null },
+  zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
+    launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\zcode-launch.bat"' },
+  pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null,
+    launchCmd: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\pi-launch.bat"' },
 };
 
 // 去掉配置值两端可能存在的引号（兼容旧配置写法）
@@ -133,7 +139,7 @@ function focusAppCall(procName, cb) {
     }
   });
 }
-const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao];
+const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao, zcode, pi];
 
 // ---------- SSE 客户端管理 ----------
 const sseClients = new Set();
@@ -262,7 +268,67 @@ function startWatchers() {
       workbuddy.scanHeartbeats(store);
     } catch { /* ignore */ }
   }, 5000);
-  return () => { for (const s of stops) s(); clearInterval(hbTimer); };
+  // DeepSeek Harness 兜底重扫：fs.watch 在 Windows 上对深层嵌套的 .zstd 文件偶发漏事件
+  // （目录刚被创建时收到 change，子文件事件可能在监听器初始化前就过去了），
+  // 每 30 秒调 adapter 自身的 scanAll（增量、按 offset）补全漏掉的新会话，避免整个
+  // DeepSeek 列在 board 上一直空着。其它 adapter 也已经走 fs.watch，但 deepseek 的
+  // session 路径最深（~/.dsh/sessions/<workspace>/session-<uuid>/），命中率最低。
+  const dsTimer = setInterval(() => {
+    try {
+      const c = deepseek.scanAll(store);
+      if (c > 0) {
+        console.log(`[deepseek] (fallback) +${c} 条`);
+        sseBroadcast('message', { agent: 'deepseek', count: c });
+      }
+    } catch { /* ignore */ }
+  }, 30 * 1000);
+  // ZCode SQLite WAL 兜底重扫：fs.watch 对 WAL 文件写入偶发漏事件（checkpoint 时文件可能被
+  // 短暂重命名/重建，监听器容易丢事件），每 30 秒调 adapter 自身 scanAll（sequence 增量、开销小）
+  // 补全漏掉的新消息，避免 ZCode 列实时性差。
+  const zcTimer = setInterval(() => {
+    try {
+      const c = zcode.scanAll(store);
+      if (c > 0) {
+        console.log(`[zcode] (fallback) +${c} 条`);
+        sseBroadcast('message', { agent: 'zcode', count: c });
+      }
+    } catch { /* ignore */ }
+  }, 30 * 1000);
+  // WorkBuddy 桌面会话「停顿检测」：桌面对话（UUID）心跳一次性写入、无法用心跳停止提前完成，
+  // 但 jsonl 只写已完成消息 → 文件静止 + 末条为 assistant = agent 停笔 → 提前结束「进行中」。
+  // （CLI host 会话已由 hbTimer 的心跳跟踪覆盖，这里只处理桌面会话，见 checkDesktopIdle 内部判定）
+  const deskTimer = setInterval(() => {
+    try {
+      workbuddy.checkDesktopIdle(store);
+    } catch { /* ignore */ }
+  }, 20 * 1000);
+  // CLI agent 进程检查：「进行中」= 最后真实消息 10 分钟窗口，但 CLI 任务跑完进程即退出——
+  // 进程全无 = 该 agent 一定不在运行 → 提前结束「进行中」（不必等满 10 分钟）。
+  // 只在进程名精确确认的 agent 上启用（进程名匹配不全时宁可保守不判，避免误伤正在运行的会话）。
+  const procTimer = setInterval(checkAgentProcesses, 30 * 1000);
+  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(deskTimer); clearInterval(procTimer); };
+}
+
+// CLI agent 进程名 → 进程检查。仅收录已实测确认的 exe 名；匹配不到进程 = 该 agent 全部 session 提前 done
+const PROC_PATTERNS = {
+  claude: ['claude.exe'],
+  codex: ['codex.exe'],
+  zcode: ['zcode.exe'],
+  // pi / deepseek-harness 进程名未实测确认，暂不启用（保守）
+};
+function checkAgentProcesses() {
+  let text;
+  try {
+    const r = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+    if (r.error || r.status !== 0) return;
+    text = (r.stdout || '').toLowerCase();
+  } catch { return; }
+  const now = Date.now();
+  for (const [agent, patterns] of Object.entries(PROC_PATTERNS)) {
+    const alive = patterns.some((p) => text.includes(p));
+    // alive → 进程在，清除停止标记（可能 resume）；进程全无 → 该 agent 所有窗口内 session 提前完成
+    store.setAgentStopped(agent, !alive, now);
+  }
 }
 
 // 定时推送活跃会话快照（3 分钟窗口的"正在进行"）
@@ -330,7 +396,10 @@ const server = http.createServer(async (req, res) => {
     const range = url.searchParams.get('range') || 'day';
     const active = store.getRecentActive(range);
     const stats = store.getStats();
-    stats.active = active.length;
+    // 顶栏"活跃会话"用"现在 live"数（与 /api/board 的 liveRefs、前端卡片绿框一致），
+    // 而不是 getRecentActive 的全部命中数（后者包括今天活过但已停下来的）。
+    // live 字段已统一为「最后真实消息 < 10 分钟」（lastMsgAt），不再被心跳保活顶起。
+    stats.active = active.filter((s) => s.live).length;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ stats, agents, projects, active, agentsDef: AGENT_DEFS }));
     return;
@@ -400,10 +469,11 @@ const server = http.createServer(async (req, res) => {
 
   // 瀑布流看板：按 agent 分组返回 sessions（列动态化：AGENT_DEFS + 实际有数据的 agent）
   if (pathname === '/api/board') {
-    // range：0=全部；1=今天；N=近 N 天（与前端 f-range 对齐）
+    // range：0=全部；1=今天（本地 0:00 起）；-1=最近 24 小时（now-24h 滑窗）；N=近 N 天
     const range = Number(url.searchParams.get('range') || 0);
     let since = 0;
     if (range === 1) { const d = new Date(); d.setHours(0, 0, 0, 0); since = d.getTime(); }
+    else if (range === -1) since = Date.now() - 24 * 3600 * 1000;
     else if (range > 1) since = Date.now() - range * 24 * 3600 * 1000;
     const qBase = {
       project: url.searchParams.get('project') || '',
@@ -495,6 +565,47 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 隐藏会话（黑名单）：即便源文件仍在也持续不在看板显示，可恢复
+  // 手动设置会话状态：done=标记已完成并关闭心跳（心跳扫描跳过）；auto=恢复自动判定
+  if (pathname === '/api/set-status' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const status = String(body.status || '');
+      if (!['done', 'auto'].includes(status)) throw new Error('status 必须是 done 或 auto');
+      const r = store.setManualStatus(String(body.agent || ''), String(body.sessionId || ''), status);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, status: r }));
+      // 立即推送最新活跃快照，前端 liveRefs 马上更新（手动 done 的会话立即从进行中消失）
+      sseBroadcast('active', store.getActive());
+    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
+  // Agent 完成信号：各 AI agent（Claude Code Stop hook / Codex Stop hook / 全局约束文件指令）在
+  // 完成本轮最后输出时静默调用 → 立即结束该会话的「进行中」（不再等 10 分钟窗口）。
+  // 幂等：重复信号无害；新真实消息（ingest）会自动清除该停止标记，会话重新参与判定。
+  if (pathname === '/api/complete' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const agent = String(body.agent || '').trim();
+      const sessionId = String(body.sessionId || '').trim();
+      if (!agent) throw new Error('缺少 agent');
+      const ref = store.resolveAgentRef(agent, sessionId);
+      if (!ref) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'no matching session', agent, sessionId }));
+        return;
+      }
+      // 完成信号使用独立的 doneSignalAt（持久化）：agent 明确声明本轮结束 →
+      // 立即结束「进行中」；只有晚于信号时刻的新真实消息才能解除（ingest 内做 ts 比较），
+      // 进程检查 / 心跳 / 停顿检测都不会覆盖它（避免 codex 常驻进程把状态顶回进行中）。
+      store.setDoneSignal(ref, Date.now());
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, ref }));
+      sseBroadcast('active', store.getActive());
+    } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); }
+    return;
+  }
+
   if (pathname === '/api/hide' && req.method === 'POST') {
     try {
       const body = await readBody(req);
@@ -556,19 +667,33 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 手动触发全量扫描（重置偏移，重新解析）
+  // 异步执行：立即返回 200（避免前端 fetch 阻塞 20+ 秒造成"点击没反应"的错觉），
+  // 扫描完成通过 SSE 'scan' 事件通知前端刷新。
   if (pathname === '/api/rescan' && req.method === 'POST') {
-    try {
-      // 清表全量重建：last_seen 可能已被旧解析器污染（MAX 只增不减），必须重建才能修正
-      store.clearAll();
-      await scanAll();
-      // 修复 custom-title 先创建导致 first_seen=0 的会话
-      store.repairSessionTimestamps();
-      sseBroadcast('active', store.getRecentActive('day'));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+    if (isScanning) {
+      // 初始扫描进行中：不能清表（否则数据被清空但 scanAll 静默跳过 → board 全空）
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: '初始扫描进行中，请稍后再试' }));
+      return;
     }
+    // 立即响应，后台执行
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, background: true }));
+    // 稍等一帧让响应先发出，再开始后台重建
+    setTimeout(async () => {
+      try {
+        // 清表全量重建：last_seen 可能已被旧解析器污染（MAX 只增不减），必须重建才能修正
+        store.clearAll();
+        await scanAll();
+        // 修复 custom-title 先创建导致 first_seen=0 的会话
+        store.repairSessionTimestamps();
+        store.repairUserQueries();
+        sseBroadcast('active', store.getRecentActive('day'));
+        console.log('[rescan] 完成');
+      } catch (e) {
+        console.error('[rescan] failed:', e.message);
+      }
+    }, 50);
     return;
   }
 
@@ -587,6 +712,12 @@ server.listen(PORT, '127.0.0.1', async () => {
   console.log(`└──────────────────────────────────────────────┘`);
   ensureFocusDll().then(() => { initFocusPs(); console.log('[focus] 窗口激活进程就绪'); });
   await scanAll();
+  // 修复存量数据里的 futCache：adapter 增/改了 system context 过滤规则后，旧入库的"系统注入"
+  // 消息仍占着 userMsgFlag / futCache 首位，导致 board title 取到错误内容。重启时显式按
+  // 当前 extractUserQuery 重算每会话首条真实用户输入。
+  store.repairUserQueries();
+  // 服务停机期间已停笔的桌面会话：启动即判一次，无需等首个 20s 定时器
+  try { workbuddy.checkDesktopIdle(store); } catch { /* ignore */ }
   startWatchers();
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
 });

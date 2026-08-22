@@ -1,0 +1,79 @@
+'use strict';
+// signal-done.js — AI agent 完成信号脚本（供 Claude Code / Codex 的 Stop hook 与全局约束文件指令调用）
+// 作用：agent 完成本轮最后输出时，静默通知 Agent Board 看板（127.0.0.1:4876）把当前会话立即
+// 标记为「已完成」（不再等 10 分钟消息窗口）。
+//
+// 用法：
+//   node signal-done.js --agent claude            # 由 hook 调用：自动从 stdin JSON 读取 session_id / transcript_path
+//   node signal-done.js --agent codex --session X # 指令式调用：显式指定会话 id（不传则由看板解析最近活跃会话）
+//   node signal-done.js --agent workbuddy         # 仅看板兜底解析
+//
+// 设计原则：绝对静默——任何失败都不报错、不输出到 stdout（Stop hook 输出会被 agent 解析，必须保持干净）。
+const http = require('http');
+const fs = require('fs');
+
+const BOARD = { host: '127.0.0.1', port: 4876, path: '/api/complete' };
+
+function parseArgs(argv) {
+  const out = { agent: '', session: '' };
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--agent') out.agent = String(argv[++i] || '');
+    else if (argv[i] === '--session') out.session = String(argv[++i] || '');
+  }
+  return out;
+}
+
+// 从 hook 的 stdin JSON 提取会话信息
+function readHookStdin() {
+  try {
+    if (!process.stdin.isTTY) {
+      const raw = fs.readFileSync(0, 'utf8').trim();
+      if (raw) {
+        const o = JSON.parse(raw);
+        return {
+          sessionId: String(o.session_id || o.sessionId || ''),
+          transcriptPath: String(o.transcript_path || o.transcriptPath || ''),
+        };
+      }
+    }
+  } catch { /* ignore */ }
+  return { sessionId: '', transcriptPath: '' };
+}
+
+// 从 transcript_path 推导与看板一致的 sessionId：
+//   claude:  ~/.claude/projects/<escaped>/<uuid>.jsonl          -> basename 去 .jsonl = uuid
+//   codex:   ~/.codex/sessions/YYYY/MM/DD/rollout-<name>.jsonl  -> basename 去 .jsonl 再去 rollout- 前缀
+function deriveFromTranscript(p) {
+  if (!p) return '';
+  let name = p.split(/[\\/]/).pop() || '';
+  if (name.endsWith('.jsonl')) name = name.slice(0, -6);
+  if (name.startsWith('rollout-')) name = name.slice(8);
+  return name;
+}
+
+function post(agent, sessionId) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ agent, sessionId });
+    const req = http.request({
+      host: BOARD.host, port: BOARD.port, path: BOARD.path,
+      method: 'POST', timeout: 3000,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('timeout', () => { req.destroy(); resolve(0); });
+    req.on('error', () => resolve(0));
+    req.end(body);
+  });
+}
+
+(async () => {
+  const args = parseArgs(process.argv);
+  if (!args.agent) return; // 缺 agent 直接静默退出
+  const hook = readHookStdin();
+  const sessionId = args.session || hook.sessionId || deriveFromTranscript(hook.transcriptPath);
+  try {
+    await post(args.agent, sessionId);
+  } catch { /* ignore */ }
+})();
