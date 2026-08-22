@@ -4,7 +4,8 @@
   "description": "AI Agent 会话看板 - 实时汇总 Claude Code / Codex / WorkBuddy / 豆包 等所有对话时间线",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test lib/"
   },
   "license": "MIT",
   "dependencies": {}
