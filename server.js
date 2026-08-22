@@ -6,6 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { exec, spawn, spawnSync } = require('child_process');
 const store = require('./lib/store');
+const detect = require('./lib/detect');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -698,6 +699,24 @@ const server = http.createServer(async (req, res) => {
         console.error('[rescan] failed:', e.message);
       }
     }, 50);
+    return;
+  }
+
+  // 应用探测：返回每个 agent 的安装/探测状态（设置页"应用管理"用）
+  if (pathname === '/api/agents/status') {
+    try {
+      const probed = await detect.probeAll(ADAPTERS);
+      const agents = {};
+      for (const [id, r] of Object.entries(probed)) {
+        const meta = AGENT_DEFS[id] || {};
+        agents[id] = { ...r, name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888' };
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ agents }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || 'probe failed' }));
+    }
     return;
   }
 
