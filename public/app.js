@@ -962,6 +962,7 @@ async function openAgentManager() {
   try {
     const r = await fetch('/api/agents/status');
     data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
   } catch {
     pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
     return;
@@ -972,7 +973,7 @@ async function openAgentManager() {
     <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
   for (const a of agents) {
     const badge = a.installed
-      ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#1e3a2e;color:#4ade80">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
+      ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
       : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
     html += `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
       <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
