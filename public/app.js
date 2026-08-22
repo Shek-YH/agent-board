@@ -527,7 +527,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
-  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-cols')) closePopover();
+  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-cols') && !e.target.closest('#btn-agents')) closePopover();
 });
 
 /* ---------- 详情抽屉 ---------- */
@@ -942,6 +942,48 @@ function openColManager() {
   };
 }
 $('btn-cols').onclick = openColManager;
+
+/* ---------- 应用管理（探测各 AI Agent 安装状态，只读） ---------- */
+async function openAgentManager() {
+  closePopover();
+  state.popoverFor = 'agents';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  pop.style.minWidth = '420px';
+  pop.style.maxWidth = '520px';
+  document.body.appendChild(pop);
+  pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测中…</div>';
+
+  let data;
+  try {
+    const r = await fetch('/api/agents/status');
+    data = await r.json();
+  } catch {
+    pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
+    return;
+  }
+
+  const agents = Object.values(data.agents || {});
+  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（安装/修复功能下一版加入，这版先看状态）</span></div>
+    <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
+  for (const a of agents) {
+    const badge = a.installed
+      ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#1e3a2e;color:#4ade80">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
+      : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
+    html += `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+      <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">${esc(a.name || a.id)}</div>
+      ${badge}
+    </div>`;
+  }
+  html += '</div>';
+  pop.innerHTML = html;
+}
+$('btn-agents').onclick = openAgentManager;
 
 /* ---------- SSE ---------- */
 function connectSSE() {
