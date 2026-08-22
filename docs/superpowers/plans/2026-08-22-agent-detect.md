@@ -755,7 +755,7 @@ const detect = {
     description: 'Pi 指 Earendil Works 开发的开源 CLI coding agent（pi.dev）',
     notToConfuseWith: ['Pi Network（加密货币 App）', 'Inflection AI 的 Pi 助手', 'Raspberry Pi 相关工具'],
   },
-  requirements: { node: '>=18' },
+  requirements: { node: '>=22.19.0' },  // 2026-08-22 实现时核实：npm 上最新版 engines 要求，原计划文档里的 >=18 是错的
   probe: {
     kind: 'path',
     win32: [
@@ -780,7 +780,7 @@ const detect = {
       { kind: 'script', posix: 'curl -fsSL https://pi.dev/install.sh | sh' },
       { kind: 'npm', pkg: '@earendil-works/pi-coding-agent', flags: ['--ignore-scripts'] },
     ],
-    warning: "npm 包名必须精确是 '@earendil-works/pi-coding-agent'，不要单独装 'pi'（那是个无关的 Python 工具包）",
+    warning: "npm 包名必须精确是 '@earendil-works/pi-coding-agent'，不要单独装 'pi'（那是个无关的 JS 包，用来算圆周率数字的）",
   },
   network: {
     testUrls: ['https://pi.dev', 'https://registry.npmjs.org/@earendil-works/pi-coding-agent'],

@@ -89,7 +89,7 @@ detect: {
     notToConfuseWith: ['Pi Network（加密货币 App）', 'Inflection AI 的 Pi 助手', 'Raspberry Pi 相关工具'],
   },
 
-  requirements: { node: '>=18' },   // Windows/npm 路径才需要；curl 安装器自带处理
+  requirements: { node: '>=22.19.0' },   // 2026-08-22 实现阶段核实：npm 上最新版 engines 要求，这里原来写的 >=18 是错的
 
   probe: {
     kind: 'path',
@@ -111,7 +111,7 @@ detect: {
       { kind: 'script', posix: 'curl -fsSL https://pi.dev/install.sh | sh' },        // macOS/Linux 首选
       { kind: 'npm', pkg: '@earendil-works/pi-coding-agent', flags: ['--ignore-scripts'] }, // Windows 走这条
     ],
-    warning: "npm 包名必须是 @earendil-works/pi-coding-agent，不能单独装 'pi'（那是个无关的 Python 工具包）",
+    warning: "npm 包名必须是 @earendil-works/pi-coding-agent，不能单独装 'pi'（那是个无关的 JS 包，用来算圆周率数字的）",
   },
 
   network: {                      // 结构照抄 EchoBird 的 network_requirements
