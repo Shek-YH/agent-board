@@ -60,11 +60,11 @@ try {
     return { calls: calls.filter((c) => c.ref === ref) };
   }
 
-  console.log('用例1: assistant 结尾 + 静止 5 分钟 + 末行 message → 第一次不判（防抖开始），40s 后第二次判停止');
+  console.log('用例1: assistant 结尾 + 静止 6 分钟 + 末行 message → 第一次不判（防抖开始），40s 后第二次判停止');
   {
-    const r1 = runCase({ lastRole: 'assistant', lastLineType: 'message', mtimeMinAgo: 5 });
+    const r1 = runCase({ lastRole: 'assistant', lastLineType: 'message', mtimeMinAgo: 6 });
     assert('第一次检查无动作', r1.calls.length === 0, JSON.stringify(r1.calls));
-    const r2 = runCase({ lastRole: 'assistant', lastLineType: 'message', mtimeMinAgo: 5, times: 2, advanceMs: 50000 });
+    const r2 = runCase({ lastRole: 'assistant', lastLineType: 'message', mtimeMinAgo: 6, times: 2, advanceMs: 50000 });
     assert('40s 后第二次检查判停止', r2.calls.length === 1 && r2.calls[0].alive === false, JSON.stringify(r2.calls));
   }
 

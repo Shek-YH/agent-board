@@ -10,6 +10,7 @@ const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
 const workbuddy = require('./lib/adapters/workbuddy');
+const idleCheck = require('./lib/idle-check');
 const deepseek = require('./lib/adapters/deepseek');
 const marvis = require('./lib/adapters/marvis');
 const doubao = require('./lib/adapters/doubao');
@@ -297,9 +298,12 @@ function startWatchers() {
   // WorkBuddy 桌面会话「停顿检测」：桌面对话（UUID）心跳一次性写入、无法用心跳停止提前完成，
   // 但 jsonl 只写已完成消息 → 文件静止 + 末条为 assistant = agent 停笔 → 提前结束「进行中」。
   // （CLI host 会话已由 hbTimer 的心跳跟踪覆盖，这里只处理桌面会话，见 checkDesktopIdle 内部判定）
+  // Codex 会话「1 分钟停顿检测」：Codex Windows 桌面 hook 框架有 bug（hooks.json/inline 都失败），
+  // 改用文件停顿检测（idle-check.js）：rollout 静止 >60s + 末条 assistant → 写 doneSignalAt（等价 signal-done.js）。
   const deskTimer = setInterval(() => {
     try {
       workbuddy.checkDesktopIdle(store);
+      idleCheck.checkCodexIdle(store);
     } catch { /* ignore */ }
   }, 20 * 1000);
   // CLI agent 进程检查：「进行中」= 最后真实消息 10 分钟窗口，但 CLI 任务跑完进程即退出——
@@ -717,7 +721,7 @@ server.listen(PORT, '127.0.0.1', async () => {
   // 当前 extractUserQuery 重算每会话首条真实用户输入。
   store.repairUserQueries();
   // 服务停机期间已停笔的桌面会话：启动即判一次，无需等首个 20s 定时器
-  try { workbuddy.checkDesktopIdle(store); } catch { /* ignore */ }
+  try { workbuddy.checkDesktopIdle(store); idleCheck.checkCodexIdle(store); } catch { /* ignore */ }
   startWatchers();
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
 });
