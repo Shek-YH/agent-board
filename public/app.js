@@ -1003,15 +1003,21 @@ async function openAgentManager() {
       const id = b.dataset.id;
       const a = data.agents[id];
 
-      // 没有能静默执行的方法：找 download 方式直接跳转，不经过后端、不占用安装锁
+      // 没有能静默执行的方法：找 download 方式直接跳转，不经过后端、不占用安装锁。
+      // 注意：这个 if 块不是每条路径都 return——找不到可跳转的 download 方式时会故意穿透到
+      // 下面，落回原来的静默安装流程（见块尾注释）。
       if (!a.install.picked) {
         const dl = (a.install.methods || []).find((m) => m.kind === 'download');
-        if (dl && dl.url) {
+        // dl.url 目前只会来自仓库里 adapter 文件写死的配置，不是运行时用户输入；
+        // 但既然是要传给 window.open 做页面导航（不是 spawnSync 那种 shell 命令上下文），
+        // 顺手校验一下协议，避免以后有人不小心把 javascript:/data: 之类的值写进这个字段。
+        if (dl && dl.url && /^https?:\/\//i.test(dl.url)) {
           window.open(dl.url, '_blank');
           toast('已在新标签页打开下载页，按提示完成安装后关闭再重新打开本弹窗可刷新状态');
           return;
         }
-        // 理论上不会发生（canInstall 已经要求 methods.length>0）：没有 download 方式时，
+        // 穿透到这里：没有 download 方式，或 url 协议不是 http(s)（理论上不会发生，
+        // canInstall 已经要求 methods.length>0，且 adapter 数据都是硬编码的 https 字面量）。
         // 不在前端假装成功，落回原来的静默安装流程，让后端 installAgent 报 no-method，
         // SSE 会显示「这个平台没有可用的安装方式」
       }
