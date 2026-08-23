@@ -510,7 +510,7 @@ test('4 个 cli adapter 的真实 detect 数据都能选出可执行命令（win
     const m = pickMethod(a.detect.install.methods, 'win32');
     assert.ok(m, `${a.ID} 在 win32 上应该能选出一个安装方法`);
     const cmd = methodToCommand(m, 'win32');
-    assert.ok(cmd && cmd.length > 0, `${a.ID} 应该能拼出非空命令，实际: ${cmd}`);
+    assert.ok(cmd && cmd.length > 0 && !cmd.includes('undefined'), `${a.ID} 应该能拼出非空、不含 undefined 的命令，实际: ${cmd}`);
   }
 });
 ```
