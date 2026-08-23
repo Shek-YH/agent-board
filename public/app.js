@@ -969,20 +969,54 @@ async function openAgentManager() {
   }
 
   const agents = Object.values(data.agents || {});
-  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（安装/修复功能下一版加入，这版先看状态）</span></div>
+  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行类工具支持一键安装）</span></div>
     <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
   for (const a of agents) {
     const badge = a.installed
       ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
       : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
-    html += `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+    // 只有未安装的 cli 类工具给「安装」按钮（gui 类下一版再说）
+    const canInstall = !a.installed && a.tier === 'cli' && a.install && (a.install.methods || []).length;
+    const btn = canInstall
+      ? `<div style="margin-top:6px"><button class="btn ab-install" data-id="${esc(a.id)}" style="min-height:28px;padding:3px 12px;font-size:12px">安装</button></div>`
+      : '';
+    html += `<div class="ab-card" data-id="${esc(a.id)}" style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
       <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
       <div style="font-size:12px;font-weight:600;margin-bottom:4px">${esc(a.name || a.id)}</div>
       ${badge}
+      <div class="ab-progress" style="font-size:11px;color:var(--text3);margin-top:6px;min-height:14px"></div>
+      ${btn}
     </div>`;
   }
   html += '</div>';
   pop.innerHTML = html;
+
+  // 安装按钮：先弹确认（展示要跑的命令 + 警告文案），确认后 POST，进度走 SSE
+  pop.querySelectorAll('.ab-install').forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.id;
+      const a = data.agents[id];
+      const method = (a.install.methods || [])[0];
+      const cmdHint = method
+        ? (method.kind === 'npm' ? `npm install -g ${(method.flags || []).join(' ')} ${method.pkg}`.replace(/\s+/g, ' ')
+          : method.kind === 'script' ? (method.win32 || method.posix)
+          : method.kind === 'winget' ? `winget install --id ${method.id}` : String(method.kind))
+        : '(未知)';
+      const warn = a.install.warning ? `\n\n注意：${a.install.warning}` : '';
+      if (!confirm(`即将安装 ${a.name || id}\n\n将执行：${cmdHint}${warn}\n\n确定继续吗？`)) return;
+      b.disabled = true;
+      // 一次只能装一个：把所有安装按钮都禁掉，等这次跑完再刷新
+      pop.querySelectorAll('.ab-install').forEach((x) => { x.disabled = true; });
+      try {
+        const r = await fetch(`/api/agents/${encodeURIComponent(id)}/install`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+      } catch (e) {
+        toast('安装请求失败：' + (e.message || '未知错误'));
+        pop.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
+      }
+    };
+  });
 }
 $('btn-agents').onclick = openAgentManager;
 
@@ -1041,6 +1075,36 @@ function connectSSE() {
         // 流光装饰与状态解耦刷新：新完成迁移后立即点亮绿色流光（含「已读」按钮）
         applyFlowDecor(el, ref, nowLive);
       });
+    } catch {}
+  });
+  // 安装进度：更新对应卡片的状态行。弹窗关掉了就什么也不做（querySelector 找不到元素）
+  es.addEventListener('agent-install-progress', (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      const card = document.querySelector(`.ab-card[data-id="${CSS.escape(d.agentId)}"]`);
+      const line = card && card.querySelector('.ab-progress');
+      const TEXT = {
+        blocked: () => '⛔ ' + (d.message || '当前网络环境无法安装'),
+        'deps-missing': () => `⛔ 需要 Node ${d.need}，当前 ${d.have}`,
+        'no-method': () => '⛔ 这个平台没有可用的安装方式',
+        installing: () => '⏳ 安装中…',
+        verifying: () => '⏳ 校验中…',
+        done: () => '✅ 完成 ' + (d.version || ''),
+        failed: () => '❌ ' + (d.reason || d.stderr || '安装失败'),
+      };
+      if (line) line.textContent = (TEXT[d.step] || (() => d.step))();
+      // 终态：解锁按钮 + 刷新弹窗（done 时要展示 tellUser 提示）
+      if (d.step === 'done' || d.step === 'failed' || d.step === 'blocked'
+          || d.step === 'deps-missing' || d.step === 'no-method') {
+        document.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
+        if (d.step === 'done') {
+          const tips = (d.tellUser || []).join('\n');
+          toast('安装完成' + (d.version ? '：' + d.version : ''));
+          if (tips) setTimeout(() => alert('安装完成，几点说明：\n\n' + tips), 300);
+          // 重新探测，刷新卡片状态
+          if (state.popoverFor === 'agents') setTimeout(() => openAgentManager(), 600);
+        }
+      }
     } catch {}
   });
   es.addEventListener('scan', (ev) => {
