@@ -1067,6 +1067,15 @@ $('btn-settings-hub').onclick = openSettingsHub;
 // 全局只会有一个安装任务在跑（服务端也是这个限制），单个句柄够用。
 let installFallbackTimer = null;
 
+function agentManagerLoadingMarkup(force) {
+  const text = force ? '正在重新探测应用状态…' : '正在检测应用状态…';
+  return `<div class="pop-head">应用管理</div>
+    <div role="status" style="padding:18px 16px;color:var(--text2);font-size:13px;display:flex;align-items:center;gap:8px">
+      <span aria-hidden="true" style="width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite"></span>
+      <span>${text}</span>
+    </div>`;
+}
+
 async function openAgentManager(force) {
   closePopover();
   state.popoverFor = 'agents';
@@ -1079,7 +1088,7 @@ async function openAgentManager(force) {
   pop.style.minWidth = '420px';
   pop.style.maxWidth = '520px';
   document.body.appendChild(pop);
-  pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测中…</div>';
+  pop.innerHTML = agentManagerLoadingMarkup(force);
 
   let data;
   try {
