@@ -5,7 +5,7 @@ const state = {
   agents: [], projects: [], active: [], agentsDef: {},
   project: '', q: '', range: 0, activeRange: 'day', activeProject: '',
   onlyUser: true,
-  board: {}, agentIds: [], colOrder: null,
+  board: {}, agentIds: [], defaultAgentIds: [], colOrder: null,
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
@@ -118,6 +118,9 @@ async function loadBoard() {
     const d = await r.json();
     state.board = d.groups || state.board;
     state.agentIds = d.agentIds || [];
+    // defaultAgentIds：探测为已安装 或 有历史数据的 agent 子集，只用来算「默认列」，
+    // 不影响 state.agentIds（列设置弹窗仍然要能看到全部 agent，供手动勾选恢复）
+    state.defaultAgentIds = d.defaultAgentIds || d.agentIds || [];
     // 后端返回的实时活跃集合：只并入不覆盖——移除动作完全由 SSE active 事件权威执行，
     // 避免 loadBoard 重建时（即使后端快照 status 恰好过期）把进行中会话闪回「已完成」
     if (Array.isArray(d.liveRefs)) {
@@ -125,8 +128,8 @@ async function loadBoard() {
       for (const r of state.liveRefs) next.add(r);
       state.liveRefs = next;
     }
-    // 首次加载：把当前配置的列存好（默认 = all + 所有 agent）
-    if (!state.colOrder) state.colOrder = loadColOrder() || ['all', ...state.agentIds];
+    // 首次加载：把当前配置的列存好（默认 = all + 探测/历史数据过滤后的 agent）
+    if (!state.colOrder) state.colOrder = loadColOrder() || ['all', ...state.defaultAgentIds];
     renderBoard();
   } catch { /* 网络错误忽略 */ }
   finally { state.loading = false; }
@@ -936,7 +939,7 @@ function openColManager() {
   pop.querySelector('#cols-done').onclick = () => { applyCols(); closePopover(); toast('列设置已保存'); };
   pop.querySelector('#cols-reset').onclick = () => {
     state.colOrder = null;
-    saveColOrder(['all', ...state.agentIds]);
+    saveColOrder(['all', ...state.defaultAgentIds]);
     closePopover();
     loadBoard();
   };
