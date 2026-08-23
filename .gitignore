@@ -18,3 +18,6 @@ node_modules/
 
 # brainstorming 可视化伴侣的临时草图
 .superpowers/
+
+# graphify 代码图谱输出
+graphify-out/

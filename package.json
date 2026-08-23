@@ -1,12 +1,12 @@
 {
   "name": "agent-board",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI Agent 会话看板 - 实时汇总 Claude Code / Codex / WorkBuddy / 豆包 等所有对话时间线",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
   "dependencies": {}
 }
