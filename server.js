@@ -496,7 +496,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const agent = String(body.agent || '');
       if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
-      const overrides = launchLib.saveLaunchOverride(agent, body.command || '');
+      const overrides = launchLib.saveLaunchOverride(agent, String(body.command || ''));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, overrides }));
     } catch (e) {
