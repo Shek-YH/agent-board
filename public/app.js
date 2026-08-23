@@ -973,16 +973,18 @@ async function openAgentManager() {
   }
 
   const agents = Object.values(data.agents || {});
-  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行类工具支持一键安装）</span></div>
+  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行/桌面类工具支持一键安装）</span></div>
     <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
   for (const a of agents) {
     const badge = a.installed
       ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
       : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
-    // 只有未安装的 cli 类工具给「安装」按钮（gui 类下一版再说）
-    const canInstall = !a.installed && a.tier === 'cli' && a.install && (a.install.methods || []).length;
+    // 未安装的 cli/gui 类工具、且有至少一种安装方式，才给按钮；
+    // 按钮文案区分「能静默装」（picked 有值）和「只能手动下载」（picked 为空）
+    const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui') && a.install && (a.install.methods || []).length;
+    const btnLabel = a.install && a.install.picked ? '安装' : '下载安装';
     const btn = canInstall
-      ? `<div style="margin-top:6px"><button class="btn ab-install" data-id="${esc(a.id)}" style="min-height:28px;padding:3px 12px;font-size:12px">安装</button></div>`
+      ? `<div style="margin-top:6px"><button class="btn ab-install" data-id="${esc(a.id)}" style="min-height:28px;padding:3px 12px;font-size:12px">${btnLabel}</button></div>`
       : '';
     html += `<div class="ab-card" data-id="${esc(a.id)}" style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
       <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
@@ -995,11 +997,25 @@ async function openAgentManager() {
   html += '</div>';
   pop.innerHTML = html;
 
-  // 安装按钮：先弹确认（展示要跑的命令 + 警告文案），确认后 POST，进度走 SSE
+  // 安装按钮：能静默装的（picked 有值）走「确认 + POST + SSE」；只能手动下载的直接跳转下载页
   pop.querySelectorAll('.ab-install').forEach((b) => {
     b.onclick = async () => {
       const id = b.dataset.id;
       const a = data.agents[id];
+
+      // 没有能静默执行的方法：找 download 方式直接跳转，不经过后端、不占用安装锁
+      if (!a.install.picked) {
+        const dl = (a.install.methods || []).find((m) => m.kind === 'download');
+        if (dl && dl.url) {
+          window.open(dl.url, '_blank');
+          toast('已在新标签页打开下载页，按提示完成安装后关闭再重新打开本弹窗可刷新状态');
+          return;
+        }
+        // 理论上不会发生（canInstall 已经要求 methods.length>0）：没有 download 方式时，
+        // 不在前端假装成功，落回原来的静默安装流程，让后端 installAgent 报 no-method，
+        // SSE 会显示「这个平台没有可用的安装方式」
+      }
+
       // pickedCommand 是服务端用 methodToCommand() 拼出的真实命令（和 installAgent 实际执行的完全一致），
       // 前端不再自己拼一遍，避免两边逻辑分叉（比如漏掉 winget 的 flags）
       const cmdHint = a.install.pickedCommand || '(未知)';
