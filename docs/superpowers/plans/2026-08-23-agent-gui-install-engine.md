@@ -455,5 +455,5 @@ Expected: 输出大于 0 的数字
 
 **没做的**（如果以后要做）：
 - 真实点击验证（这台机器上 4 个 gui 工具全部已安装，没有安全的伪造未安装状态的办法）
-- workbuddy/zcode 的 `network.testUrls` 里仍然是旧的 `codebuddy.cn`（这次设计范围明确只改 `download.url`，`testUrls` 是否也需要同步修正、以及它实际服务于什么功能，留给下一轮单独核实）
+- ~~workbuddy/zcode 的 `network.testUrls` 里仍然是旧的 `codebuddy.cn`~~ —— 2026-08-23 已顺手修正：`workbuddy.js` 的 `testUrls` 改成 `https://www.workbuddy.cn`（zcode 本来就是对的，没改）。核实过 `testUrls` 目前全仓库没有任何地方真正读取消费（只在各 adapter 里声明），纯粹是数据一致性修正，不涉及行为改变。
 - 探测结果缓存、瀑布流列联动（沿用上一轮就已经明确延后的范围）
