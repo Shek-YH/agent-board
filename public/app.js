@@ -26,13 +26,18 @@ function saveColOrder(order) {
 }
 // 有效列 = 配置顺序 ∩ 实际存在的 agent（防止配置了不存在的列）
 function effectiveCols() {
-  const def = state.colOrder || ['all', ...state.agentIds];
+  // colOrder 为 null（默认模式）时的候选列表用 defaultAgentIds（已安装/有历史数据过滤后的子集），
+  // 不用全集 state.agentIds——这两行只在「默认视图」语境下才会被用到，要和 loadBoard()/
+  // 「恢复默认」按钮保持同一套过滤规则，否则会出现短暂的过滤失效（见代码审查记录）。
+  const def = state.colOrder || ['all', ...state.defaultAgentIds];
+  // valid 集合必须用全集 state.agentIds：这里是「配置的列是否真实存在」的完整性校验，
+  // 不是默认视图过滤，用户手动保存过的列（哪怕是被默认视图隐藏的 agent）也不该被判定无效。
   const valid = new Set(['all', ...state.agentIds]);
   const out = def.filter((c) => valid.has(c));
   // 只在默认模式（colOrder 为 null，用户从未手动配置）下自动补全新出现的 agent；
   // 一旦用户通过列设置保存过 colOrder，就完全尊重用户的选择（隐藏的列不补回）。
   if (!state.colOrder) {
-    for (const id of state.agentIds) if (!out.includes(id)) out.push(id);
+    for (const id of state.defaultAgentIds) if (!out.includes(id)) out.push(id);
   }
   return out;
 }
@@ -938,6 +943,7 @@ function openColManager() {
 
   pop.querySelector('#cols-done').onclick = () => { applyCols(); closePopover(); toast('列设置已保存'); };
   pop.querySelector('#cols-reset').onclick = () => {
+    // 恢复默认＝恢复到「探测为已安装或有历史数据」过滤后的默认列，不是恢复成全部 agent
     state.colOrder = null;
     saveColOrder(['all', ...state.defaultAgentIds]);
     closePopover();
