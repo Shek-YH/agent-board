@@ -742,7 +742,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 安装某个 agent（只支持 tier:'cli'）。全局同时只允许一个安装任务在跑。
+  // 安装某个 agent（支持 tier:'cli' 和 tier:'gui'）。全局同时只允许一个安装任务在跑。
   // 响应立即返回（参考 /api/rescan 的异步模式），真实进度走 SSE 的 agent-install-progress 事件。
   if (pathname.startsWith('/api/agents/') && pathname.endsWith('/install') && req.method === 'POST') {
     const id = pathname.slice('/api/agents/'.length, -'/install'.length);
