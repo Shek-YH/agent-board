@@ -895,6 +895,70 @@ function openSettingsHub() {
   pop.querySelector('#settings-launch').onclick = () => openLaunchOverridesManager();
 }
 
+// 每个 agent 默认走什么跳转方式的说明文字，纯展示用，不需要精确到底层字段名
+const LAUNCH_DEFAULT_HINT = {
+  claude: '默认：claude:// 协议跳转', codex: '默认：codex:// 协议跳转',
+  workbuddy: '默认：workbuddy:// 协议跳转', deepseek: '默认：命令行工具直接跳转',
+  marvis: '默认：启动脚本拉起', doubao: '默认：doubao:// 协议跳转',
+  zcode: '默认：启动脚本拉起', pi: '默认：命令行工具直接跳转',
+};
+
+/* ---------- 模型端口设置（自定义跳转启动命令） ---------- */
+async function openLaunchOverridesManager() {
+  closePopover();
+  state.popoverFor = 'launch-overrides';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  pop.style.minWidth = '420px';
+  pop.style.maxWidth = '520px';
+  document.body.appendChild(pop);
+  pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
+
+  let overrides = {};
+  try {
+    const r = await fetch('/api/launch-overrides');
+    const d = await r.json();
+    overrides = d.overrides || {};
+  } catch { /* 拿不到就当空表，用户依然能填新的 */ }
+
+  const defs = state.agentsDef || {};
+  let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（自定义跳转启动命令，留空用默认）</span></div>
+    <div style="padding:10px;max-height:60vh;overflow-y:auto">`;
+  for (const id of Object.keys(defs)) {
+    const meta = defs[id];
+    html += `<div class="lo-row" data-id="${esc(id)}" style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:2px">${esc(meta.name || id)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${esc(LAUNCH_DEFAULT_HINT[id] || '默认：内置方式')}</div>
+      <input class="lo-input" type="text" placeholder="留空使用默认，填了则改用这条命令跳转" value="${esc(overrides[id] || '')}"
+        style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px">
+    </div>`;
+  }
+  html += '</div>';
+  pop.innerHTML = html;
+
+  pop.querySelectorAll('.lo-input').forEach((input) => {
+    input.addEventListener('blur', async () => {
+      const id = input.closest('.lo-row').dataset.id;
+      const command = input.value;
+      try {
+        const r = await fetch('/api/launch-overrides', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent: id, command }),
+        });
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+        toast(command ? '已保存自定义启动命令' : '已恢复默认');
+      } catch (e) {
+        toast('保存失败：' + (e.message || '未知错误'));
+      }
+    });
+  });
+}
+
 /* ---------- 瀑布流列管理 ---------- */
 function openColManager() {
   closePopover();
