@@ -889,16 +889,85 @@ function openSettingsHub() {
   document.body.appendChild(pop);
   pop.innerHTML = `<div class="pop-head">设置</div>
     <button class="pop-item" id="settings-cols">瀑布流设置</button>
+    <button class="pop-item" id="settings-account">账户与方案</button>
     <button class="pop-item" id="settings-sound" disabled>提示音设置（开发中）</button>
     <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
-  // 提示音设置/皮肤设置这轮先占位（disabled，不接点击事件）：
-  // 下一轮（完成会话提示音功能）会把 #settings-sound 换成真实的 openSoundSettings
+  pop.querySelector('#settings-account').onclick = openAccountSettings;
+  // 提示音设置/皮肤设置这轮先占位（disabled，不接点击事件）。
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
   pop.querySelector('#settings-launch').onclick = () => openLaunchOverridesManager();
+}
+
+function renderAccountSettings(pop, status) {
+  const head = '<div class="pop-head">账户与方案</div>';
+  const bodyStyle = 'padding:14px 16px;color:var(--text2);font-size:13px;line-height:1.65';
+  let body = '';
+
+  if (status.state === 'unconfigured') {
+    body = `<div style="${bodyStyle}">账号云服务尚未配置，本地单机功能可继续免费使用。</div>`;
+  } else if (status.state === 'active') {
+    const account = status.account || {};
+    const expiresAt = Number(account.expiresAt);
+    const expiry = Number.isFinite(expiresAt) ? new Date(expiresAt).toLocaleString('zh-CN') : '未知';
+    const features = Array.isArray(status.features) && status.features.length
+      ? status.features.map((feature) => `<li>${esc(feature)}</li>`).join('')
+      : '<li>暂无额外权益</li>';
+    body = `<div style="${bodyStyle}">
+      <div>当前方案：<strong>${esc(account.plan || '未知')}</strong></div>
+      <div>到期时间：${esc(expiry)}</div>
+      <div style="margin-top:6px">权益：</div><ul style="margin:2px 0 10px;padding-left:20px">${features}</ul>
+      <button class="btn" id="account-logout" style="min-height:32px;padding:5px 10px;font-size:12px">退出登录</button>
+    </div>`;
+  } else {
+    const action = status.hasCachedToken
+      ? '<button class="btn" id="account-logout" style="min-height:32px;padding:5px 10px;font-size:12px">清除本地登录缓存</button>'
+      : '';
+    body = `<div style="${bodyStyle}"><div>当前为免费方案，本地单机功能可继续免费使用。</div><div style="margin-top:10px">${action}</div></div>`;
+  }
+
+  pop.innerHTML = head + body;
+  const logoutButton = pop.querySelector('#account-logout');
+  if (!logoutButton) return;
+  logoutButton.onclick = async () => {
+    logoutButton.disabled = true;
+    try {
+      const response = await fetch('/api/account/logout', { method: 'POST' });
+      const next = await response.json();
+      if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
+      renderAccountSettings(pop, next);
+      toast('已清除本地登录缓存');
+    } catch (error) {
+      logoutButton.disabled = false;
+      toast('操作失败：' + (error.message || '未知错误'));
+    }
+  };
+}
+
+async function openAccountSettings() {
+  closePopover();
+  state.popoverFor = 'account';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  pop.style.minWidth = '320px';
+  document.body.appendChild(pop);
+  pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
+
+  try {
+    const response = await fetch('/api/account/status');
+    const status = await response.json();
+    if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
+    renderAccountSettings(pop, status);
+  } catch {
+    pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败，请稍后重试</div>';
+  }
 }
 
 // 每个 agent 默认走什么跳转方式的说明文字，纯展示用，不需要精确到底层字段名
