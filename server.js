@@ -429,9 +429,26 @@ function serveStatic(req, res, urlPath) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let buf = '';
-    req.on('data', (c) => { buf += c; if (buf.length > 12 * 1024 * 1024) req.destroy(); });
-    req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); } });
+    const chunks = [];
+    let byteLength = 0;
+    let settled = false;
+    req.on('data', (chunk) => {
+      if (settled) return;
+      byteLength += chunk.length;
+      if (byteLength > 12 * 1024 * 1024) {
+        settled = true;
+        const error = new Error('Request body too large');
+        error.statusCode = 413;
+        req.resume();
+        reject(error);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}); } catch (error) { reject(error); }
+    });
     req.on('error', reject);
   });
 }
@@ -506,8 +523,9 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sound, settings: soundSettings.loadSoundSettings() }));
     } catch (error) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message || 'audio upload failed' }));
+      const badInput = error instanceof TypeError || error instanceof RangeError || error.statusCode === 413;
+      res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.statusCode === 413 ? 'Audio upload is too large' : (badInput ? 'Invalid audio upload' : 'Unable to save audio upload') }));
     }
     return;
   }
@@ -516,14 +534,15 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const agent = String(body.agent || '');
-      if (!AGENT_DEFS[agent] || agent === 'doubao') throw new Error('未知 agent: ' + agent);
+      if (!Object.hasOwn(AGENT_DEFS, agent) || agent === 'doubao') throw new TypeError('Invalid agent');
       const soundId = typeof body.soundId === 'string' ? body.soundId : '';
       const settings = soundSettings.assignSound(agent, soundId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(settings));
     } catch (error) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message || 'sound assignment failed' }));
+      const badInput = error instanceof TypeError || error instanceof RangeError || error.statusCode === 413;
+      res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: badInput ? 'Invalid sound assignment' : 'Unable to save sound assignment' }));
     }
     return;
   }
