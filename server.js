@@ -752,9 +752,9 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: '未知 agent: ' + id }));
       return;
     }
-    if (adapter.detect.tier !== 'cli') {
+    if (adapter.detect.tier !== 'cli' && adapter.detect.tier !== 'gui') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '这一版只支持命令行类工具的自动安装' }));
+      res.end(JSON.stringify({ error: '这一版只支持命令行类和桌面类工具的自动安装' }));
       return;
     }
     if (installInProgress) {
