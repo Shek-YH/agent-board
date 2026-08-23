@@ -509,15 +509,20 @@ const server = http.createServer(async (req, res) => {
     };
     // 动态列：AGENT_DEFS 定义顺序优先，再补 store 实际存在的 agent（如手动导入的自定义名）
     const agentIds = new Set();
+    const agentsWithData = new Set();
     for (const id of Object.keys(AGENT_DEFS)) agentIds.add(id);
-    for (const a of store.stmts.agents.all()) if (a.agent) agentIds.add(a.agent);
+    for (const a of store.stmts.agents.all()) if (a.agent) { agentIds.add(a.agent); agentsWithData.add(a.agent); }
     for (const id of agentIds) {
       groups[id] = store.getSessions({ ...qBase, agent: id });
     }
+    // defaultAgentIds：瀑布流默认视图只显示「探测为已安装」或「store 里有历史数据」的 agent 列；
+    // 复用探测缓存（不额外增加真实探测开销），只影响默认视图，不影响用户手动保存过的列设置
+    const probed = await getProbe();
+    const defaultAgentIds = [...agentIds].filter((id) => (probed[id] && probed[id].installed) || agentsWithData.has(id));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     // liveRefs：当前实时活跃的 session ref 集合（getActive 按 10 分钟窗口），供前端渲染状态用
     res.end(JSON.stringify({
-      groups, agentIds: [...agentIds],
+      groups, agentIds: [...agentIds], defaultAgentIds,
       liveRefs: store.getActive().map((a) => a.sessionRef),
     }));
     return;
