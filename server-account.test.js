@@ -52,12 +52,27 @@ async function startServer(directory) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  child.kill();
+  await stopServer(child);
   throw new Error('account test server did not start');
 }
 
 function stopServer(child) {
-  if (!child.killed) child.kill();
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve();
+    }, 2_000);
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    child.kill();
+  });
 }
 
 test('账户状态和退出 API 不泄漏令牌，且删除错误返回 500 不终止服务', async () => {
@@ -91,8 +106,8 @@ test('账户状态和退出 API 不泄漏令牌，且删除错误返回 500 不�
     assert.equal(JSON.parse(failedLogout.body).error, 'Unable to clear account cache');
     assert.equal((await request(badServer.port, '/api/account/status')).statusCode, 200);
   } finally {
-    if (goodServer) stopServer(goodServer.child);
-    if (badServer) stopServer(badServer.child);
+    if (goodServer) await stopServer(goodServer.child);
+    if (badServer) await stopServer(badServer.child);
     fs.rmSync(goodDirectory, { force: true, recursive: true });
     fs.rmSync(badDirectory, { force: true, recursive: true });
   }
