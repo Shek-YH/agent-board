@@ -706,10 +706,17 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/agents/status') {
     try {
       const probed = await detect.probeAll(ADAPTERS);
+      const byId = Object.fromEntries(ADAPTERS.map((a) => [a.ID, a]));
       const agents = {};
       for (const [id, r] of Object.entries(probed)) {
         const meta = AGENT_DEFS[id] || {};
-        agents[id] = { ...r, name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888' };
+        // install 数据透传给前端：渲染「安装」按钮的确认弹窗要用（要跑什么命令、有什么警告）
+        const def = (byId[id] && byId[id].detect) || {};
+        agents[id] = {
+          ...r,
+          name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888',
+          install: def.install || null,
+        };
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ agents }));
