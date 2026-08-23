@@ -882,10 +882,10 @@ function openSettingsHub() {
   pop.style.minWidth = '200px';
   document.body.appendChild(pop);
   pop.innerHTML = `<div class="pop-head">设置</div>
-    <button class="pop-item" id="settings-cols"><span>瀑布流设置</span></button>
-    <button class="pop-item" id="settings-sound" disabled><span>提示音设置（开发中）</span></button>
-    <button class="pop-item" id="settings-skin" disabled><span>皮肤设置（开发中）</span></button>
-    <button class="pop-item" id="settings-launch"><span>模型端口设置</span></button>`;
+    <button class="pop-item" id="settings-cols">瀑布流设置</button>
+    <button class="pop-item" id="settings-sound" disabled>提示音设置（开发中）</button>
+    <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
+    <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   // 提示音设置/皮肤设置这轮先占位（disabled，不接点击事件）：
   // 下一轮（完成会话提示音功能）会把 #settings-sound 换成真实的 openSoundSettings
