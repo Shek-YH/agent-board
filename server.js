@@ -429,19 +429,23 @@ function serveStatic(req, res, urlPath) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    const chunks = [];
-    let byteLength = 0;
-    let settled = false;
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 10 * 1024 * 1024) req.destroy(); });
+    req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (error) { reject(error); } });
+    req.on('error', reject);
+  });
+}
+
+function readAudioBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let byteLength = 0; let settled = false;
     req.on('data', (chunk) => {
       if (settled) return;
       byteLength += chunk.length;
       if (byteLength > 12 * 1024 * 1024) {
         settled = true;
-        const error = new Error('Request body too large');
-        error.statusCode = 413;
-        req.resume();
-        reject(error);
-        return;
+        const error = new Error('Request body too large'); error.statusCode = 413;
+        req.resume(); reject(error); return;
       }
       chunks.push(chunk);
     });
@@ -518,12 +522,12 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/sounds/upload' && req.method === 'POST') {
     try {
-      const body = await readBody(req);
+      const body = await readAudioBody(req);
       const sound = soundSettings.uploadSound({ dataUrl: body.dataUrl, name: body.name });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ sound, settings: soundSettings.loadSoundSettings() }));
     } catch (error) {
-      const badInput = error instanceof TypeError || error instanceof RangeError || error.statusCode === 413;
+      const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
       res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.statusCode === 413 ? 'Audio upload is too large' : (badInput ? 'Invalid audio upload' : 'Unable to save audio upload') }));
     }
@@ -540,7 +544,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(settings));
     } catch (error) {
-      const badInput = error instanceof TypeError || error instanceof RangeError || error.statusCode === 413;
+      const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
       res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: badInput ? 'Invalid sound assignment' : 'Unable to save sound assignment' }));
     }
