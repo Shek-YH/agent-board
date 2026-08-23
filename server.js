@@ -483,6 +483,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 模型端口设置：读取当前的启动命令覆盖表
+  if (pathname === '/api/launch-overrides' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ overrides: launchLib.loadLaunchOverrides() }));
+    return;
+  }
+
+  // 模型端口设置：保存/清除某个 agent 的启动命令覆盖
+  if (pathname === '/api/launch-overrides' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const agent = String(body.agent || '');
+      if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
+      const overrides = launchLib.saveLaunchOverride(agent, body.command || '');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, overrides }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // 时间线（倒序分页）
   if (pathname === '/api/timeline') {
     const q = {
