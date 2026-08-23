@@ -918,12 +918,18 @@ async function openLaunchOverridesManager() {
   document.body.appendChild(pop);
   pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
 
-  let overrides = {};
+  let overrides;
   try {
     const r = await fetch('/api/launch-overrides');
     const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
     overrides = d.overrides || {};
-  } catch { /* 拿不到就当空表，用户依然能填新的 */ }
+  } catch {
+    // 拿不到真实数据就明确报错、不渲染表单——不能悄悄当成"空覆盖表"渲染一堆空输入框，
+    // 那样用户随手 blur 一下没改过的输入框就会把它当成"清空"提交，真把已保存的覆盖删掉
+    pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败，请稍后重试</div>';
+    return;
+  }
 
   const defs = state.agentsDef || {};
   let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（自定义跳转启动命令，留空用默认）</span></div>
@@ -941,9 +947,13 @@ async function openLaunchOverridesManager() {
   pop.innerHTML = html;
 
   pop.querySelectorAll('.lo-input').forEach((input) => {
+    // 记住刚加载时的值，blur 时没有真的改过就不发请求——避免"没编辑、只是路过点了一下
+    // 输入框又移开焦点"也触发一次保存，把这个字段悄悄清空成默认
+    input.dataset.orig = input.value;
     input.addEventListener('blur', async () => {
+      const command = input.value.trim();
+      if (command === input.dataset.orig) return;
       const id = input.closest('.lo-row').dataset.id;
-      const command = input.value;
       try {
         const r = await fetch('/api/launch-overrides', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -951,6 +961,10 @@ async function openLaunchOverridesManager() {
         });
         const d = await r.json();
         if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+        // 服务端会 trim 一遍，这里同步显示成实际保存的值（保存前已经 trim 过，值应该一致，
+        // 但显式赋一次更保险，不依赖"客户端和服务端 trim 逻辑必须永远一致"这个假设）
+        input.value = command;
+        input.dataset.orig = command;
         toast(command ? '已保存自定义启动命令' : '已恢复默认');
       } catch (e) {
         toast('保存失败：' + (e.message || '未知错误'));
