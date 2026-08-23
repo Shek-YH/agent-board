@@ -516,7 +516,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const agent = String(body.agent || '');
-      if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
+      if (!AGENT_DEFS[agent] || agent === 'doubao') throw new Error('未知 agent: ' + agent);
       const soundId = typeof body.soundId === 'string' ? body.soundId : '';
       const settings = soundSettings.assignSound(agent, soundId);
       res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -10,6 +10,7 @@ const state = {
   liveRefs: new Set(),
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
   recentDone: new Map(),
+  completionSounds: { assignments: {}, sounds: [] },
   // 用户手动点「已读」取消高亮的 ref 集合（localStorage 持久化，避免刷新后重新点亮）
   dismissedRecent: new Set(),
   loading: false,
@@ -292,6 +293,10 @@ function markRecentlyCompleted(ref) {
   state.dismissedRecent.delete(ref); // 新一轮完成重新点亮，忽略之前的「已读」
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
+  const agent = String(ref).split(':', 1)[0];
+  const soundId = state.completionSounds.assignments[agent];
+  const sound = state.completionSounds.sounds.find((item) => item.id === soundId);
+  if (sound) playSoundPreview(sound.url);
 }
 function dismissRecent(ref) {
   state.recentDone.delete(ref);
@@ -890,12 +895,13 @@ function openSettingsHub() {
   pop.innerHTML = `<div class="pop-head">设置</div>
     <button class="pop-item" id="settings-cols">瀑布流设置</button>
     <button class="pop-item" id="settings-account">账户与方案</button>
-    <button class="pop-item" id="settings-sound" disabled>提示音设置（开发中）</button>
+    <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
-  // 提示音设置/皮肤设置这轮先占位（disabled，不接点击事件）。
+  pop.querySelector('#settings-sound').onclick = openSoundSettings;
+  // 皮肤设置本轮仍为占位（disabled，不接点击事件）。
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
@@ -968,6 +974,98 @@ async function openAccountSettings() {
   } catch {
     pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败，请稍后重试</div>';
   }
+}
+
+function soundAgents() {
+  return Object.entries(state.agentsDef || {}).filter(([id]) => id !== 'doubao');
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读取音频文件失败'));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+function playSoundPreview(url) {
+  const audio = new Audio(url);
+  audio.play().catch(() => toast('浏览器阻止了播放，请再次点击试听'));
+}
+
+function renderSoundSettings(pop, selectedAgent) {
+  const settings = state.completionSounds;
+  const agents = soundAgents();
+  if (!agents.some(([id]) => id === selectedAgent)) selectedAgent = agents[0]?.[0] || '';
+  const selectedMeta = state.agentsDef[selectedAgent] || { color: '#888', name: selectedAgent };
+  const selectedSoundId = settings.assignments[selectedAgent] || '';
+  const agentList = agents.map(([id, meta]) => `<button class="sound-agent ${id === selectedAgent ? 'on' : ''}" data-agent="${esc(id)}"
+      style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:7px;text-align:left;${id === selectedAgent ? 'background:var(--accent-bg);color:var(--accent)' : ''}">
+      <span class="dot" style="width:8px;height:8px;border-radius:50%;background:${esc(meta.color || '#888')}"></span>${esc(meta.name || id)}</button>`).join('');
+  const soundRows = settings.sounds.map((sound) => `<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:7px;margin-top:7px">
+      <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}>${esc(sound.name)}</label>
+      <button class="btn sound-preview" data-url="${esc(sound.url)}" style="min-height:28px;padding:3px 8px;font-size:12px">试听</button></div>`).join('');
+  pop.innerHTML = `<div class="pop-head">完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></div>
+    <div style="display:grid;grid-template-columns:190px minmax(360px,1fr);max-height:68vh">
+      <aside style="padding:8px;border-right:1px solid var(--border);overflow-y:auto">${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
+      <section style="padding:14px;overflow-y:auto"><div style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
+        <div style="margin-top:5px;color:var(--text3);font-size:12px">该 Agent 的会话从进行中变为完成时播放</div>
+        <label style="display:flex;align-items:center;gap:8px;padding:8px;margin-top:10px;border:1px solid var(--border);border-radius:7px;cursor:pointer"><input type="radio" name="completion-sound" value="" ${selectedSoundId ? '' : 'checked'}>不播放提示音</label>
+        ${soundRows || '<div style="margin-top:10px;color:var(--text3);font-size:13px">还没有提示音，请上传一个本地音频。</div>'}
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span style="margin-left:8px;color:var(--text3);font-size:11px">WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
+      </section>
+    </div>`;
+  pop.querySelectorAll('.sound-agent').forEach((button) => { button.onclick = () => renderSoundSettings(pop, button.dataset.agent); });
+  pop.querySelectorAll('input[name="completion-sound"]').forEach((input) => {
+    input.onchange = async () => {
+      try {
+        const response = await fetch('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: input.value }) });
+        const next = await response.json();
+        if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
+        state.completionSounds = next;
+        renderSoundSettings(pop, selectedAgent);
+        toast(input.value ? '已设置完成提示音' : '已关闭完成提示音');
+      } catch (error) { toast('保存失败：' + (error.message || '未知错误')); renderSoundSettings(pop, selectedAgent); }
+    };
+  });
+  pop.querySelectorAll('.sound-preview').forEach((button) => { button.onclick = () => playSoundPreview(button.dataset.url); });
+  pop.querySelector('#sound-upload').onchange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast('音频不能超过 8 MB'); return; }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const response = await fetch('/api/sounds/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, name: file.name }) });
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result.error || ('HTTP ' + response.status));
+      state.completionSounds = result.settings;
+      renderSoundSettings(pop, selectedAgent);
+      toast('提示音已上传到项目');
+    } catch (error) { toast('上传失败：' + (error.message || '未知错误')); }
+  };
+}
+
+async function loadCompletionSounds() {
+  try {
+    const response = await fetch('/api/sounds');
+    const settings = await response.json();
+    if (!response.ok || settings.error) throw new Error(settings.error || ('HTTP ' + response.status));
+    state.completionSounds = settings;
+  } catch { state.completionSounds = { assignments: {}, sounds: [] }; }
+}
+
+async function openSoundSettings() {
+  closePopover();
+  state.popoverFor = 'sounds';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  pop.style.width = '760px'; pop.style.maxWidth = 'calc(100vw - 32px)';
+  document.body.appendChild(pop);
+  pop.innerHTML = '<div class="pop-head">完成提示音设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
+  await loadCompletionSounds();
+  renderSoundSettings(pop, soundAgents()[0]?.[0]);
 }
 
 // 每个 agent 默认走什么跳转方式的说明文字，纯展示用，不需要精确到底层字段名
@@ -1375,5 +1473,6 @@ function toast(msg) {
   loadRecentDone();
   await loadState();
   await loadBoard();
+  await loadCompletionSounds();
   connectSSE();
 })();
