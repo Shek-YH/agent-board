@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { exec, spawn, spawnSync } = require('child_process');
 const store = require('./lib/store');
 const detect = require('./lib/detect');
+const launchLib = require('./lib/launch');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -35,7 +36,7 @@ const AGENT_DEFS = {
   zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
     launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\zcode-launch.bat"' },
   pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null,
-    launchCmd: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\pi-launch.bat"' },
+    webUi: { url: 'http://127.0.0.1:3210', port: 3210, startCmd: '"D:\\Program Files\\node-v22.14.0-win-x64\\node_global\\pi-web-ui.cmd"' } },
 };
 
 // 去掉配置值两端可能存在的引号（兼容旧配置写法）
@@ -49,6 +50,36 @@ function stripQuotes(s) {
 function launchOrFocus(agent, cb) {
   const def = AGENT_DEFS[agent];
   if (!def) { cb({ ok: false, error: '未知 agent' }); return; }
+
+  // 模型端口设置：用户配置了自定义启动命令，直接跑这条命令，不走下面任何默认逻辑。
+  // 不做"是否已运行"检测——覆盖命令是用户自己指定的任意程序，没法通用地判断它是否已经在跑，
+  // 交给用户自己选的程序/脚本自己处理，这里只负责"跑一下"。
+  const override = launchLib.loadLaunchOverrides()[agent];
+  if (override) {
+    spawn('cmd.exe', ['/c', override], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+    cb({ ok: true, action: 'launch-override', agent });
+    return;
+  }
+
+  // pi 的 Web UI：TCP 探测端口 → 没监听就拉起 → 轮询等它起来 → 开浏览器。
+  // stdio 显式设成 'ignore'（不走管道）是修掉 Windows 给子进程分配残留控制台窗口的关键——
+  // 原来 pi-launch.bat 用 netstat|findstr 管道检测端口时，windowsHide+管道 stdio 的组合会
+  // 触发 Windows 给 netstat/findstr 这些子进程各自分配一个新控制台窗口（就是用户截图里那两个
+  // 残留的 findstr.exe 窗口），这里改成 Node 原生探测，不再有管道，就不会再触发这个问题。
+  if (def.webUi) {
+    const { url, port, startCmd } = def.webUi;
+    (async () => {
+      let up = await launchLib.probePort(port);
+      if (!up) {
+        spawn('cmd.exe', ['/c', startCmd], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+        up = await launchLib.waitForPort(port);
+      }
+      spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      cb({ ok: true, action: up ? 'launch' : 'launch-timeout', agent });
+    })();
+    return;
+  }
+
   // launchCmd 用于浏览器/Web 类应用：直接调用外部启动脚本（含自启动+开浏览器逻辑），不再走窗口句柄激活
   if (def.launchCmd) {
     const p = stripQuotes(def.launchCmd);
