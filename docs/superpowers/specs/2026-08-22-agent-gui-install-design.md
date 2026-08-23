@@ -51,13 +51,15 @@ methods: [
   │
   └─ install.picked 为空、但 methods 里有 kind:'download' 的条目（这轮里 marvis 会走到这，以及 workbuddy/zcode 在非 win32 环境或 winget 不可用时的理论情况）
       → 新分支："下载安装"：不弹 confirm()，直接 window.open(下载页 URL, '_blank')，
-        toast 提示"已在新标签页打开下载页，按提示完成安装后点『重新扫描』刷新状态"
+        toast 提示"已在新标签页打开下载页，按提示完成安装后关闭再重新打开本弹窗可刷新状态"
       → 不发 POST，不走 SSE，不占用全局安装锁（纯前端动作，跟"点了外部链接"性质一样，不需要二次确认）
 ```
 
+（注：弹窗顶栏原有的"重新扫描"按钮触发的是 `/api/rescan`——那是会话数据扫描，和这里的安装探测状态 `/api/agents/status` 完全无关，点它刷新不了卡片的已装/未装状态。真正能刷新的动作是关闭弹窗再重新打开，因为 `openAgentManager()` 每次调用都会重新 `fetch('/api/agents/status')`。写自查时发现设计初稿里误写成"点重新扫描"，这里已经改正。）
+
 **为什么下载分支不用 confirm()**：静默安装分支会真的执行一条系统命令（有副作用、值得让用户确认一遍"即将执行什么"），而打开下载页只是导航到一个 URL，性质上和点击页面里任何一个外部链接一样，不需要额外的确认摩擦。
 
-**为什么下载分支没有进度追踪**：用户自己在弹出的系统安装向导里操作，agent-board 没有任何信号能知道装到哪一步、装完没有——不去伪造一个假进度条，如实告诉用户"装完了自己点重新扫描"（复用现有的重新扫描按钮，不需要新控件）。
+**为什么下载分支没有进度追踪**：用户自己在弹出的系统安装向导里操作，agent-board 没有任何信号能知道装到哪一步、装完没有——不去伪造一个假进度条，如实告诉用户"装完了自己关闭弹窗重开一下"（不需要新控件，`openAgentManager()` 本来就是全量重新拉取）。
 
 ## 后端改动
 
@@ -85,7 +87,7 @@ if (adapter.detect.tier !== 'cli' && adapter.detect.tier !== 'gui') { ... 400 ..
 2. `.ab-install` 点击处理逻辑加一层分支：
    - `a.install.picked` truthy → 走现有代码路径（confirm + POST + SSE），不变。
    - `a.install.picked` falsy → 找 `(a.install.methods||[]).find(m => m.kind === 'download')`：
-     - 有 → `window.open(m.url, '_blank')` + `toast('已打开下载页，装完后点"重新扫描"刷新状态')`，直接返回，不碰 `installInProgress`/按钮 disabled 状态（因为没有异步任务在跑）。
+     - 有 → `window.open(m.url, '_blank')` + `toast('已在新标签页打开下载页，按提示完成安装后关闭再重新打开本弹窗可刷新状态')`，直接返回，不碰 `installInProgress`/按钮 disabled 状态（因为没有异步任务在跑）。
      - 没有（理论上不会发生，因为 `canInstall` 已经要求 `methods.length > 0`，但防御性处理）→ 保留原来的 `'(未知)'` 兜底文案 + 走静默流程原样报错（`installAgent` 会返回 `no-method`）。
 3. 按钮文案：静默安装分支保持"安装"；下载分支按钮文案改成"下载安装"，让用户点之前就知道这是两种不同性质的操作（不是所有 agent 点了都会自动装好）。
 
