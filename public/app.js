@@ -1000,12 +1000,9 @@ async function openAgentManager() {
     b.onclick = async () => {
       const id = b.dataset.id;
       const a = data.agents[id];
-      const method = a.install.picked || null;
-      const cmdHint = method
-        ? (method.kind === 'npm' ? `npm install -g ${(method.flags || []).join(' ')} ${method.pkg}`.replace(/\s+/g, ' ')
-          : method.kind === 'script' ? (method.win32 || method.posix)
-          : method.kind === 'winget' ? `winget install --id ${method.id}` : String(method.kind))
-        : '(未知)';
+      // pickedCommand 是服务端用 methodToCommand() 拼出的真实命令（和 installAgent 实际执行的完全一致），
+      // 前端不再自己拼一遍，避免两边逻辑分叉（比如漏掉 winget 的 flags）
+      const cmdHint = a.install.pickedCommand || '(未知)';
       const warn = a.install.warning ? `\n\n注意：${a.install.warning}` : '';
       if (!confirm(`即将安装 ${a.name || id}\n\n将执行：${cmdHint}${warn}\n\n确定继续吗？`)) return;
       b.disabled = true;

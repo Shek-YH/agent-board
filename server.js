@@ -715,11 +715,22 @@ const server = http.createServer(async (req, res) => {
       for (const [id, r] of Object.entries(probed)) {
         const meta = AGENT_DEFS[id] || {};
         // install 数据透传给前端：渲染「安装」按钮的确认弹窗要用（要跑什么命令、有什么警告）
+        // picked/pickedCommand 复用 installAgent 实际执行时用的同一套 pickMethod/methodToCommand，
+        // 保证确认框显示的命令和真正会跑的命令必定一致（不在前端另外拼一套）
         const def = (byId[id] && byId[id].detect) || {};
+        let install = null;
+        if (def.install) {
+          const picked = detect.pickMethod(def.install.methods || [], process.platform);
+          install = {
+            ...def.install,
+            picked,
+            pickedCommand: picked ? detect.methodToCommand(picked, process.platform) : null,
+          };
+        }
         agents[id] = {
           ...r,
           name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888',
-          install: def.install ? { ...def.install, picked: detect.pickMethod(def.install.methods || [], process.platform) } : null,
+          install,
         };
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
