@@ -147,6 +147,19 @@ const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao, zcode, pi]
 // 内存态，server 重启自动清零，不会出现「永久卡在进行中」。
 let installInProgress = false;
 
+// 探测结果缓存：5 分钟 TTL。避免 /api/board（首页高频调用）每次都触发一次完整探测
+// （registry 查询 + 逐个 agent spawnSync 查版本号）。安装成功时主动失效，不等 TTL。
+const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
+let probeCache = { data: null, ts: 0 };
+async function getProbe(force = false) {
+  if (!force && probeCache.data && Date.now() - probeCache.ts < PROBE_CACHE_TTL_MS) {
+    return probeCache.data;
+  }
+  const data = await detect.probeAll(ADAPTERS);
+  probeCache = { data, ts: Date.now() };
+  return data;
+}
+
 // ---------- SSE 客户端管理 ----------
 const sseClients = new Set();
 function sseBroadcast(event, data) {
@@ -709,7 +722,7 @@ const server = http.createServer(async (req, res) => {
   // 应用探测：返回每个 agent 的安装/探测状态（设置页"应用管理"用）
   if (pathname === '/api/agents/status') {
     try {
-      const probed = await detect.probeAll(ADAPTERS);
+      const probed = await getProbe(url.searchParams.get('force') === '1');
       const byId = Object.fromEntries(ADAPTERS.map((a) => [a.ID, a]));
       const agents = {};
       for (const [id, r] of Object.entries(probed)) {
@@ -769,6 +782,7 @@ const server = http.createServer(async (req, res) => {
     setTimeout(() => {
       try {
         detect.installAgent(adapter, (step, detail) => {
+          if (step === 'done') probeCache = { data: null, ts: 0 };
           sseBroadcast('agent-install-progress', { agentId: id, step, ...detail });
         });
       } catch (e) {
