@@ -1016,9 +1016,10 @@ function renderSoundSettings(pop, selectedAgent) {
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span style="margin-left:8px;color:var(--text3);font-size:11px">WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
       </section>
     </div>`;
-  pop.querySelectorAll('.sound-agent').forEach((button) => { button.onclick = () => renderSoundSettings(pop, button.dataset.agent); });
+  pop.querySelectorAll('.sound-agent').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); renderSoundSettings(pop, button.dataset.agent); }; });
   pop.querySelectorAll('input[name="completion-sound"]').forEach((input) => {
-    input.onchange = async () => {
+    input.onchange = async (event) => {
+      event.stopPropagation();
       try {
         const response = await fetch('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: input.value }) });
         const next = await response.json();
@@ -1029,7 +1030,7 @@ function renderSoundSettings(pop, selectedAgent) {
       } catch (error) { toast('保存失败：' + (error.message || '未知错误')); renderSoundSettings(pop, selectedAgent); }
     };
   });
-  pop.querySelectorAll('.sound-preview').forEach((button) => { button.onclick = () => playSoundPreview(button.dataset.url); });
+  pop.querySelectorAll('.sound-preview').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); playSoundPreview(button.dataset.url); }; });
   pop.querySelector('#sound-upload').onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
