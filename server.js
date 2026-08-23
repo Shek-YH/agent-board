@@ -142,6 +142,10 @@ function focusAppCall(procName, cb) {
   });
 }
 const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao, zcode, pi];
+// 全局安装锁：同时只允许一个安装任务（installAgent 内部是阻塞的 spawnSync，
+// 多个并发跑会互相抢终端输出、也没法在 UI 上清晰呈现进度）。
+// 内存态，server 重启自动清零，不会出现「永久卡在进行中」。
+let installInProgress = false;
 
 // ---------- SSE 客户端管理 ----------
 const sseClients = new Set();
@@ -724,6 +728,45 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || 'probe failed' }));
     }
+    return;
+  }
+
+  // 安装某个 agent（只支持 tier:'cli'）。全局同时只允许一个安装任务在跑。
+  // 响应立即返回（参考 /api/rescan 的异步模式），真实进度走 SSE 的 agent-install-progress 事件。
+  if (pathname.startsWith('/api/agents/') && pathname.endsWith('/install') && req.method === 'POST') {
+    const id = pathname.slice('/api/agents/'.length, -'/install'.length);
+    const adapter = ADAPTERS.find((a) => a.ID === id);
+    if (!adapter || !adapter.detect) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未知 agent: ' + id }));
+      return;
+    }
+    if (adapter.detect.tier !== 'cli') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '这一版只支持命令行类工具的自动安装' }));
+      return;
+    }
+    if (installInProgress) {
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '已有安装任务在进行，请等它结束' }));
+      return;
+    }
+    installInProgress = true;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, background: true }));
+    // 让响应先发出去再开跑（installAgent 内部是同步 spawnSync，会阻塞事件循环）
+    setTimeout(() => {
+      try {
+        detect.installAgent(adapter, (step, detail) => {
+          sseBroadcast('agent-install-progress', { agentId: id, step, ...detail });
+        });
+      } catch (e) {
+        console.error(`[install] ${id} 未预期的异常:`, e.message);
+        sseBroadcast('agent-install-progress', { agentId: id, step: 'failed', reason: e.message || '未知错误' });
+      } finally {
+        installInProgress = false;
+      }
+    }, 50);
     return;
   }
 
