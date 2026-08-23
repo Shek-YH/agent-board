@@ -63,10 +63,7 @@ function stopServer(child) {
       return;
     }
 
-    const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
-      resolve();
-    }, 2_000);
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 2_000);
     child.once('exit', () => {
       clearTimeout(timeout);
       resolve();
