@@ -8,6 +8,7 @@ const { exec, spawn, spawnSync } = require('child_process');
 const store = require('./lib/store');
 const account = require('./lib/account');
 const { clearAuthCache } = require('./lib/auth-cache');
+const soundSettings = require('./lib/sound-settings');
 const detect = require('./lib/detect');
 const launchLib = require('./lib/launch');
 const watcher = require('./lib/watcher');
@@ -409,6 +410,11 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon',
+  '.aac': 'audio/aac',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
 };
 
 function serveStatic(req, res, urlPath) {
@@ -424,7 +430,7 @@ function serveStatic(req, res, urlPath) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let buf = '';
-    req.on('data', (c) => { buf += c; if (buf.length > 10 * 1024 * 1024) req.destroy(); });
+    req.on('data', (c) => { buf += c; if (buf.length > 12 * 1024 * 1024) req.destroy(); });
     req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); } });
     req.on('error', reject);
   });
@@ -483,6 +489,41 @@ const server = http.createServer(async (req, res) => {
     } catch {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unable to clear account cache' }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/sounds' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(soundSettings.loadSoundSettings()));
+    return;
+  }
+
+  if (pathname === '/api/sounds/upload' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sound = soundSettings.uploadSound({ dataUrl: body.dataUrl, name: body.name });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sound, settings: soundSettings.loadSoundSettings() }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'audio upload failed' }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/sounds/assign' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const agent = String(body.agent || '');
+      if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
+      const soundId = typeof body.soundId === 'string' ? body.soundId : '';
+      const settings = soundSettings.assignSound(agent, soundId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(settings));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'sound assignment failed' }));
     }
     return;
   }
