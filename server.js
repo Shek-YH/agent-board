@@ -719,7 +719,7 @@ const server = http.createServer(async (req, res) => {
         agents[id] = {
           ...r,
           name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888',
-          install: def.install || null,
+          install: def.install ? { ...def.install, picked: detect.pickMethod(def.install.methods || [], process.platform) } : null,
         };
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });

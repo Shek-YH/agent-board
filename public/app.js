@@ -944,6 +944,10 @@ function openColManager() {
 $('btn-cols').onclick = openColManager;
 
 /* ---------- 应用管理（探测各 AI Agent 安装状态，只读） ---------- */
+// 安装兜底计时器：SSE 断线重连可能丢掉终态事件，导致安装按钮永久锁死。
+// 全局只会有一个安装任务在跑（服务端也是这个限制），单个句柄够用。
+let installFallbackTimer = null;
+
 async function openAgentManager() {
   closePopover();
   state.popoverFor = 'agents';
@@ -996,7 +1000,7 @@ async function openAgentManager() {
     b.onclick = async () => {
       const id = b.dataset.id;
       const a = data.agents[id];
-      const method = (a.install.methods || [])[0];
+      const method = a.install.picked || null;
       const cmdHint = method
         ? (method.kind === 'npm' ? `npm install -g ${(method.flags || []).join(' ')} ${method.pkg}`.replace(/\s+/g, ' ')
           : method.kind === 'script' ? (method.win32 || method.posix)
@@ -1011,6 +1015,14 @@ async function openAgentManager() {
         const r = await fetch(`/api/agents/${encodeURIComponent(id)}/install`, { method: 'POST' });
         const d = await r.json();
         if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+        // 兜底：SSE 如果断线重连，装完的终态事件可能丢失，按钮会一直锁死。
+        // 给一个比后端 10 分钟安装超时更长的兜底计时器，到点了还没收到终态事件就自己解锁。
+        if (installFallbackTimer) clearTimeout(installFallbackTimer);
+        installFallbackTimer = setTimeout(() => {
+          installFallbackTimer = null;
+          document.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
+          toast('安装状态未知，可能已完成或失败——请刷新查看');
+        }, 11 * 60 * 1000);
       } catch (e) {
         toast('安装请求失败：' + (e.message || '未知错误'));
         pop.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
@@ -1096,6 +1108,7 @@ function connectSSE() {
       // 终态：解锁按钮 + 刷新弹窗（done 时要展示 tellUser 提示）
       if (d.step === 'done' || d.step === 'failed' || d.step === 'blocked'
           || d.step === 'deps-missing' || d.step === 'no-method') {
+        if (installFallbackTimer) { clearTimeout(installFallbackTimer); installFallbackTimer = null; }
         document.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
         if (d.step === 'done') {
           const tips = (d.tellUser || []).join('\n');
