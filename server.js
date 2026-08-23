@@ -68,14 +68,21 @@ function launchOrFocus(agent, cb) {
   // 残留的 findstr.exe 窗口），这里改成 Node 原生探测，不再有管道，就不会再触发这个问题。
   if (def.webUi) {
     const { url, port, startCmd } = def.webUi;
+    // 这个 IIFE 是异步的，执行到这里时 launchOrFocus 已经返回、路由那层的 try/catch 早就跑完了——
+    // 万一 spawn() 同步抛错（比如 EMFILE），不接住就是一个 unhandled rejection，会直接拖垮整个
+    // server 进程（Node 默认行为），不只是这一次跳转失败。所以这里必须自己兜底。
     (async () => {
-      let up = await launchLib.probePort(port);
-      if (!up) {
-        spawn('cmd.exe', ['/c', startCmd], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-        up = await launchLib.waitForPort(port);
+      try {
+        let up = await launchLib.probePort(port);
+        if (!up) {
+          spawn('cmd.exe', ['/c', startCmd], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+          up = await launchLib.waitForPort(port);
+        }
+        spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+        cb({ ok: true, action: up ? 'launch' : 'launch-timeout', agent });
+      } catch (e) {
+        cb({ ok: false, error: e.message || '启动 pi Web UI 失败', agent });
       }
-      spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-      cb({ ok: true, action: up ? 'launch' : 'launch-timeout', agent });
     })();
     return;
   }
