@@ -957,7 +957,7 @@ $('btn-cols').onclick = openColManager;
 // 全局只会有一个安装任务在跑（服务端也是这个限制），单个句柄够用。
 let installFallbackTimer = null;
 
-async function openAgentManager() {
+async function openAgentManager(force) {
   closePopover();
   state.popoverFor = 'agents';
   const pop = document.createElement('div');
@@ -973,7 +973,7 @@ async function openAgentManager() {
 
   let data;
   try {
-    const r = await fetch('/api/agents/status');
+    const r = await fetch('/api/agents/status' + (force ? '?force=1' : ''));
     data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
   } catch {
@@ -982,7 +982,10 @@ async function openAgentManager() {
   }
 
   const agents = Object.values(data.agents || {});
-  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行/桌面类工具支持一键安装）</span></div>
+  // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
+  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行/桌面类工具支持一键安装）</span>
+    <button class="btn ab-rescan-probe" style="float:right;min-height:22px;padding:2px 8px;font-size:11px">重新探测</button>
+  </div>
     <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
   for (const a of agents) {
     const badge = a.installed
@@ -1005,6 +1008,9 @@ async function openAgentManager() {
   }
   html += '</div>';
   pop.innerHTML = html;
+
+  const rescanBtn = pop.querySelector('.ab-rescan-probe');
+  if (rescanBtn) rescanBtn.onclick = () => openAgentManager(true);
 
   // 安装按钮：能静默装的（picked 有值）走「确认 + POST + SSE」；只能手动下载的直接跳转下载页
   pop.querySelectorAll('.ab-install').forEach((b) => {
@@ -1058,7 +1064,7 @@ async function openAgentManager() {
     };
   });
 }
-$('btn-agents').onclick = openAgentManager;
+$('btn-agents').onclick = () => openAgentManager();
 
 /* ---------- SSE ---------- */
 function connectSSE() {
