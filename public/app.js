@@ -535,7 +535,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
-  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-cols') && !e.target.closest('#btn-agents')) closePopover();
+  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents')) closePopover();
 });
 
 /* ---------- 详情抽屉 ---------- */
@@ -869,6 +869,32 @@ async function openHiddenManager() {
 }
 $('btn-hidden').onclick = openHiddenManager;
 
+/* ---------- 设置面板（集中入口） ---------- */
+function openSettingsHub() {
+  closePopover();
+  state.popoverFor = 'settings';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  pop.style.minWidth = '200px';
+  document.body.appendChild(pop);
+  pop.innerHTML = `<div class="pop-head">设置</div>
+    <div style="padding:6px 8px;display:flex;flex-direction:column;gap:6px">
+      <button class="pop-item" id="settings-cols">瀑布流设置</button>
+      <button class="pop-item" id="settings-sound">提示音设置</button>
+      <button class="pop-item" id="settings-skin">皮肤设置</button>
+      <button class="pop-item" id="settings-launch">模型端口设置</button>
+    </div>`;
+  pop.querySelector('#settings-cols').onclick = openColManager;
+  // 提示音设置这轮先占位，下一轮（完成会话提示音功能）会把这行换成真实的 openSoundSettings
+  pop.querySelector('#settings-sound').onclick = () => toast('敬请期待');
+  pop.querySelector('#settings-skin').onclick = () => toast('敬请期待');
+  pop.querySelector('#settings-launch').onclick = openLaunchOverridesManager;
+}
+
 /* ---------- 瀑布流列管理 ---------- */
 function openColManager() {
   closePopover();
@@ -950,7 +976,7 @@ function openColManager() {
     loadBoard();
   };
 }
-$('btn-cols').onclick = openColManager;
+$('btn-settings-hub').onclick = openSettingsHub;
 
 /* ---------- 应用管理（探测各 AI Agent 安装状态，只读） ---------- */
 // 安装兜底计时器：SSE 断线重连可能丢掉终态事件，导致安装按钮永久锁死。
