@@ -984,7 +984,7 @@ async function openAgentManager(force) {
   const agents = Object.values(data.agents || {});
   // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
   let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行/桌面类工具支持一键安装）</span>
-    <button class="btn ab-rescan-probe" style="float:right;min-height:22px;padding:2px 8px;font-size:11px">重新探测</button>
+    <button class="btn ab-rescan-probe" style="margin-left:auto;min-height:22px;padding:2px 8px;font-size:11px">重新探测</button>
   </div>
     <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
   for (const a of agents) {
