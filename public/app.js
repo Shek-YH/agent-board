@@ -719,6 +719,12 @@ function renderDrawer() {
 }
 function bindDrawerEvents(s) {
   const body = $('drawer-body');
+  // 只在嵌套滚动区已到边界时截住滚轮，避免继续滚动页面底层的瀑布流。
+  body.querySelectorAll('.d-anchors, .d-flow').forEach((panel) => {
+    panel.addEventListener('wheel', (event) => {
+      if (window.ScrollContainment.shouldContainWheel(panel, event.deltaY)) event.preventDefault();
+    }, { passive: false });
+  });
   // Tab 过滤
   body.querySelectorAll('.d-tab').forEach((tab) => {
     tab.onclick = () => {
