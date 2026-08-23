@@ -102,17 +102,22 @@ Expected: FAIL，报 `pickMethod is not a function`
 // 刻意不做「这个失败自动试下一个」的降级链：四选一的自动降级会让「这次到底跑了哪条命令」
 // 变得不确定，出问题不好复现。失败就如实报错，让用户自己决定重试还是换方式。
 function pickMethod(methods, platform = process.platform) {
-  for (const m of methods || []) {
+  const list = methods || [];
+  // 优先级：平台专属安装器脚本 > winget（仅 win32）> npm（跨平台兜底）——按优先级分轮扫描，
+  // 不按数组书写顺序决定（2026-08-22 代码审查发现：codex.js 的 methods 数组是 npm 排在
+  // win32 script 前面，如果按数组顺序线性扫描第一个匹配就返回，会错误选中 npm 而不是官方脚本）
+  for (const m of list) {
     if (m.kind === 'script') {
       if (platform === 'win32' && m.win32) return m;
       if (platform !== 'win32' && m.posix) return m;
-      continue;
     }
-    if (m.kind === 'npm') return m;               // 跨平台，总是可用
-    if (m.kind === 'winget' && platform === 'win32') return m;
     // kind === 'download' 本轮不处理（tier:cli 的 4 个 agent 都走不到这里）
   }
-  return null;
+  if (platform === 'win32') {
+    const wg = list.find((m) => m.kind === 'winget');
+    if (wg) return wg;
+  }
+  return list.find((m) => m.kind === 'npm') || null;
 }
 ```
 
