@@ -882,17 +882,17 @@ function openSettingsHub() {
   pop.style.minWidth = '200px';
   document.body.appendChild(pop);
   pop.innerHTML = `<div class="pop-head">设置</div>
-    <div style="padding:6px 8px;display:flex;flex-direction:column;gap:6px">
-      <button class="pop-item" id="settings-cols">瀑布流设置</button>
-      <button class="pop-item" id="settings-sound">提示音设置</button>
-      <button class="pop-item" id="settings-skin">皮肤设置</button>
-      <button class="pop-item" id="settings-launch">模型端口设置</button>
-    </div>`;
+    <button class="pop-item" id="settings-cols"><span>瀑布流设置</span></button>
+    <button class="pop-item" id="settings-sound" disabled><span>提示音设置（开发中）</span></button>
+    <button class="pop-item" id="settings-skin" disabled><span>皮肤设置（开发中）</span></button>
+    <button class="pop-item" id="settings-launch"><span>模型端口设置</span></button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
-  // 提示音设置这轮先占位，下一轮（完成会话提示音功能）会把这行换成真实的 openSoundSettings
-  pop.querySelector('#settings-sound').onclick = () => toast('敬请期待');
-  pop.querySelector('#settings-skin').onclick = () => toast('敬请期待');
-  pop.querySelector('#settings-launch').onclick = openLaunchOverridesManager;
+  // 提示音设置/皮肤设置这轮先占位（disabled，不接点击事件）：
+  // 下一轮（完成会话提示音功能）会把 #settings-sound 换成真实的 openSoundSettings
+  // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
+  // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
+  // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
+  pop.querySelector('#settings-launch').onclick = () => openLaunchOverridesManager();
 }
 
 /* ---------- 瀑布流列管理 ---------- */
