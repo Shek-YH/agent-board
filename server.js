@@ -476,9 +476,14 @@ const server = http.createServer(async (req, res) => {
 
   // 退出登录只清除独立的账号缓存，不触及本地会话或其他设置。
   if (pathname === '/api/account/logout' && req.method === 'POST') {
-    clearAuthCache();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(account.getAccountStatus()));
+    try {
+      clearAuthCache();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(account.getAccountStatus()));
+    } catch {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unable to clear account cache' }));
+    }
     return;
   }
 
