@@ -1054,6 +1054,18 @@ function playSoundPreview(url) {
   audio.play().catch(() => toast('浏览器阻止了播放，请再次点击试听'));
 }
 
+async function readApiResponse(response) {
+  const body = await response.text();
+  if (!body.trim()) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return null;
+  }
+  let data;
+  try { data = JSON.parse(body); } catch { throw new Error('HTTP ' + response.status); }
+  if (!response.ok || data.error) throw new Error(data.error || ('HTTP ' + response.status));
+  return data;
+}
+
 function renderSoundSettings(pop, selectedAgent) {
   const settings = state.completionSounds;
   const agents = soundAgents();
@@ -1065,7 +1077,8 @@ function renderSoundSettings(pop, selectedAgent) {
       <span class="dot" style="width:8px;height:8px;border-radius:50%;background:${esc(meta.color || '#888')}"></span>${esc(meta.name || id)}</button>`).join('');
   const soundRows = settings.sounds.map((sound) => `<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:7px;margin-top:7px">
       <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}>${esc(sound.name)}</label>
-      <button class="btn sound-preview" data-url="${esc(sound.url)}" style="min-height:28px;padding:3px 8px;font-size:12px">试听</button></div>`).join('');
+      <button class="btn sound-preview" data-url="${esc(sound.url)}" style="min-height:28px;padding:3px 8px;font-size:12px">试听</button>
+      <button class="btn sound-delete" data-sound-id="${esc(sound.id)}" data-sound-name="${esc(sound.name)}" style="min-height:28px;padding:3px 8px;font-size:12px;color:#B91C1C">删除</button></div>`).join('');
   pop.innerHTML = `<div class="pop-head">完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></div>
     <div style="display:grid;grid-template-columns:190px minmax(360px,1fr);max-height:68vh">
       <aside style="padding:8px;border-right:1px solid var(--border);overflow-y:auto">${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
@@ -1091,6 +1104,25 @@ function renderSoundSettings(pop, selectedAgent) {
     };
   });
   pop.querySelectorAll('.sound-preview').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); playSoundPreview(button.dataset.url); }; });
+  pop.querySelectorAll('.sound-delete').forEach((button) => {
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      if (!confirm(`确定要删除提示音“${button.dataset.soundName}”吗？删除后无法恢复。`)) return;
+      button.disabled = true;
+      const soundId = button.dataset.soundId;
+      try {
+        const response = await fetch('/api/sounds/' + encodeURIComponent(soundId), { method: 'DELETE' });
+        const next = await readApiResponse(response);
+        if (next) state.completionSounds = next;
+        else await loadCompletionSounds();
+        renderSoundSettings(pop, selectedAgent);
+        toast('提示音已删除');
+      } catch (error) {
+        button.disabled = false;
+        toast('删除失败：' + (error.message || '未知错误'));
+      }
+    };
+  });
   pop.querySelector('#sound-upload').onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;

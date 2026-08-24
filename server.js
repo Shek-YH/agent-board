@@ -284,6 +284,14 @@ async function scanAll() {
       } catch (e) { console.error(`[${a.ID}] scanAll failed:`, e.message); }
     }
   }
+  try {
+    const titleCount = codex.syncSessionTitles(store);
+    if (titleCount > 0) {
+      total += titleCount;
+      console.log(`[codex] 同步 ${titleCount} 个会话标题`);
+      sseBroadcast('message', { agent: 'codex', count: titleCount });
+    }
+  } catch (e) { console.error('[codex] session_index 同步失败:', e.message); }
   try { workbuddy.scanHeartbeats(store); } catch { /* ignore */ }
   isScanning = false;
   console.log(`[scan] 完成 ${jobs.length} 个文件，入库 ${total} 条，耗时 ${((Date.now() - now) / 1000).toFixed(1)}s`);
@@ -334,6 +342,17 @@ function startWatchers() {
       workbuddy.scanHeartbeats(store);
     } catch { /* ignore */ }
   }, 5000);
+  // Codex 的重命名写入 ~/.codex/session_index.jsonl，而不是 rollout 日志；
+  // 轻量 stat 轮询能在文件变化后及时把最新标题同步到看板。
+  const codexTitleTimer = setInterval(() => {
+    try {
+      const c = codex.syncSessionTitles(store);
+      if (c > 0) {
+        console.log(`[codex] session_index 更新 ${c} 个标题`);
+        sseBroadcast('message', { agent: 'codex', count: c });
+      }
+    } catch (e) { console.error('[codex] session_index 增量同步失败:', e.message); }
+  }, 1000);
   // DeepSeek Harness 兜底重扫：fs.watch 在 Windows 上对深层嵌套的 .zstd 文件偶发漏事件
   // （目录刚被创建时收到 change，子文件事件可能在监听器初始化前就过去了），
   // 每 30 秒调 adapter 自身的 scanAll（增量、按 offset）补全漏掉的新会话，避免整个
@@ -372,7 +391,7 @@ function startWatchers() {
   // 进程全无 = 该 agent 一定不在运行 → 提前结束「进行中」（不必等满 10 分钟）。
   // 只在进程名精确确认的 agent 上启用（进程名匹配不全时宁可保守不判，避免误伤正在运行的会话）。
   const procTimer = setInterval(checkAgentProcesses, 30 * 1000);
-  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(deskTimer); clearInterval(procTimer); };
+  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(deskTimer); clearInterval(procTimer); };
 }
 
 // CLI agent 进程名 → 进程检查。仅收录已实测确认的 exe 名；匹配不到进程 = 该 agent 全部 session 提前 done
@@ -534,6 +553,21 @@ const server = http.createServer(async (req, res) => {
       const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
       res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.statusCode === 413 ? 'Audio upload is too large' : (badInput ? 'Invalid audio upload' : 'Unable to save audio upload') }));
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/sounds/') && req.method === 'DELETE') {
+    try {
+      const soundId = decodeURIComponent(pathname.slice('/api/sounds/'.length));
+      if (!soundId || soundId.includes('/')) throw new TypeError('Invalid sound id');
+      const settings = soundSettings.deleteSound(soundId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(settings));
+    } catch (error) {
+      const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof URIError;
+      res.writeHead(badInput ? 400 : 500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: badInput ? 'Invalid sound deletion' : 'Unable to delete sound' }));
     }
     return;
   }
