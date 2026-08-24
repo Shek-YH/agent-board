@@ -27,3 +27,10 @@ test('项目侧栏仅浮层展示当前悬停路径，不改变列表布局', ()
   assert.match(app, /project-path-full/);
   assert.doesNotMatch(html, /<select id="f-project">/);
 });
+
+test('完整路径浮层左侧提供图标复制按钮，复制不触发项目筛选', () => {
+  assert.match(app, /copyButton\.className = 'project-path-copy'/);
+  assert.match(app, /copyButton\.addEventListener\('click', async \(e\) => \{\s*e\.stopPropagation\(\);\s*const ok = await clip\(item\.project\)/);
+  assert.match(html, /\.project-path:hover \.project-path-copy\{display:inline-flex\}/);
+  assert.match(html, /\.project-path-full\{[^}]*padding:8px 9px 8px 37px[^}]*\}/);
+});

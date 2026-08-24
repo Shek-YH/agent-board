@@ -244,12 +244,27 @@ function renderProjectRail() {
     return;
   }
   for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'project-path' + (item.project === state.project ? ' on' : '');
     const button = document.createElement('button');
-    button.className = 'project-path' + (item.project === state.project ? ' on' : '');
+    button.type = 'button';
+    button.className = 'project-path-select';
     button.title = item.project;
     button.innerHTML = `<span class="project-path-short">${esc(projectLeaf(item.project))}</span><span class="project-path-full">${esc(item.project)}</span>`;
     button.onclick = () => toggleProject(item.project);
-    rail.appendChild(button);
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.className = 'project-path-copy';
+    copyButton.title = '复制完整路径';
+    copyButton.setAttribute('aria-label', '复制完整路径');
+    copyButton.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    copyButton.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const ok = await clip(item.project);
+      toast(ok ? '已复制完整路径' : '复制失败，请手动复制');
+    });
+    row.append(button, copyButton);
+    rail.appendChild(row);
   }
 }
 const RANGE_LABEL = { day: '当天', '24h': '近 24 小时', week: '近一周', month: '近一个月' };
