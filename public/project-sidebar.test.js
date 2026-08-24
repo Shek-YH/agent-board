@@ -17,11 +17,12 @@ test('项目侧栏按最近会话排序，点击可筛选并可取消', () => {
   assert.match(app, /for \(const s of state\.board\.all \|\| \[\]\)/);
 });
 
-test('项目侧栏与会话瀑布流并列，悬停才展示完整路径', () => {
+test('项目侧栏仅浮层展示当前悬停路径，不改变列表布局', () => {
   assert.match(html, /<div class="board-layout" id="board-layout">\s*<aside class="project-rail" id="project-rail"><\/aside>\s*<div class="board" id="board"><\/div>/);
-  assert.match(html, /\.project-rail:hover \.project-path-short\{display:none\}/);
-  assert.match(html, /\.project-rail:hover \.project-path-full\{display:block\}/);
-  assert.match(html, /\.project-rail:hover \.project-path-full\{[^}]*overflow-wrap:anywhere[^}]*\}/);
+  assert.match(html, /\.project-path\{[^}]*position:relative[^}]*\}/);
+  assert.match(html, /\.project-path-full\{[^}]*position:absolute[^}]*overflow-wrap:anywhere[^}]*pointer-events:none[^}]*\}/);
+  assert.match(html, /\.project-path:hover \.project-path-full\{display:block\}/);
+  assert.doesNotMatch(html, /\.project-rail:hover \.project-path-full/);
   assert.match(app, /function renderProjectRail\(\)/);
   assert.match(app, /project-path-full/);
   assert.doesNotMatch(html, /<select id="f-project">/);

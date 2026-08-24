@@ -260,14 +260,12 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .board-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:14px;align-items:start;margin-top:4px}
 .project-rail{position:sticky;top:66px;max-height:calc(100vh - 86px);overflow-y:auto;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
 .project-rail-head{font-size:12px;font-weight:650;color:var(--text2);padding:2px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:6px}
-.project-path{display:block;width:100%;padding:8px 9px;border:1px solid transparent;border-radius:7px;color:var(--text2);text-align:left;cursor:pointer;transition:.15s;font:inherit;font-size:12px;line-height:1.35}
+.project-path{display:block;position:relative;width:100%;padding:8px 9px;border:1px solid transparent;border-radius:7px;color:var(--text2);text-align:left;cursor:pointer;transition:.15s;font:inherit;font-size:12px;line-height:1.35}
 .project-path:hover{background:#FBFAF8;color:var(--text)}
 .project-path.on{background:var(--accent-bg);border-color:#BFDBFE;color:var(--accent);font-weight:600}
-.project-path-short,.project-path-full{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.project-path-full{display:none}
-.project-rail:hover .project-path-short{display:none}
-.project-rail:hover .project-path-full{display:block}
-.project-rail:hover .project-path-full{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.project-path-short{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-path-full{display:none;position:absolute;top:0;left:0;width:100%;box-sizing:border-box;padding:8px 9px;border:1px solid var(--border2);border-radius:7px;background:var(--card);color:var(--text);white-space:normal;overflow-wrap:anywhere;text-overflow:clip;box-shadow:var(--shadow-lg);z-index:1;pointer-events:none}
+.project-path:hover .project-path-full{display:block}
 .project-empty{padding:12px 4px;color:var(--text3);font-size:12px}
 .board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;min-width:0;transition:grid-template-columns .2s ease}
 @media (max-width:1400px){.board{grid-template-columns:repeat(4,minmax(0,1fr))}}
