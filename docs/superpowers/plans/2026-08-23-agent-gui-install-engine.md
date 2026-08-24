@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 `tier:'gui'` 的 workbuddy / zcode / marvis 三个工具接上"安装"按钮——能静默装的（workbuddy/zcode 在 win32 上都能用 winget）走上一轮已经建好的"确认 + POST + SSE 进度"流程；只能手动下载的（marvis）点击后直接打开官方下载页，不追踪进度。豆包按用户明确指示完全排除，不做任何改动。
+**Goal:** 给 `tier:'gui'` 的 workbuddy / zcode / marvis 三个工具接上"安装"按钮——能静默装的（workbuddy/zcode 在 win32 上都能用 winget）走上一轮已经建好的"确认 + POST + SSE 进度"流程；只能手动下载的（marvis）点击后直接打开官方下载页，不追踪进度。
 
 **Architecture:** 复用上一轮 cli 安装引擎已经建好的 `install.picked`/`install.pickedCommand`（服务端算好、和真正执行的命令保证一致）。前端按 `picked` 是否有值分两条路径：有值走原有的静默安装流程；没有值但 `methods` 里有 `download` 方式，就直接 `window.open` 跳转，不经过后端、不占用安装锁。后端只需要把 `POST /api/agents/:id/install` 的 tier 校验从"只允许 cli"放宽到"允许 cli 和 gui"。
 
@@ -72,16 +72,12 @@ test('pickMethod 对 marvis 真实数据返回 null（只有 download 方式，�
   assert.equal(m, null);
 });
 
-test('doubao 保持不变：methods 仍为空数组（用户明确排除豆包，不给它做安装引擎）', () => {
-  const doubao = require('./adapters/doubao');
-  assert.equal((doubao.detect.install.methods || []).length, 0);
-});
 ```
 
 - [ ] **Step 2: 运行测试，确认新增的 4 个断言按预期失败**
 
 Run: `node --test` (不要带路径参数)
-Expected: 新增的 8 个测试里，`workbuddy 的下载页地址是 workbuddy.cn`、`marvis 现在有一个 download 方式`、`marvis 的 warning 文案已更新` 这 3 个 FAIL（因为生产代码还没改）；其余 5 个（`workbuddy 的 winget 方式仍然保留`、两个 `pickMethod` 真实数据测试、`marvis 返回 null`、`doubao 保持不变`）应该已经 PASS，因为它们断言的是这一轮**不改**的现有行为。
+Expected: 新增的 7 个测试里，`workbuddy 的下载页地址是 workbuddy.cn`、`marvis 现在有一个 download 方式`、`marvis 的 warning 文案已更新` 这 3 个 FAIL（因为生产代码还没改）；其余 4 个（`workbuddy 的 winget 方式仍然保留`、两个 `pickMethod` 真实数据测试、`marvis 返回 null`）应该已经 PASS，因为它们断言的是这一轮**不改**的现有行为。
 
 - [ ] **Step 3: 修改 `lib/adapters/workbuddy.js`**
 
@@ -150,7 +146,7 @@ const detect = {
 - [ ] **Step 5: 运行测试，确认全部通过**
 
 Run: `node --test`
-Expected: 全部测试 PASS，0 失败（新增的 8 个测试全绿，加上之前已有的全部继续通过）
+Expected: 全部测试 PASS，0 失败（新增的 7 个测试全绿，加上之前已有的全部继续通过）
 
 - [ ] **Step 6: 提交**
 
@@ -370,7 +366,7 @@ git commit -m "feat: 应用管理弹窗支持 gui 类工具安装（静默装或
 
 **Files:** 无代码改动，纯验证
 
-**范围说明**：这台机器上 workbuddy / zcode / marvis / doubao 目前全部处于"已安装"状态（真实探测结果，不是测试数据），而且 gui 类的探测方式是 registry/path 扫描，不像 cli 类那样有 `~/.agent-board/tool-paths.json` 覆盖机制可以临时伪造"未安装"状态。这意味着**这一轮没有安全的办法在这台机器上真正点开一个 gui 类工具的安装/下载按钮走一遍完整流程**——要做到这一点，唯一的办法是删除某个工具的真实本地数据来伪造"未安装"，这会破坏用户的真实数据，不做。因此这一轮的验证止步于"数据正确 + 代码审查确认接线正确"，不做真实点击验证，如实记录这个限制，不假装做了完整的端到端验证。
+**范围说明**：这台机器上 workbuddy / zcode / marvis 目前全部处于"已安装"状态（真实探测结果，不是测试数据），而且 gui 类的探测方式是 registry/path 扫描，不像 cli 类那样有 `~/.agent-board/tool-paths.json` 覆盖机制可以临时伪造"未安装"状态。这意味着**这一轮没有安全的办法在这台机器上真正点开一个 gui 类工具的安装/下载按钮走一遍完整流程**——要做到这一点，唯一的办法是删除某个工具的真实本地数据来伪造"未安装"，这会破坏用户的真实数据，不做。因此这一轮的验证止步于"数据正确 + 代码审查确认接线正确"，不做真实点击验证，如实记录这个限制，不假装做了完整的端到端验证。
 
 - [ ] **Step 1: 跑全部单元测试**
 
@@ -426,16 +422,16 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
 ```
 Expected：`picked= null`，`methods` 里只有一条 `{"kind":"download","url":"https://marvis.qq.com/"}`，`warning` 是"仅支持手动下载安装，暂无命令行安装方式"
 
-- [ ] **Step 5: curl 确认 doubao 不受影响**
+- [ ] **Step 5: 保留历史验证记录（已移除 Agent 不再验证）**
 
 ```bash
 curl -s http://127.0.0.1:4876/api/agents/status | node -e "
 let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
   const j=JSON.parse(d);
-  console.log('doubao methods:', JSON.stringify(j.agents.doubao.install.methods));
+  console.log('已移除 Agent methods:', JSON.stringify(j.agents.removed && j.agents.removed.install));
 });"
 ```
-Expected: `doubao methods: []`（豆包按用户指示完全不受这轮改动影响）
+Expected: 已移除 Agent 不出现在 `j.agents` 中。
 
 - [ ] **Step 6: curl 确认 /app.js 里新代码确实在服务**
 
@@ -451,7 +447,7 @@ Expected: 输出大于 0 的数字
 这份计划跑完，agent-board 的应用管理弹窗能：
 - 给 workbuddy / zcode 显示"安装"按钮，点击后走 winget 静默安装（和 cli 引擎一样的确认 + 进度流程）
 - 给 marvis 显示"下载安装"按钮，点击后直接打开 `https://marvis.qq.com/`，不追踪进度，提示用户装完自己刷新弹窗
-- 豆包保持完全不受影响，不出现安装按钮
+- 已移除的 Agent 不出现安装按钮
 
 **没做的**（如果以后要做）：
 - 真实点击验证（这台机器上 4 个 gui 工具全部已安装，没有安全的伪造未安装状态的办法）

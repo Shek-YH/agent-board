@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 agent-board 能自动判断这台机器上装没装某个 AI Agent（Claude Code / Codex / Pi / DeepSeek Harness / WorkBuddy / ZCode / 豆包 / Marvis）、装在哪、版本号是多少，并在界面上一个新的"应用管理"入口里展示出来，替换掉现在硬编码在这台机器上的绝对路径。
+**Goal:** 让 agent-board 能自动判断这台机器上装没装某个 AI Agent（Claude Code / Codex / Pi / DeepSeek Harness / WorkBuddy / ZCode / Marvis）、装在哪、版本号是多少，并在界面上一个新的"应用管理"入口里展示出来，替换掉现在硬编码在这台机器上的绝对路径。
 
 **Architecture:** 新增 `lib/detect.js` 作为通用探测引擎（路径列表探测 / Windows 卸载注册表探测 / 用户自定义路径覆盖 / 版本号读取），不认识任何具体 agent，只消费每个 `lib/adapters/*.js` 里新增的 `detect` 静态配置对象。`server.js` 新增一个只读接口把探测结果吐给前端，`public/` 新增一个复用现有"列设置"弹窗视觉风格的"应用管理"弹窗展示状态。
 
-**范围说明（重要）**：本计划只做**探测**，不做"点击安装"。对应设计文档 [2026-08-22-agent-detect-install-design.md](../specs/2026-08-22-agent-detect-install-design.md) 里 `detect` 配置的 `probe` 部分 + 展示层；`install`/`network`/`afterInstall` 三块数据本计划里会跟着 `probe` 一起写进每个 adapter（反正是静态数据，一次改完 8 个文件，不用两轮都碰），但**消费**这些数据的安装引擎、POST 安装接口、SSE 安装进度、卡片上的"安装"按钮，是下一份独立计划的范围，不在这里实现。跑完这份计划，用户能打开 agent-board、点一个新按钮，看到 8 个 agent 各自的真实安装状态——这本身就是可独立验证、有价值的成果。
+**范围说明（重要）**：本计划只做**探测**，不做"点击安装"。对应设计文档 [2026-08-22-agent-detect-install-design.md](../specs/2026-08-22-agent-detect-install-design.md) 里 `detect` 配置的 `probe` 部分 + 展示层；`install`/`network`/`afterInstall` 三块数据本计划里会跟着 `probe` 一起写进每个 adapter（反正是静态数据，一次改完 7 个文件，不用两轮都碰），但**消费**这些数据的安装引擎、POST 安装接口、SSE 安装进度、卡片上的"安装"按钮，是下一份独立计划的范围，不在这里实现。跑完这份计划，用户能打开 agent-board、点一个新按钮，看到 7 个 agent 各自的真实安装状态——这本身就是可独立验证、有价值的成果。
 
 **已发现的一处设计调整**：spec 撰写时假设"设置页"是一个已有页面，实地看代码后发现 agent-board 目前**没有独立设置页**，只有挂在工具栏上的弹窗（`btn-cols` 开瀑布流列设置、`btn-hidden` 开隐藏会话管理）。本计划遵循现有约定，新增一个同风格的工具栏按钮 `btn-agents` 打开"应用管理"弹窗，而不是新建一个页面级路由——视觉上仍然是 spec 里定的卡片网格布局，只是容器换成弹窗。
 
@@ -27,7 +27,6 @@
 | `lib/adapters/deepseek.js` | 新增 `detect` 导出 |
 | `lib/adapters/workbuddy.js` | 新增 `detect` 导出 |
 | `lib/adapters/zcode.js` | 新增 `detect` 导出 |
-| `lib/adapters/doubao.js` | 新增 `detect` 导出 |
 | `lib/adapters/marvis.js` | 新增 `detect` 导出 |
 | `server.js` | 新增 `GET /api/agents/status` 路由 |
 | `public/index.html` | 新增 `btn-agents` 工具栏按钮 |
@@ -1024,23 +1023,23 @@ git commit -m "feat(zcode): 新增 detect 探测/安装配置"
 
 ---
 
-### Task 12: doubao.js 加 detect 配置
+### Task 12: 已移除 Agent 的探测配置（历史步骤，不再执行）
 
 **Files:**
-- Modify: `lib/adapters/doubao.js:66` （`module.exports = {` 那一行前面插入）
+- 该 Agent 已从项目中移除，本节历史步骤不再执行。
 
 - [ ] **Step 1: 加 detect 导出**
 
-在 `lib/adapters/doubao.js` 的 `module.exports = {` 那一行（第 66 行）之前插入：
+原计划曾在已移除的适配器中插入探测配置；该适配器现已不存在。
 
 ```js
-// 探测配置：豆包不在 EchoBird 支持范围内，官方下载地址还没查到（见设计 spec「落地前必须
+// 探测配置：该 Agent 不在 EchoBird 支持范围内，官方下载地址还没查到（见设计 spec「落地前必须
 // 先确认的事项」），这轮 install.methods 留空——设置页会显示"未检测到"但不出现安装按钮。
-// probe 复用上面已有的 ROOT 常量：这不是"安装目录"探测，而是"本机是否有豆包会话数据"信号，
+// probe 复用上面已有的 ROOT 常量：这不是"安装目录"探测，而是"本机是否有该 Agent 会话数据"信号，
 // 是目前唯一能确认的真实探测依据。
 const detect = {
   tier: 'gui',
-  identityGuard: { description: '豆包（字节跳动）桌面客户端', notToConfuseWith: [] },
+  identityGuard: { description: '已移除 Agent 桌面客户端', notToConfuseWith: [] },
   requirements: {},
   probe: { kind: 'path', win32: [ROOT], darwin: [], linux: [] },
   install: { methods: [], warning: '官方下载地址待确认，这轮只做探测' },
@@ -1064,14 +1063,12 @@ module.exports = {
 
 - [ ] **Step 2: 用 Node 直接加载确认没有语法错误**
 
-Run: `node -e "console.log(require('./lib/adapters/doubao').detect.tier)"`
-Expected: 输出 `gui`
+该步骤已取消。
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add lib/adapters/doubao.js
-git commit -m "feat(doubao): 新增 detect 探测配置（安装方式待确认，先只做探测）"
+该步骤已取消。
 ```
 
 ---
@@ -1146,7 +1143,6 @@ test('8 个 adapter 的 detect 配置符合基本 schema', () => {
     require('./adapters/deepseek'),
     require('./adapters/workbuddy'),
     require('./adapters/zcode'),
-    require('./adapters/doubao'),
     require('./adapters/marvis'),
   ];
   assert.equal(adapters.length, 8);

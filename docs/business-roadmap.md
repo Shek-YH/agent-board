@@ -8,7 +8,7 @@
 
 - `server.js` 起一个本地 HTTP 服务（默认 `127.0.0.1:4876`）
 - `lib/store.js`（JSON 落盘）+ `lib/watcher.js`（监听各 AI 工具的本地会话目录）
-- `lib/adapters/` 下 8 个适配器（claude/codex/workbuddy/deepseek/doubao/marvis/zcode/pi）
+- `lib/adapters/` 下 7 个适配器（claude/codex/workbuddy/deepseek/marvis/zcode/pi）
 - 前端是 `public/index.html` + `public/app.js` 的原生页面，没有构建工具
 - 启动方式是 `.bat`/`.vbs`（面向 Windows 单机、开机自启场景）
 - 最初没有设置面板、账号体系、鉴权或 license 相关代码
@@ -95,5 +95,4 @@
 
 - **2026-08-22 ~ 2026-08-23**：完成阶段 1 全部内容（探测引擎、cli 安装引擎、gui 安装引擎、探测缓存 + 瀑布流列联动），细节见各自的 `docs/superpowers/specs/*.md` / `docs/superpowers/plans/*.md`
 - **2026-08-23**：完成阶段 5 的一小部分（README、LICENSE、版本号打到 0.2.0）
-- 用户 2026-08-22 明确决定：**豆包（doubao）不再纳入后续任何开发范围**（探测代码保留，不做安装引擎，不做任何新功能）
 - 下一步方向仍未选定，交给接手的 agent 和用户当面确认——不要替用户直接跳到阶段 2 或阶段 3，先问

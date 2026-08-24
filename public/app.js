@@ -1,13 +1,30 @@
 'use strict';
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
+const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand';
+
+function loadAutoExpand() {
+  try {
+    const value = localStorage.getItem(AUTO_EXPAND_STORAGE_KEY);
+    return value === null ? true : value === '1';
+  } catch {
+    return true;
+  }
+}
+
+function saveAutoExpand(enabled) {
+  try { localStorage.setItem(AUTO_EXPAND_STORAGE_KEY, enabled ? '1' : '0'); } catch {}
+}
+
 const state = {
   agents: [], projects: [], active: [], agentsDef: {},
-  project: '', q: '', range: 0, activeRange: 'day', activeProject: '',
+  project: '', q: '', range: 7, activeRange: 'day', activeProject: '',
   onlyUser: true,
   board: {}, agentIds: [], defaultAgentIds: [], colOrder: null,
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
+  // Codex 线程/回合归并状态：与 liveRefs 分离，避免把所有状态压成二元值
+  runtimeStatuses: new Map(),
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
   recentDone: new Map(),
   completionSounds: { assignments: {}, sounds: [] },
@@ -16,6 +33,7 @@ const state = {
   loading: false,
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
+  autoExpandOnHover: loadAutoExpand(),
 };
 
 // 瀑布流列配置：localStorage 持久化（显示哪些 agent 列 + 顺序），null 表示用默认
@@ -55,6 +73,10 @@ const esc = (s) => String(s == null ? '' : s)
 function smartTitle(text, max = 40) {
   const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
   return t ? t.slice(0, max) : '';
+}
+function displaySessionId(sessionId) {
+  const value = String(sessionId || '');
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-5)}` : value;
 }
 const clip = (txt) => navigator.clipboard.writeText(txt).then(() => true, () => false);
 
@@ -127,12 +149,13 @@ async function loadBoard() {
     // defaultAgentIds：探测为已安装 或 有历史数据的 agent 子集，只用来算「默认列」，
     // 不影响 state.agentIds（列设置弹窗仍然要能看到全部 agent，供手动勾选恢复）
     state.defaultAgentIds = d.defaultAgentIds || d.agentIds || [];
-    // 后端返回的实时活跃集合：只并入不覆盖——移除动作完全由 SSE active 事件权威执行，
-    // 避免 loadBoard 重建时（即使后端快照 status 恰好过期）把进行中会话闪回「已完成」
+    // 后端返回的是一次完整的实时活跃快照。必须整体替换，
+    // 否则 SSE 丢失/断线时，旧 live ref 会被永久并回去，已完成卡片就会一直显示进行中。
     if (Array.isArray(d.liveRefs)) {
-      const next = new Set(d.liveRefs);
-      for (const r of state.liveRefs) next.add(r);
-      state.liveRefs = next;
+      state.liveRefs = new Set(d.liveRefs);
+    }
+    if (d.runtimeStatuses && typeof d.runtimeStatuses === 'object') {
+      state.runtimeStatuses = new Map(Object.entries(d.runtimeStatuses));
     }
     // 首次加载：把当前配置的列存好（默认 = all + 探测/历史数据过滤后的 agent）
     if (!state.colOrder) state.colOrder = loadColOrder() || ['all', ...state.defaultAgentIds];
@@ -176,6 +199,82 @@ async function launchAgent(agent) {
   } catch { toast('请求失败'); }
   // 延迟刷新运行状态标记
   setTimeout(refreshRunStatus, 1200);
+}
+function extractCodexThreadId(sessionId) {
+  const match = String(sessionId || '').match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+  return match ? match[1] : null;
+}
+async function openCodexThread(sessionId) {
+  const threadId = extractCodexThreadId(sessionId);
+  if (!threadId) {
+    toast('Codex：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Codex 会话…');
+  try {
+    const res = await fetch('/api/open-codex-thread', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Codex：已打开指定会话');
+    else toast(`Codex：${d.error || '操作失败'}`);
+  } catch { toast('Codex：请求失败'); }
+}
+async function openDeepSeekSession(sessionId) {
+  if (!sessionId) {
+    toast('DeepSeek Harness：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 DeepSeek Harness 桌面端会话…');
+  try {
+    const res = await fetch('/api/open-deepseek-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('DeepSeek Harness：已打开指定桌面端会话');
+    else toast(`DeepSeek Harness：${d.error || '操作失败'}`);
+  } catch { toast('DeepSeek Harness：请求失败'); }
+}
+async function openPiAgentSession(sessionId) {
+  if (!sessionId) {
+    toast('Pi Agent：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Pi Agent Desktop 会话…');
+  try {
+    const res = await fetch('/api/open-pi-agent-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Pi Agent：已打开指定桌面端会话');
+    else toast(`Pi Agent：${d.error || '操作失败'}`);
+  } catch { toast('Pi Agent：请求失败'); }
+}
+async function openHermesSession(sessionId) {
+  if (!sessionId) {
+    toast('Hermes Agent：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Hermes Desktop 会话…');
+  try {
+    const res = await fetch('/api/open-hermes-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Hermes Agent：已打开指定桌面端会话');
+    else toast(`Hermes Agent：${d.error || '操作失败'}`);
+  } catch { toast('Hermes Agent：请求失败'); }
+}
+function jumpToAgentSession(s) {
+  if (s.agent === 'codex') return openCodexThread(s.session_id);
+  if (s.agent === 'deepseek') return openDeepSeekSession(s.session_id);
+  if (s.agent === 'pi') return openPiAgentSession(s.session_id);
+  if (s.agent === 'hermes') return openHermesSession(s.session_id);
+  return launchAgent(s.agent);
 }
 async function refreshRunStatus() {
   try {
@@ -357,9 +456,27 @@ function dismissRecent(ref) {
   state.dismissedRecent.add(ref);
   persistRecentDone();
 }
+function dismissAllRecent() {
+  const refs = new Set(state.recentDone.keys());
+  document.querySelectorAll('#board .s-card.flow-green').forEach((el) => {
+    const ref = el.querySelector('.s-more')?.dataset.ref;
+    if (ref) refs.add(ref);
+  });
+  for (const ref of refs) {
+    state.recentDone.delete(ref);
+    state.dismissedRecent.add(ref);
+  }
+  persistRecentDone();
+  document.querySelectorAll('#board .s-card').forEach((el) => {
+    const ref = el.querySelector('.s-more')?.dataset.ref;
+    if (ref) applyFlowDecor(el, ref, state.liveRefs.has(ref));
+  });
+  toast(refs.size ? `已将 ${refs.size} 个会话标记为已读` : '暂无需要标记的会话');
+}
 // 按最新状态刷新单张卡的流光装饰（SSE 逐卡差异更新 + 已读点击共用）
 function applyFlowDecor(el, ref, nowLive) {
-  const recent = !nowLive && isRecentCompleted(ref);
+  const runtime = state.runtimeStatuses.get(ref);
+  const recent = !nowLive && (!runtime || runtime.state === 'completed') && isRecentCompleted(ref);
   el.classList.toggle('flow-red', nowLive);
   el.classList.toggle('flow-green', recent);
   let btn = el.querySelector('.s-flow-dismiss');
@@ -392,13 +509,14 @@ function renderBoard() {
   const board = $('board');
   const cols = effectiveCols();
   const hoveredCol = board.dataset.hoveredCol;
+  const focusedCol = board.dataset.focusedCol || hoveredCol;
+  const focusMode = board.dataset.focusMode || (hoveredCol ? 'hover' : '');
   const preserveFocus = hoveredCol && cols.includes(hoveredCol)
-    && [...board.querySelectorAll('.agent-col')].some((col) => col.dataset.col === hoveredCol && col.matches(':hover'));
+    && [...board.querySelectorAll('.agent-col')].some((col) => col.dataset.col === hoveredCol && col.matches(':hover'))
+    || (focusMode === 'manual' && focusedCol && cols.includes(focusedCol));
   board.innerHTML = '';
   if (!preserveFocus) {
-    board.classList.remove('has-focus');
-    delete board.dataset.hoveredCol;
-    board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
+    clearColumnFocus(board, cols);
   }
   for (const key of cols) {
     const col = document.createElement('div');
@@ -407,8 +525,18 @@ function renderBoard() {
     const meta = key === 'all' ? { name: '全部', color: '#888780', icon: null } : (state.agentsDef[key] || { name: key, color: '#888780', icon: null });
     const head = document.createElement('div');
     head.className = 'col-head';
+    head.setAttribute('role', 'button');
+    head.setAttribute('tabindex', '0');
+    head.setAttribute('aria-label', `${meta.name}：点击手动展开或收起`);
     head.style.setProperty('--colc', meta.color);
     head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>`;
+    head.addEventListener('click', () => toggleManualColumn(key));
+    head.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleManualColumn(key);
+      }
+    });
     const cardsBox = document.createElement('div');
     cardsBox.className = 'col-cards';
     col.appendChild(head);
@@ -421,33 +549,87 @@ function renderBoard() {
       const empty = document.createElement('div');
       empty.className = 'col-empty';
       empty.textContent = key === 'all' ? '暂无会话' : '暂无该 agent 的会话';
+      if (key !== 'all' && state.agentsDef[key]) {
+        const quickOpen = document.createElement('button');
+        quickOpen.type = 'button';
+        quickOpen.className = 'col-empty-action';
+        quickOpen.textContent = `打开 ${meta.name}`;
+        quickOpen.title = `快速打开 ${meta.name}`;
+        quickOpen.addEventListener('click', (e) => {
+          e.stopPropagation();
+          launchAgent(key);
+        });
+        empty.appendChild(quickOpen);
+      }
       cardsBox.appendChild(empty);
       continue;
     }
     for (const s of list) cardsBox.appendChild(buildCard(s, key));
   }
   if (preserveFocus) {
-    board.classList.add('has-focus');
-    board.style.gridTemplateColumns = cols.map((col) => col === hoveredCol ? 'minmax(320px, 2.2fr)' : 'minmax(0, 0.55fr)').join(' ');
-    board.querySelectorAll('.agent-col').forEach((col) => col.classList.toggle('focused', col.dataset.col === hoveredCol));
+    const key = focusMode === 'manual' ? focusedCol : hoveredCol;
+    board.dataset.focusedCol = key;
+    board.dataset.focusMode = focusMode;
+    if (focusMode === 'hover') board.dataset.hoveredCol = key;
+    applyColumnFocus(board, key, cols);
   }
 }
+
+function applyColumnFocus(board, key, cols = effectiveCols()) {
+  board.classList.add('has-focus');
+  // 聚焦列比普通列增加 1 倍宽度，避免回到原来的超宽比例。
+  board.style.gridTemplateColumns = cols.map((col) => col === key ? 'minmax(0, 2fr)' : 'minmax(0, 1fr)').join(' ');
+  board.querySelectorAll('.agent-col').forEach((col) => {
+    const focused = col.dataset.col === key;
+    col.classList.toggle('focused', focused);
+    col.querySelector('.col-head')?.setAttribute('aria-expanded', focused ? 'true' : 'false');
+  });
+}
+
+function clearColumnFocus(board, cols = effectiveCols()) {
+  board.classList.remove('has-focus');
+  delete board.dataset.hoveredCol;
+  delete board.dataset.focusedCol;
+  delete board.dataset.focusMode;
+  board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
+  board.querySelectorAll('.agent-col').forEach((col) => {
+    col.classList.remove('focused');
+    col.querySelector('.col-head')?.setAttribute('aria-expanded', 'false');
+  });
+}
+
 function setHoveredColumn(key) {
   const board = $('board');
-  if (board.dataset.hoveredCol === key) return;
+  if (!state.autoExpandOnHover || board.dataset.focusMode === 'manual') return;
   const cols = effectiveCols();
   board.dataset.hoveredCol = key;
-  board.classList.add('has-focus');
-  board.style.gridTemplateColumns = cols.map((col) => col === key ? 'minmax(320px, 2.2fr)' : 'minmax(0, 0.55fr)').join(' ');
-  board.querySelectorAll('.agent-col').forEach((col) => col.classList.toggle('focused', col.dataset.col === key));
+  board.dataset.focusedCol = key;
+  board.dataset.focusMode = 'hover';
+  applyColumnFocus(board, key, cols);
 }
+
 function clearHoveredColumn() {
   const board = $('board');
-  if (!board.dataset.hoveredCol) return;
+  if (board.dataset.focusMode === 'manual' || !board.dataset.hoveredCol) return;
+  clearColumnFocus(board);
+}
+
+function toggleManualColumn(key) {
+  const board = $('board');
+  if (board.dataset.focusMode === 'manual' && board.dataset.focusedCol === key) {
+    clearColumnFocus(board);
+    return;
+  }
   delete board.dataset.hoveredCol;
-  board.classList.remove('has-focus');
-  board.style.gridTemplateColumns = effectiveCols().map(() => 'minmax(0, 1fr)').join(' ');
-  board.querySelectorAll('.agent-col').forEach((col) => col.classList.remove('focused'));
+  board.dataset.focusedCol = key;
+  board.dataset.focusMode = 'manual';
+  applyColumnFocus(board, key);
+}
+
+function setAutoExpandOnHover(enabled) {
+  state.autoExpandOnHover = Boolean(enabled);
+  saveAutoExpand(state.autoExpandOnHover);
+  if (!state.autoExpandOnHover) clearHoveredColumn();
 }
 // 隐藏一列（从配置里移除；全部列不可隐藏）
 function hideCol(key) {
@@ -458,26 +640,78 @@ function hideCol(key) {
   renderBoard();
   toast('已隐藏 ' + (agentMeta(key).name || key) + ' 列，点筛选栏「列设置」可恢复');
 }
+
+const RUNTIME_STATUS_LABELS = {
+  running: '进行中',
+  waiting_approval: '待审批',
+  waiting_user_input: '待输入',
+  completed: '已完成',
+  interrupted: '已中断',
+  failed: '失败',
+  stale_active: '状态待确认',
+  not_loaded: '未加载',
+  system_error: '系统错误',
+  idle: '空闲',
+  unknown: '状态未知',
+};
+
+function runtimeStatusFor(s, live) {
+  const runtime = state.runtimeStatuses.get(s.id) || s.runtime_status;
+  return runtime && runtime.state ? runtime.state : (live ? 'running' : 'completed');
+}
+
+function statusClass(status) {
+  if (status === 'running') return 'active';
+  if (status === 'waiting_approval' || status === 'waiting_user_input') return 'waiting';
+  if (status === 'failed' || status === 'system_error') return 'failed';
+  if (status === 'interrupted') return 'interrupted';
+  if (status === 'stale_active' || status === 'not_loaded' || status === 'unknown') return 'attention';
+  return 'done';
+}
+
+function statusMarkup(status) {
+  const label = RUNTIME_STATUS_LABELS[status] || RUNTIME_STATUS_LABELS.unknown;
+  if (status === 'running') return '<span class="s-status on"><span class="pulse"></span>' + label + '</span>';
+  if (status === 'waiting_approval' || status === 'waiting_user_input') return '<span class="s-status wait">' + label + '</span>';
+  if (status === 'failed' || status === 'system_error') return '<span class="s-status error">' + label + '</span>';
+  if (status === 'interrupted') return '<span class="s-status interrupted">' + label + '</span>';
+  if (status === 'stale_active' || status === 'not_loaded' || status === 'unknown') return '<span class="s-status attention">' + label + '</span>';
+  return '<span class="s-status">' + label + '</span>';
+}
+
+function applyStatusClass(el, status) {
+  for (const cls of ['active', 'waiting', 'failed', 'interrupted', 'attention', 'done']) el.classList.remove(cls);
+  el.classList.add(statusClass(status));
+}
+
 function buildCard(s, colKey) {
   const meta = agentMeta(s.agent);
   const def = state.agentsDef[s.agent] || {};
   // 状态唯一权威来源：liveRefs（SSE 实时维护），不用后端快照 s.status——
   // 后端 status 在请求瞬间计算，心跳窗口边缘可能算成 done，重建时会把进行中闪回已完成
   const live = state.liveRefs.has(s.id);
-  const recent = !live && isRecentCompleted(s.id);
+  const status = runtimeStatusFor(s, live);
+  const recent = status === 'completed' && !live && isRecentCompleted(s.id);
   const card = document.createElement('div');
-  card.className = 's-card ' + (live ? 'active' : 'done') + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
+  card.className = 's-card ' + statusClass(status) + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
+  card.dataset.runtimeStatus = status;
+  const rawSessionId = String(s.session_id || '');
+  const sessionId = s.agent === 'codex' ? extractCodexThreadId(rawSessionId) : rawSessionId;
+  card.dataset.sessionId = sessionId || rawSessionId;
+  card.dataset.boardSessionId = rawSessionId;
   card.addEventListener('mouseenter', () => setHoveredColumn(colKey));
   const isAll = colKey === 'all';
   const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
-  const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || s.session_id.slice(0, 12))}</span>`;
+  const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || rawSessionId.slice(0, 12))}</span>`;
+  const sessionIdLabel = displaySessionId(sessionId);
+  const sessionIdHtml = sessionId
+    ? `<button type="button" class="s-sid" data-session-id="${esc(sessionId)}" title="复制 ${esc(s.agent === 'codex' ? 'Codex thread ID' : 'session ID')}">${esc(sessionIdLabel)}</button>`
+    : '';
   const agentTag = isAll
     ? `<span class="agent-tag" style="background:${meta.color}">${esc(meta.name)}</span>`
     : '';
-  const statusHtml = live
-    ? '<span class="s-status on"><span class="pulse"></span>进行中</span>'
-    : '<span class="s-status">已完成</span>';
+  const statusHtml = statusMarkup(status);
   // 跳转图标：优先用 AGENT_DEFS 里的 logo，否则 fallback 到字母
   const iconHtml = def.icon
     ? `<img src="/icons/${esc(def.icon)}" alt="" style="width:18px;height:18px;object-fit:contain">`
@@ -487,6 +721,7 @@ function buildCard(s, colKey) {
       <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
       ${agentTag}
       ${titleHtml}
+      ${sessionIdHtml}
       ${statusHtml}
     </div>
     <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
@@ -505,12 +740,18 @@ function buildCard(s, colKey) {
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
     e.stopPropagation();
-    launchAgent(s.agent);
+    jumpToAgentSession(s);
     // 点击跳转 = 视为已读：若该卡是「刚完成」绿色流光状态，同步取消高亮
     if (isRecentCompleted(s.id)) {
       dismissRecent(s.id);
       syncFlowDecor(s.id);
     }
+  });
+  card.querySelector('.s-sid')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const value = e.currentTarget.dataset.sessionId || '';
+    const ok = await clip(value);
+    toast(ok ? `已复制 session ID：${value}` : '复制 session ID 失败');
   });
   card.querySelector('.s-more').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -831,7 +1072,7 @@ function bindDrawerEvents(s) {
     toast('已复制 Markdown 到剪贴板');
   };
   // 跳转
-  body.querySelector('.d-jump').onclick = () => launchAgent(s.agent);
+  body.querySelector('.d-jump').onclick = () => jumpToAgentSession(s);
 }
 function buildMarkdown(s) {
   const lines = [`# ${s.title || s.session_id}`, '', `- Agent: ${s.agent}`, `- Project: ${s.project || '(无)'}`, `- Messages: ${s.msg_count}`, ''];
@@ -854,6 +1095,7 @@ function toggleImport() {
   box.style.display = box.style.display === 'none' ? 'flex' : 'none';
 }
 $('btn-import').onclick = toggleImport;
+$('btn-dismiss-recent').onclick = dismissAllRecent;
 $('imp-cancel').onclick = toggleImport;
 $('imp-submit').onclick = async () => {
   const raw = $('imp-json').value.trim();
@@ -963,11 +1205,18 @@ function openSettingsHub() {
   pop.style.minWidth = '200px';
   document.body.appendChild(pop);
   pop.innerHTML = `<div class="pop-head">设置</div>
+    <label class="pop-item settings-toggle" for="settings-hover-expand">
+      <span>悬停 session 卡自动展开</span>
+      <input type="checkbox" id="settings-hover-expand">
+    </label>
     <button class="pop-item" id="settings-cols">瀑布流设置</button>
     <button class="pop-item" id="settings-account">账户与方案</button>
     <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
+  const toggle = pop.querySelector('#settings-hover-expand');
+  toggle.checked = state.autoExpandOnHover;
+  toggle.onchange = () => setAutoExpandOnHover(toggle.checked);
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
@@ -1047,7 +1296,7 @@ async function openAccountSettings() {
 }
 
 function soundAgents() {
-  return Object.entries(state.agentsDef || {}).filter(([id]) => id !== 'doubao');
+  return Object.entries(state.agentsDef || {});
 }
 
 function readFileAsDataUrl(file) {
@@ -1175,7 +1424,7 @@ async function openSoundSettings() {
 const LAUNCH_DEFAULT_HINT = {
   claude: '默认：claude:// 协议跳转', codex: '默认：codex:// 协议跳转',
   workbuddy: '默认：workbuddy:// 协议跳转', deepseek: '默认：命令行工具直接跳转',
-  marvis: '默认：启动脚本拉起', doubao: '默认：doubao:// 协议跳转',
+  marvis: '默认：启动脚本拉起',
   zcode: '默认：启动脚本拉起', pi: '默认：命令行工具直接跳转',
 };
 
@@ -1456,19 +1705,29 @@ async function openAgentManager(force) {
 $('btn-agents').onclick = () => openAgentManager();
 
 /* ---------- SSE ---------- */
+const SSE_REFRESH_INTERVAL_MS = 5000;
 function connectSSE() {
   const es = new EventSource('/api/events');
   // 新消息：刷新统计；看板防抖刷新（避免高频 message 触发全量重建造成状态闪烁/视觉跳动，
   // 重建时 buildCard 用 liveRefs 判定状态，不会闪回「已完成」）
   let boardTimer = null;
+  let stateTimer = null;
+  const refreshState = () => {
+    if (stateTimer) return;
+    stateTimer = setTimeout(() => { stateTimer = null; loadState(); }, SSE_REFRESH_INTERVAL_MS);
+  };
   const refreshBoard = () => {
     if (boardTimer) return;
-    boardTimer = setTimeout(() => { boardTimer = null; loadBoard(); }, 600);
+    boardTimer = setTimeout(() => { boardTimer = null; loadBoard(); }, SSE_REFRESH_INTERVAL_MS);
   };
-  es.addEventListener('message', () => { loadState(); refreshBoard(); });
+  es.addEventListener('message', () => { refreshState(); refreshBoard(); });
   es.addEventListener('active', (ev) => {
     try {
-      const arr = JSON.parse(ev.data);
+      const payload = JSON.parse(ev.data);
+      const arr = Array.isArray(payload) ? payload : (Array.isArray(payload.active) ? payload.active : []);
+      if (!Array.isArray(payload) && payload.statuses && typeof payload.statuses === 'object') {
+        state.runtimeStatuses = new Map(Object.entries(payload.statuses));
+      }
       // 兼容两种条目结构：getActive() 返回 {sessionRef}；心跳曾返回 {sessionId}
       // 且只认 active 明确为 true 的条目（防御：任何来源都不该把 inactive 会话当活跃）
       const liveSet = new Set(
@@ -1482,7 +1741,8 @@ function connectSSE() {
       // 离开活跃窗口的会话标记为「刚完成」（绿色流光）。首次快照只建立基线，不误标。
       if (state._activeInit) {
         for (const ref of state._prevRefs) {
-          if (!liveSet.has(ref)) markRecentlyCompleted(ref);
+          const runtime = state.runtimeStatuses.get(ref);
+          if (!liveSet.has(ref) && (!runtime || runtime.state === 'completed')) markRecentlyCompleted(ref);
         }
       }
       state._activeInit = true;
@@ -1495,17 +1755,16 @@ function connectSSE() {
         if (!ref) return;
         const nowLive = liveSet.has(ref);
         const prevLive = el.dataset.live === '1';
-        if (nowLive !== prevLive) {
+        const runtime = state.runtimeStatuses.get(ref);
+        const status = runtime && runtime.state ? runtime.state : (nowLive ? 'running' : 'completed');
+        const prevStatus = el.dataset.runtimeStatus || (prevLive ? 'running' : 'completed');
+        if (nowLive !== prevLive || status !== prevStatus) {
           // 状态变化：单独更新这一张卡
           el.dataset.live = nowLive ? '1' : '0';
-          el.classList.toggle('active', nowLive);
-          el.classList.toggle('done', !nowLive);
+          el.dataset.runtimeStatus = status;
+          applyStatusClass(el, status);
           const lbl = el.querySelector('.s-status');
-          if (lbl) {
-            lbl.outerHTML = nowLive
-              ? '<span class="s-status on"><span class="pulse"></span>进行中</span>'
-              : '<span class="s-status">已完成</span>';
-          }
+          if (lbl) lbl.outerHTML = statusMarkup(status);
         }
         // 流光装饰与状态解耦刷新：新完成迁移后立即点亮绿色流光（含「已读」按钮）
         applyFlowDecor(el, ref, nowLive);

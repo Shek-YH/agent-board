@@ -5,11 +5,10 @@ const test = require('node:test');
 
 const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 
-test('提示音设置使用 B 布局，并排除已停用的 doubao', () => {
+test('提示音设置使用 B 布局', () => {
   assert.match(source, /id="settings-sound">提示音设置/);
   assert.match(source, /function openSoundSettings\(/);
   assert.match(source, /grid-template-columns:190px minmax\(360px,1fr\)/);
-  assert.match(source, /filter\(\(\[id\]\) => id !== 'doubao'\)/);
 });
 
 test('提示音设置可上传、选择、试听并持久化请求', () => {

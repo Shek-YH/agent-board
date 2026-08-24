@@ -5,8 +5,8 @@ const test = require('node:test');
 
 const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 
-test('声音分配只接受 AGENT_DEFS 的自有 Agent，且排除 doubao', () => {
-  assert.match(source, /Object\.hasOwn\(AGENT_DEFS, agent\) \|\| agent === 'doubao'/);
+test('声音分配只接受 AGENT_DEFS 的自有 Agent', () => {
+  assert.match(source, /Object\.hasOwn\(AGENT_DEFS, agent\)/);
 });
 
 test('声音上传以字节限流，并返回不泄漏内部细节的错误', () => {

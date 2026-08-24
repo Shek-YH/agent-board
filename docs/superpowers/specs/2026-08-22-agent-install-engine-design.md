@@ -14,7 +14,7 @@
 **这轮做**：`tier:'cli'` 的 4 个 agent（claude / codex / pi / deepseek）的完整安装链路——依赖检查、执行、校验、结果展示。
 
 **这轮不做**：
-- `tier:'gui'` 的 4 个 agent（workbuddy / zcode / doubao / marvis）的安装——留给下一轮，理由是这轮先把范围收窄验证链路能跑通，GUI 类涉及 winget/下载页两种不同分支，单独一轮更干净
+- `tier:'gui'` 的 3 个 agent（workbuddy / zcode / marvis）的安装——留给下一轮，理由是这轮先把范围收窄验证链路能跑通，GUI 类涉及 winget/下载页两种不同分支，单独一轮更干净
 - 瀑布流列联动、探测缓存——不在这轮目标里，之前就明确延后了
 - 多个安装任务并发执行——这轮明确选择"一次只能装一个"
 

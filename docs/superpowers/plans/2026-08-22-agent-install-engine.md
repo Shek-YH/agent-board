@@ -6,7 +6,7 @@
 
 **Architecture:** 在已有的 `lib/detect.js` 里新增两个纯函数 `pickMethod`（选安装方法）和 `installAgent`（跑安装链路，通过 `onProgress` 回调汇报每一步），命令执行函数可注入以便测试。`server.js` 新增 `POST /api/agents/:id/install`，用一个模块级布尔量保证全局同时只有一个安装任务，进度通过已有的 SSE 通道广播。前端在卡片上加"安装"按钮，`confirm()` 确认后发起请求，监听 SSE 更新卡片状态行。
 
-**范围**：只做 `tier:'cli'` 的 4 个 agent。`tier:'gui'`（workbuddy / zcode / doubao / marvis）的安装、瀑布流列联动、探测缓存都不在这轮，别顺手做。
+**范围**：只做 `tier:'cli'` 的 4 个 agent。`tier:'gui'`（workbuddy / zcode / marvis）的安装、瀑布流列联动、探测缓存都不在这轮，别顺手做。
 
 **Tech Stack:** Node.js 原生 `http` / `child_process`（继续零 npm 依赖），测试用 Node 内置 `node:test` + `node:assert`。
 
@@ -648,7 +648,7 @@ git commit -m "feat: /api/agents/status 响应带上 install 数据供前端渲�
 在 `server.js` 里找到这一行（第 143 行附近）：
 
 ```js
-const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao, zcode, pi];
+const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi];
 ```
 
 在它下面加：
@@ -839,7 +839,7 @@ curl -s http://127.0.0.1:4876/app.js | grep -c "ab-install"
 ```
 Expected: 输出大于 0 的数字
 
-然后在浏览器打开 `http://127.0.0.1:4876`，点工具栏的"应用管理"按钮。因为这台机器上 8 个 agent 目前全都探测为已安装（`~/.agent-board/tool-paths.json` 里配了覆盖路径），**不会有任何安装按钮出现**——这是正确行为。要看到按钮，先临时把覆盖文件里的 pi 那一行去掉：
+然后在浏览器打开 `http://127.0.0.1:4876`，点工具栏的"应用管理"按钮。因为这台机器上 7 个 agent 目前全都探测为已安装（`~/.agent-board/tool-paths.json` 里配了覆盖路径），**不会有任何安装按钮出现**——这是正确行为。要看到按钮，先临时把覆盖文件里的 pi 那一行去掉：
 
 ```bash
 node -e "const fs=require('fs'),p=process.env.USERPROFILE+'/.agent-board/tool-paths.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));delete j.pi;fs.writeFileSync(p,JSON.stringify(j,null,2));console.log('已临时移除 pi 覆盖')"
@@ -925,9 +925,9 @@ node -e "const fs=require('fs'),p=process.env.USERPROFILE+'/.agent-board/tool-pa
 ```
 
 ```bash
-curl -s http://127.0.0.1:4876/api/agents/status | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log('全部 8 个 installed:', Object.values(j.agents).every(a=>a.installed))})"
+curl -s http://127.0.0.1:4876/api/agents/status | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log('全部 7 个 installed:', Object.values(j.agents).every(a=>a.installed))})"
 ```
-Expected: `全部 8 个 installed: true`（恢复到这轮开工前的状态）
+Expected: `全部 7 个 installed: true`（恢复到这轮开工前的状态）
 
 - [ ] **Step 7: 验证并发拦截**
 
@@ -949,4 +949,4 @@ Expected: 两个响应中至少有一个是 `{"ok":true,"background":true}`；�
 - 被墙的工具（claude）如实告诉用户"需要代理，没有镜像可用"，而不是让用户干等一个必然失败的安装
 - 装完自动重新探测刷新状态
 
-**没做的**（下一轮的范围）：`tier:'gui'` 四个工具的安装（winget / 下载页两条分支）、豆包和 Marvis 的下载地址调研、探测结果缓存、瀑布流列联动。
+**没做的**（下一轮的范围）：`tier:'gui'` 三个工具的安装（winget / 下载页两条分支）、Marvis 的下载地址调研、探测结果缓存、瀑布流列联动。

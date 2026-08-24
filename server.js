@@ -11,18 +11,25 @@ const { clearAuthCache } = require('./lib/auth-cache');
 const soundSettings = require('./lib/sound-settings');
 const detect = require('./lib/detect');
 const launchLib = require('./lib/launch');
+const { buildCodexDeepLink } = require('./lib/codex-deep-link');
+const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
+const { buildPiAgentDesktopDeepLink } = require('./lib/pi-agent-deep-link');
+const { resolvePiAgentDesktopExe } = require('./lib/pi-agent-desktop-path');
+const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
+const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
 const workbuddy = require('./lib/adapters/workbuddy');
 const deepseek = require('./lib/adapters/deepseek');
 const marvis = require('./lib/adapters/marvis');
-const doubao = require('./lib/adapters/doubao');
 const zcode = require('./lib/adapters/zcode');
 const pi = require('./lib/adapters/pi');
+const hermes = require('./lib/adapters/hermes');
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const PUBLIC = path.join(__dirname, 'public');
+const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
 
 // ---------- Agent 可扩展配置表 ----------
 // 新增 agent：加一条定义即可（proc=进程名用于激活；scheme=URL协议用于冷启动拉起；launch=备选启动命令；icon=public/icons 下的图标文件）
@@ -30,15 +37,14 @@ const AGENT_DEFS = {
   claude:    { name: 'Claude Code',      color: '#D97757', icon: 'claude.png',    proc: 'claude',    scheme: 'claude://',     launch: null },
   codex:     { name: 'Codex',            color: '#10A37F', icon: 'codex.png',     proc: 'Codex',     scheme: 'codex://',      launch: null },
   workbuddy: { name: 'WorkBuddy',        color: '#3B82F6', icon: 'workbuddy.png', proc: 'WorkBuddy', scheme: 'workbuddy://',  launch: null },
-  deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'deepseek-harness', scheme: null,   launch: null,
-    launchCmd: '"C:\\Users\\Administrator\\Desktop\\DeepSeek Harness.bat"' },
+  deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'DSHDesktop', scheme: 'dshdesktop://', launch: null,
+    launchCmd: '"C:\\Users\\Administrator\\AppData\\Local\\Programs\\DSH Desktop\\DSH Desktop.exe"' },
   marvis:    { name: 'Marvis',           color: '#7C3AED', icon: 'marvis.png',    proc: 'Marvis',    scheme: null,            launch: null,
     launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\marvis-launch.bat"' },
-  doubao:    { name: '豆包',              color: '#00A6F0', icon: 'doubao.jpg',    proc: 'Doubao',    scheme: 'doubao://',     launch: null },
   zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
     launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\zcode-launch.bat"' },
-  pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null,
-    webUi: { url: 'http://127.0.0.1:3210', port: 3210, startCmd: '"D:\\Program Files\\node-v22.14.0-win-x64\\node_global\\pi-web-ui.cmd"' } },
+  pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null },
+  hermes:    { name: 'Hermes Agent',     color: '#F59E0B', icon: 'hermes.png',    proc: 'hermes-agent', scheme: 'hermes://', launch: null },
 };
 
 // 去掉配置值两端可能存在的引号（兼容旧配置写法）
@@ -63,29 +69,36 @@ function launchOrFocus(agent, cb) {
     return;
   }
 
-  // pi 的 Web UI：TCP 探测端口 → 没监听就拉起 → 轮询等它起来 → 开浏览器。
-  // stdio 显式设成 'ignore'（不走管道）是修掉 Windows 给子进程分配残留控制台窗口的关键——
-  // 原来 pi-launch.bat 用 netstat|findstr 管道检测端口时，windowsHide+管道 stdio 的组合会
-  // 触发 Windows 给 netstat/findstr 这些子进程各自分配一个新控制台窗口（就是用户截图里那两个
-  // 残留的 findstr.exe 窗口），这里改成 Node 原生探测，不再有管道，就不会再触发这个问题。
-  if (def.webUi) {
-    const { url, port, startCmd } = def.webUi;
-    // 这个 IIFE 是异步的，执行到这里时 launchOrFocus 已经返回、路由那层的 try/catch 早就跑完了——
-    // 万一 spawn() 同步抛错（比如 EMFILE），不接住就是一个 unhandled rejection，会直接拖垮整个
-    // server 进程（Node 默认行为），不只是这一次跳转失败。所以这里必须自己兜底。
-    (async () => {
-      try {
-        let up = await launchLib.probePort(port);
-        if (!up) {
-          spawn('cmd.exe', ['/c', startCmd], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-          up = await launchLib.waitForPort(port);
-        }
-        spawn('cmd.exe', ['/c', 'start', '', url], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-        cb({ ok: true, action: up ? 'launch' : 'launch-timeout', agent });
-      } catch (e) {
-        cb({ ok: false, error: e.message || '启动 pi Web UI 失败', agent });
-      }
-    })();
+  // Hermes Desktop 可能尚未向 Windows 注册 hermes:// 协议；顶栏启动只需要
+  // 打开应用本身，直接传可执行文件路径，避免把协议交给系统 Shell 解析。
+  if (agent === 'hermes') {
+    const desktopExe = resolveHermesDesktopExe();
+    if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+      cb({ ok: false, error: `未找到 Hermes Desktop：${desktopExe}` });
+      return;
+    }
+    try {
+      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      cb({ ok: true, action: 'launch', agent });
+    } catch (e) {
+      cb({ ok: false, error: e.message || '启动 Hermes Desktop 失败', agent });
+    }
+    return;
+  }
+
+  // Pi Agent 顶栏入口打开桌面端，不再把命令行版 pi 的 Web UI 当成默认目标。
+  if (agent === 'pi') {
+    const desktopExe = resolvePiAgentDesktopExe();
+    if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+      cb({ ok: false, error: `未找到 Pi Agent Desktop：${desktopExe}` });
+      return;
+    }
+    try {
+      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      cb({ ok: true, action: 'launch', agent });
+    } catch (e) {
+      cb({ ok: false, error: e.message || '启动 Pi Agent Desktop 失败', agent });
+    }
     return;
   }
 
@@ -181,7 +194,16 @@ function focusAppCall(procName, cb) {
     }
   });
 }
-const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, doubao, zcode, pi];
+function focusHermesWindow(attempt = 0) {
+  focusAppCall('Hermes', (result) => {
+    if (result === 'NOT_RUNNING' && attempt < 10) {
+      setTimeout(() => focusHermesWindow(attempt + 1), 150);
+      return;
+    }
+    console.log(`[open-hermes-session] focus Hermes -> ${result || '?'}`);
+  });
+}
+const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi, hermes];
 store.migrateCodexCompletionSignals();
 // 全局安装锁：同时只允许一个安装任务（installAgent 内部是阻塞的 spawnSync，
 // 多个并发跑会互相抢终端输出、也没法在 UI 上清晰呈现进度）。
@@ -296,7 +318,7 @@ async function scanAll() {
   isScanning = false;
   console.log(`[scan] 完成 ${jobs.length} 个文件，入库 ${total} 条，耗时 ${((Date.now() - now) / 1000).toFixed(1)}s`);
   sseBroadcast('scan', { done: jobs.length, total: jobs.length, finished: true });
-  sseBroadcast('active', store.getActive());
+  sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
 }
 
 function pollChanged(adapter, paths) {
@@ -334,8 +356,8 @@ function startWatchers() {
     if (!fs.existsSync(a.ROOT)) continue;
     stops.push(watcher.watchTree(a.ROOT, (p) => pollChanged(a, [p])));
   }
-  // WorkBuddy 心跳目录：轮询（文件每秒都在变，watch 事件太密）。
-  // 只更新 activeMap，不在此推送 active 事件——统一由下方 5s 定时器推送 getActive()，
+  // WorkBuddy 心跳目录 + 本地 SQLite 会话状态：轮询（文件每秒都在变，watch 事件太密）。
+  // 只更新内部状态，不在此推送 active 事件——统一由下方 5s 定时器推送 getActive()，
   // 避免两个定时器推送不一致快照（含 active:false 条目）导致前端状态每 5 秒来回闪。
   const hbTimer = setInterval(() => {
     try {
@@ -379,19 +401,30 @@ function startWatchers() {
       }
     } catch { /* ignore */ }
   }, 30 * 1000);
-  // WorkBuddy 桌面会话「停顿检测」：桌面对话（UUID）心跳一次性写入、无法用心跳停止提前完成，
-  // 但 jsonl 只写已完成消息 → 文件静止 + 末条为 assistant = agent 停笔 → 提前结束「进行中」。
-  // （CLI host 会话已由 hbTimer 的心跳跟踪覆盖，这里只处理桌面会话，见 checkDesktopIdle 内部判定）
+  // Hermes SQLite WAL 兜底重扫：state.db 在 checkpoint 时可能重命名 WAL，
+  // Windows fs.watch 偶发漏事件；每 5 秒读取消息和 session 终态字段，开销可控。
+  const hermesTimer = setInterval(() => {
+    try {
+      const c = hermes.scanAll(store);
+      if (c > 0) {
+        console.log(`[hermes] (fallback) +${c} 条`);
+        sseBroadcast('message', { agent: 'hermes', count: c });
+      }
+    } catch { /* ignore */ }
+  }, HERMES_SCAN_INTERVAL_MS);
+  // 桌面会话「停顿检测」：WorkBuddy / DeepSeek 都不能用常驻桌面进程判断某张卡是否仍在跑，
+  // 由各自 adapter 用「文件静止 + 最后一条 assistant 消息」提前结束「进行中」。
   const deskTimer = setInterval(() => {
     try {
       workbuddy.checkDesktopIdle(store);
+      deepseek.checkDesktopIdle(store);
     } catch { /* ignore */ }
   }, 20 * 1000);
   // CLI agent 进程检查：「进行中」= 最后真实消息 10 分钟窗口，但 CLI 任务跑完进程即退出——
   // 进程全无 = 该 agent 一定不在运行 → 提前结束「进行中」（不必等满 10 分钟）。
   // 只在进程名精确确认的 agent 上启用（进程名匹配不全时宁可保守不判，避免误伤正在运行的会话）。
   const procTimer = setInterval(checkAgentProcesses, 30 * 1000);
-  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(deskTimer); clearInterval(procTimer); };
+  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(hermesTimer); clearInterval(deskTimer); clearInterval(procTimer); };
 }
 
 // CLI agent 进程名 → 进程检查。仅收录已实测确认的 exe 名；匹配不到进程 = 该 agent 全部 session 提前 done
@@ -419,7 +452,7 @@ function checkAgentProcesses() {
 
 // 定时推送活跃会话快照（3 分钟窗口的"正在进行"）
 setInterval(() => {
-  if (!isScanning) sseBroadcast('active', store.getActive());
+  if (!isScanning) sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
 }, 5000);
 
 // ---------- HTTP 服务 ----------
@@ -493,7 +526,7 @@ const server = http.createServer(async (req, res) => {
       'X-Accel-Buffering': 'no',
     });
     res.write(`event: hello\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
-    res.write(`event: active\ndata: ${JSON.stringify(store.getActive())}\n\n`);
+    res.write(`event: active\ndata: ${JSON.stringify({ active: store.getActive(), statuses: store.getRuntimeStatuses() })}\n\n`);
     sseClients.add(res);
     req.on('close', () => sseClients.delete(res));
     return;
@@ -576,7 +609,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const agent = String(body.agent || '');
-      if (!Object.hasOwn(AGENT_DEFS, agent) || agent === 'doubao') throw new TypeError('Invalid agent');
+      if (!Object.hasOwn(AGENT_DEFS, agent)) throw new TypeError('Invalid agent');
       const soundId = typeof body.soundId === 'string' ? body.soundId : '';
       const settings = soundSettings.assignSound(agent, soundId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -585,6 +618,107 @@ const server = http.createServer(async (req, res) => {
       const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
       res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: badInput ? 'Invalid sound assignment' : 'Unable to save sound assignment' }));
+    }
+    return;
+  }
+
+  // 按 threadId 打开指定 Codex 会话。只接受固定格式的 ID，不接受任意 URL。
+  if (pathname === '/api/open-codex-thread' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const threadId = body && body.threadId;
+      const deepLink = buildCodexDeepLink(threadId);
+      if (process.platform !== 'win32') throw new Error('当前本地 Agent 只支持 Windows Codex 深链');
+      spawn('cmd.exe', ['/c', 'start', '', deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, threadId }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Codex 会话' }));
+    }
+    return;
+  }
+
+  // 按 sessionId 打开已安装的 DeepSeek Harness Desktop。优先直接传参给
+  // 已安装的 Electron 可执行文件：这样即使协议尚未被旧版本注册，也能
+  // 由 Electron 的单实例 second-instance 接收 dshdesktop URI。
+  if (pathname === '/api/open-deepseek-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const deepLink = buildDeepSeekDesktopDeepLink(sessionId);
+      const session = store.getSession(`deepseek:${sessionId}`);
+      if (!session) throw new Error('DeepSeek session 不存在');
+      const desktopExe = path.join(require('os').homedir(), 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
+        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      } else if (process.platform === 'darwin') {
+        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 DeepSeek Desktop 会话' }));
+    }
+    return;
+  }
+
+  // 按 Pi Agent sessionId 打开已安装的桌面端。直接把 URI 作为第二次启动
+  // 参数传给 Tauri 可执行文件，由 single-instance 转发给主实例。
+  if (pathname === '/api/open-pi-agent-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const requestedSessionId = String(body.sessionId || '');
+      const sessionId = pi.resolveSessionId(requestedSessionId);
+      const deepLink = buildPiAgentDesktopDeepLink(sessionId);
+      if (!store.getSession(`pi:${requestedSessionId}`) && !store.getSession(`pi:${sessionId}`)) {
+        throw new Error('Pi Agent session 不存在');
+      }
+      const desktopExe = resolvePiAgentDesktopExe();
+      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
+        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      } else if (process.platform === 'darwin') {
+        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Pi Agent Desktop 会话' }));
+    }
+    return;
+  }
+
+  // 按 stored session id 打开 Hermes Desktop。直接把 hermes URI 作为启动
+  // 参数传给 Electron：已运行实例由 second-instance 接收，冷启动实例由
+  // main.ts 的 argv 路径接收，不依赖旧安装是否已经注册协议。
+  if (pathname === '/api/open-hermes-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const deepLink = buildHermesDesktopDeepLink(sessionId);
+      if (!store.getSession(`hermes:${sessionId}`)) throw new Error('Hermes session 不存在');
+      const desktopExe = resolveHermesDesktopExe();
+      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
+        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+        // 深链会交给已运行的单实例，但 Windows 不保证它自动切到前台。
+        // 延迟激活并重试，兼容冷启动时主窗口句柄尚未创建的短暂阶段。
+        setTimeout(() => focusHermesWindow(), 150);
+      } else if (process.platform === 'darwin') {
+        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Hermes Desktop 会话' }));
     }
     return;
   }
@@ -709,6 +843,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({
       groups, agentIds: [...agentIds], defaultAgentIds,
       liveRefs: store.getActive().map((a) => a.sessionRef),
+      runtimeStatuses: store.getRuntimeStatuses(),
     }));
     return;
   }
@@ -751,8 +886,8 @@ const server = http.createServer(async (req, res) => {
   // 激活桌面端应用窗口（用户主力是桌面 AI 客户端）
   // 快路径：加载预编译 WF.dll（毫秒级）+ Win32 组合拳突破前台锁定
   if (pathname === '/api/focus-app' && req.method === 'POST') {
-    const PROC = { claude: 'claude', codex: 'Codex', workbuddy: 'WorkBuddy', doubao: 'Doubao' };
-    const SCHEME = { claude: 'claude://', codex: 'codex://', workbuddy: 'workbuddy://', doubao: 'doubao://' };
+    const PROC = { claude: 'claude', codex: 'Codex', workbuddy: 'WorkBuddy' };
+    const SCHEME = { claude: 'claude://', codex: 'codex://', workbuddy: 'workbuddy://' };
     try {
       const body = await readBody(req);
       const agent = String(body.agent || '');
@@ -787,7 +922,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, status: r }));
       // 立即推送最新活跃快照，前端 liveRefs 马上更新（手动 done 的会话立即从进行中消失）
-      sseBroadcast('active', store.getActive());
+      sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
     } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
     return;
   }
@@ -813,7 +948,7 @@ const server = http.createServer(async (req, res) => {
       store.setDoneSignal(ref, Date.now());
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, ref }));
-      sseBroadcast('active', store.getActive());
+      sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
     } catch (e) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); }
     return;
   }
@@ -848,7 +983,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 手动导入（豆包等无本地数据的 agent）
+  // 手动导入（无本地数据的 agent）
   if (pathname === '/api/import' && req.method === 'POST') {
     try {
       const body = await readBody(req);
@@ -900,7 +1035,7 @@ const server = http.createServer(async (req, res) => {
         // 修复 custom-title 先创建导致 first_seen=0 的会话
         store.repairSessionTimestamps();
         store.repairUserQueries();
-        sseBroadcast('active', store.getActive());
+        sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
         console.log('[rescan] 完成');
       } catch (e) {
         console.error('[rescan] failed:', e.message);
@@ -1008,7 +1143,10 @@ server.listen(PORT, '127.0.0.1', async () => {
   // 当前 extractUserQuery 重算每会话首条真实用户输入。
   store.repairUserQueries();
   // 服务停机期间已停笔的桌面会话：启动即判一次，无需等首个 20s 定时器
-  try { workbuddy.checkDesktopIdle(store); } catch { /* ignore */ }
+  try {
+    workbuddy.checkDesktopIdle(store);
+    deepseek.checkDesktopIdle(store);
+  } catch { /* ignore */ }
   startWatchers();
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
 });

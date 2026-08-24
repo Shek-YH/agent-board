@@ -5,16 +5,13 @@
 
 ## 背景
 
-上一轮明确把 `tier:'gui'` 的 4 个工具（workbuddy / zcode / doubao / marvis）留到"下一轮"，理由是 GUI 类涉及 winget 静默安装 / 下载页手动安装两种不同分支，单独一轮更干净。这一轮把这块补上。
-
-**豆包（doubao）排除**：用户明确表示豆包不好用，以后 agent-board 的所有开发都不再把豆包纳入范围。这一轮不碰 `lib/adapters/doubao.js`，现有的探测代码保留但不做任何安装引擎相关改动。
+上一轮明确把 `tier:'gui'` 的 3 个工具（workbuddy / zcode / marvis）留到"下一轮"，理由是 GUI 类涉及 winget 静默安装 / 下载页手动安装两种不同分支，单独一轮更干净。这一轮把这块补上。
 
 ## 范围
 
 这一轮做：`workbuddy` / `zcode` / `marvis` 三个 `tier:'gui'` 工具的安装。
 
 这一轮不做：
-- 豆包的任何改动
 - `tier:'cli'` 已有功能的改动
 - 真实卸载/重装任何 GUI 工具做端到端验证（原因见"测试"一节）
 
@@ -37,8 +34,6 @@ methods: [
 ],
 ```
 `warning` 从"官方下载地址待确认，这轮只做探测"改成："仅支持手动下载安装，暂无命令行安装方式"。
-
-**`lib/adapters/doubao.js`**：不动。
 
 ## 安装行为（核心设计）
 
@@ -91,7 +86,7 @@ if (adapter.detect.tier !== 'cli' && adapter.detect.tier !== 'gui') { ... 400 ..
      - 没有（理论上不会发生，因为 `canInstall` 已经要求 `methods.length > 0`，但防御性处理）→ 保留原来的 `'(未知)'` 兜底文案 + 走静默流程原样报错（`installAgent` 会返回 `no-method`）。
 3. 按钮文案：静默安装分支保持"安装"；下载分支按钮文案改成"下载安装"，让用户点之前就知道这是两种不同性质的操作（不是所有 agent 点了都会自动装好）。
 
-doubao 不受影响（`methods` 一直是空数组，`canInstall` 恒为 `false`，不会出现按钮）。
+已移除的 Agent 不参与安装入口与状态展示。
 
 ## 错误处理
 

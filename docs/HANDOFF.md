@@ -10,7 +10,7 @@
 
 ## 项目是什么
 
-一个纯本地 Node.js 服务，实时汇总 8 个 AI 编程/办公 Agent（Claude Code / Codex / Pi / DeepSeek Harness / WorkBuddy / ZCode / Marvis / 豆包）的会话记录到一个看板，并且能一键检测/安装这些 Agent。零 npm 依赖，Node 内置 `http` + SSE，前端原生 JS 无构建工具。跑在 `http://127.0.0.1:4876`。
+一个纯本地 Node.js 服务，实时汇总 7 个 AI 编程/办公 Agent（Claude Code / Codex / Pi / DeepSeek Harness / WorkBuddy / ZCode / Marvis）的会话记录到一个看板，并且能一键检测/安装这些 Agent。零 npm 依赖，Node 内置 `http` + SSE，前端原生 JS 无构建工具。跑在 `http://127.0.0.1:4876`。
 
 详细功能清单、目录结构、启动方式见 [README.md](../README.md)。
 
@@ -45,9 +45,7 @@ git 提交：小步提交，每个任务一个 commit，message 用中文说清�
 
 5. **workbuddy 疑似是这台机器工具链本身的一部分**（进程列表里能看到 `.workbuddy` 目录下的常驻进程）。**不要真的卸载 workbuddy 做测试**，风险和收益不成比例。同理，claude/codex/deepseek 这几个命令行工具本身可能也是当前正在用来跑你（新 agent）的工具链的一部分——动手卸载/覆盖之前先确认清楚,不确定就问用户。
 
-6. **这台机器上 8 个 agent 目前全部处于"已安装"状态**（截至 2026-08-23），gui 类工具（workbuddy/zcode/marvis/doubao）的探测方式是 registry/path 扫描，**没有类似 tool-paths.json 那样的覆盖机制能伪造"未安装"状态**。如果需要测试"未安装"相关的 UI 分支，要么找机器上真的没装的工具，要么就事先跟用户说明白"没法在这台机器上安全地伪造这个状态，只能做到数据层面验证 + 代码审查"，不要为了测试去真的删除用户的真实应用数据。
-
-7. **豆包（doubao）被用户明确要求排除出所有未来开发范围**。这不是"暂缓"，是长期决定。探测代码保留，但不要给它加任何新功能（安装引擎等）。
+6. **这台机器上 7 个 agent 目前全部处于"已安装"状态**（截至 2026-08-23），gui 类工具（workbuddy/zcode/marvis）的探测方式是 registry/path 扫描，**没有类似 tool-paths.json 那样的覆盖机制能伪造"未安装"状态**。如果需要测试"未安装"相关的 UI 分支，要么找机器上真的没装的工具，要么就事先跟用户说明白"没法在这台机器上安全地伪造这个状态，只能做到数据层面验证 + 代码审查"，不要为了测试去真的删除用户的真实应用数据。
 
 ## 安全边界（这台机器上发现过的、必须遵守的红线）
 

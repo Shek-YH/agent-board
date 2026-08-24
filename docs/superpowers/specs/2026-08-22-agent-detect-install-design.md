@@ -5,7 +5,7 @@
 
 ## 背景
 
-agent-board 目前对 8 个 AI Agent（claude / codex / workbuddy / deepseek / marvis / doubao / zcode / pi）的支持是硬编码的：`server.js` 里的 `AGENT_DEFS` 表写死了进程名、URL scheme、部分启动路径（其中 `deepseek` / `marvis` / `zcode` / `pi` 的启动路径直接写死了这台机器的绝对路径），换一台机器就会失效；也没有任何"检测是否已安装""按需安装"的能力。
+agent-board 目前对 7 个 AI Agent（claude / codex / workbuddy / deepseek / marvis / zcode / pi）的支持是硬编码的：`server.js` 里的 `AGENT_DEFS` 表写死了进程名、URL scheme、部分启动路径（其中 `deepseek` / `marvis` / `zcode` / `pi` 的启动路径直接写死了这台机器的绝对路径），换一台机器就会失效；也没有任何"检测是否已安装""按需安装"的能力。
 
 本设计要解决两件事：
 1. **探测**：判断用户机器上到底装没装某个 Agent、装在哪，替换掉硬编码绝对路径。
@@ -25,7 +25,7 @@ agent-board 目前对 8 个 AI Agent（claude / codex / workbuddy / deepseek / m
    - 每个工具一份 `paths.json`（各平台下二进制的候选位置，用于探测）+ `config.json`（模型配置文件位置与读写映射，本设计不需要）
    - 本设计的**探测路径直接复用这份数据**
 
-3. **`F:\AIagent自动安装包\EchoBird_AI_Agent_App_Manager_安装与配置规范汇总.md`**（二手，AI 整理的汇总，已被第 1 份一手数据基本取代，仅在一手数据未覆盖的工具上——比如豆包/Marvis——作为背景参考）
+3. **`F:\AIagent自动安装包\EchoBird_AI_Agent_App_Manager_安装与配置规范汇总.md`**（二手，AI 整理的汇总，已被第 1 份一手数据基本取代，仅在一手数据未覆盖的工具上——比如 Marvis——作为背景参考）
 
 **实现约定：所有安装命令在写进代码前必须各自实跑一次验证，即便来自一手数据也要跑一遍，因为工具版本/发布渠道会变。**
 
@@ -131,7 +131,7 @@ detect: {
 },
 ```
 
-`tier: 'gui'` 的（WorkBuddy / ZCode / 豆包 / Marvis），命令取自 `install/zcode.json` / `install/workbuddy.json`：
+`tier: 'gui'` 的（WorkBuddy / ZCode / Marvis），命令取自 `install/zcode.json` / `install/workbuddy.json`：
 
 ```js
 // lib/adapters/zcode.js
@@ -188,7 +188,6 @@ detect: {
 | deepseek (dsh) | cli 🟢 | `dsh/paths.json` | ① `npm i -g @deepseek-ai/dsh` ② 退化用法：`npx @deepseek-ai/dsh web`（一次性，不装到 PATH） | Node ≥22.19 或 ≥24；装完用 `dsh web` 起本地服务在 127.0.0.1:3080，默认会自动打开浏览器（可用 --no-open 关掉） |
 | workbuddy | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['WorkBuddy']`, publisher: Tencent） | ① `winget install --id Tencent.WorkBuddy --accept-package-agreements --accept-source-agreements`（**winget id 已核实**）② 降级：打开 `codebuddy.cn/work/` 下载页交给用户 | Linux 不支持；winget 失败（比如系统没装 winget 或源不可用）才降级到下载页 |
 | zcode | gui 🟢 | 路径 + 注册表（`displayNamePrefixes:['ZCode']`） | ① winget `ZhipuAI.ZCode`（2026-08-22 实现阶段核实存在，EchoBird 当时可能没查到）② 降级：下载页 `zcode.z.ai/cn#all-downloads` | — |
-| doubao | gui 🟡 | 沿用现有 `doubao.js` 的数据目录判断 | 下载页 URL **待确定**（不在 EchoBird 28 个支持工具范围内） | — |
 | marvis | gui 🟡 | 沿用现有 `marvis.js` 的数据目录判断 | 下载页 URL **待确定**（同上） | — |
 
 原先设计里的 `tier: 'manual'` 档位这轮用不上（8 个 agent 都有正规安装渠道），从 schema 中移除；将来真遇到私有工具，等价效果是给它一个空的 `install.methods` 数组。
@@ -282,7 +281,7 @@ verify.cmd 验证版本
 ## 落地前必须先确认的事项
 
 1. **逐条实跑验证安装命令**（即便来自 EchoBird 一手数据也要跑一遍，工具发布渠道会变）
-2. **豆包 / Marvis 的官方下载页 URL** —— 不在 EchoBird 支持范围，需单独查证
+2. **Marvis 的官方下载页 URL** —— 不在 EchoBird 支持范围，需单独查证
 3. **Windows 卸载注册表的探测实现细节** —— 读 `HKLM/HKCU` 下 `Uninstall` 子键并按 `DisplayName` 前缀 / `Publisher` 匹配，需确认在非管理员权限下也能读到
 4. **`network.blockedRegions` 判断依据** —— EchoBird 用的是"地区代码"（如 `zh-CN`），agent-board 要不要做地区判断、还是干脆固定按"中国大陆网络环境"处理 claude 这一条（不用猜测用户地区，反正 agent-board 这轮就是给你自己/中文用户用的），实现时定一下，避免过度设计一套地区检测机制
 

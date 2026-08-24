@@ -1,7 +1,7 @@
 {
   "name": "agent-board",
   "version": "0.2.0",
-  "description": "AI Agent 会话看板 - 实时汇总 Claude Code / Codex / WorkBuddy / 豆包 等所有对话时间线",
+  "description": "AI Agent 会话看板 - 实时汇总多个 AI 编程/办公 Agent 的所有对话时间线",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

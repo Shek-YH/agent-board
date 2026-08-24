@@ -9,7 +9,8 @@ const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 
 test('全量重扫结束后只推送当前活跃会话快照', () => {
   const rescan = source.slice(source.indexOf("if (pathname === '/api/rescan'"));
-  assert.match(rescan, /sseBroadcast\('active', store\.getActive\(\)\)/);
+  assert.match(source, /event: active\\ndata: \$\{JSON\.stringify\(\{ active: store\.getActive\(\), statuses: store\.getRuntimeStatuses\(\) \}\)\}/);
+  assert.match(rescan, /sseBroadcast\('active', \{ active: store\.getActive\(\), statuses: store\.getRuntimeStatuses\(\) \}\)/);
   assert.doesNotMatch(rescan, /sseBroadcast\('active', store\.getRecentActive\('day'\)\)/);
-  assert.match(source, /setInterval\(\(\) => \{\s*if \(!isScanning\) sseBroadcast\('active', store\.getActive\(\)\);\s*\}, 5000\)/);
+  assert.match(source, /setInterval\(\(\) => \{\s*if \(!isScanning\) sseBroadcast\('active', \{ active: store\.getActive\(\), statuses: store\.getRuntimeStatuses\(\) \}\);\s*\}, 5000\)/);
 });
