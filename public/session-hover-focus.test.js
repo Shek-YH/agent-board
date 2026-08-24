@@ -15,5 +15,12 @@ test('会话卡悬停时聚焦列，列内间隙保持展开，离列后恢复�
   assert.match(app, /col\.addEventListener\('mouseleave', \(\) => clearHoveredColumn\(\)\);/);
   assert.doesNotMatch(app, /card\.addEventListener\('mouseleave'/);
   assert.doesNotMatch(app, /function toggleFocus\(/);
-  assert.match(html, /\.board\{[^}]*transition:grid-template-columns \.2s ease[^}]*\}/);
+ assert.match(html, /\.board\{[^}]*transition:grid-template-columns \.2s ease[^}]*\}/);
+ });
+
+test('刷新重建看板时保留仍在悬停列内的聚焦状态', () => {
+  assert.match(app, /const hoveredCol = board\.dataset\.hoveredCol;/);
+  assert.match(app, /const preserveFocus = hoveredCol && cols\.includes\(hoveredCol\)/);
+  assert.match(app, /\.agent-col.*matches\(':hover'\)/s);
+  assert.match(app, /if \(preserveFocus\) \{/);
 });
