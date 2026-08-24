@@ -394,6 +394,8 @@ function renderBoard() {
     col.appendChild(head);
     col.appendChild(cardsBox);
     board.appendChild(col);
+    // 焦点属于整列，而不是单张卡：在同列卡片间的间隙移动时保持展开。
+    col.addEventListener('mouseleave', () => clearHoveredColumn());
     const list = state.board[key] || [];
     if (!list.length) {
       const empty = document.createElement('div');
@@ -442,12 +444,6 @@ function buildCard(s, colKey) {
   card.className = 's-card ' + (live ? 'active' : 'done') + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
   card.addEventListener('mouseenter', () => setHoveredColumn(colKey));
-  card.addEventListener('mouseleave', (e) => {
-    if (e.relatedTarget?.closest?.('.s-card')) return;
-    requestAnimationFrame(() => {
-      if (!$('board').querySelector('.s-card:hover')) clearHoveredColumn();
-    });
-  });
   const isAll = colKey === 'all';
   const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
   const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || s.session_id.slice(0, 12))}</span>`;
