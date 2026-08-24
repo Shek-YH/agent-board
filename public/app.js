@@ -390,11 +390,16 @@ function syncFlowDecor(ref) {
 
 function renderBoard() {
   const board = $('board');
-  board.innerHTML = '';
   const cols = effectiveCols();
-  board.classList.remove('has-focus');
-  delete board.dataset.hoveredCol;
-  board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
+  const hoveredCol = board.dataset.hoveredCol;
+  const preserveFocus = hoveredCol && cols.includes(hoveredCol)
+    && [...board.querySelectorAll('.agent-col')].some((col) => col.dataset.col === hoveredCol && col.matches(':hover'));
+  board.innerHTML = '';
+  if (!preserveFocus) {
+    board.classList.remove('has-focus');
+    delete board.dataset.hoveredCol;
+    board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
+  }
   for (const key of cols) {
     const col = document.createElement('div');
     col.className = 'agent-col';
@@ -420,6 +425,11 @@ function renderBoard() {
       continue;
     }
     for (const s of list) cardsBox.appendChild(buildCard(s, key));
+  }
+  if (preserveFocus) {
+    board.classList.add('has-focus');
+    board.style.gridTemplateColumns = cols.map((col) => col === hoveredCol ? 'minmax(320px, 2.2fr)' : 'minmax(0, 0.55fr)').join(' ');
+    board.querySelectorAll('.agent-col').forEach((col) => col.classList.toggle('focused', col.dataset.col === hoveredCol));
   }
 }
 function setHoveredColumn(key) {
