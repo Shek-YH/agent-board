@@ -396,7 +396,7 @@ function checkAgentProcesses() {
 
 // 定时推送活跃会话快照（3 分钟窗口的"正在进行"）
 setInterval(() => {
-  sseBroadcast('active', store.getActive());
+  if (!isScanning) sseBroadcast('active', store.getActive());
 }, 5000);
 
 // ---------- HTTP 服务 ----------
@@ -862,7 +862,7 @@ const server = http.createServer(async (req, res) => {
         // 修复 custom-title 先创建导致 first_seen=0 的会话
         store.repairSessionTimestamps();
         store.repairUserQueries();
-        sseBroadcast('active', store.getRecentActive('day'));
+        sseBroadcast('active', store.getActive());
         console.log('[rescan] 完成');
       } catch (e) {
         console.error('[rescan] failed:', e.message);
