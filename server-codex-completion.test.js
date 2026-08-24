@@ -11,4 +11,5 @@ test('Codex 完成状态由防抖后的 task_complete 决定，不再走静默�
   assert.match(source, /store\.migrateCodexCompletionSignals\(\);/);
   assert.doesNotMatch(source, /idleCheck\.checkCodexIdle\(store\)/);
   assert.match(source, /store\.noteCodexActivity\(`codex:\$\{j\.adapter\.fileToSessionId\(j\.file\)\}`/);
+  assert.match(source, /codex\.reconcileRecentCompletions\(store\);/);
 });

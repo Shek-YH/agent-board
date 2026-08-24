@@ -965,6 +965,7 @@ server.listen(PORT, '127.0.0.1', async () => {
   console.log(`└──────────────────────────────────────────────┘`);
   ensureFocusDll().then(() => { initFocusPs(); console.log('[focus] 窗口激活进程就绪'); });
   await scanAll();
+  codex.reconcileRecentCompletions(store);
   // 修复存量数据里的 futCache：adapter 增/改了 system context 过滤规则后，旧入库的"系统注入"
   // 消息仍占着 userMsgFlag / futCache 首位，导致 board title 取到错误内容。重启时显式按
   // 当前 extractUserQuery 重算每会话首条真实用户输入。
