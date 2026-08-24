@@ -257,7 +257,7 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 /* 瀑布流看板：6 列（全部 + 5 个 agent），列内按时间倒序堆叠 session 卡 */
-.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;margin-top:4px}
+.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;margin-top:4px;transition:grid-template-columns .2s ease}
 @media (max-width:1400px){.board{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:1000px){.board{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -268,11 +268,6 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .board.has-focus .agent-col.focused .s-card{padding:14px 16px}
 .agent-col.focused .col-head{font-weight:700;color:var(--text);border-bottom-color:var(--accent)}
 .agent-col.focused .col-cards{gap:10px}
-.col-focus-ic{cursor:pointer;font-size:12px;color:var(--text3);width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;transition:.12s;flex-shrink:0}
-.col-focus-ic:hover{background:var(--accent-bg);color:var(--accent)}
-.agent-col.focused .col-focus-ic{color:var(--accent);background:var(--accent-bg)}
-.col-name{cursor:pointer;transition:.12s}
-.col-name:hover{color:var(--text)}
 .col-head{font-size:13px;font-weight:650;color:var(--text2);padding:8px 2px;margin-bottom:8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;position:sticky;top:66px;background:var(--bg);z-index:5}
 .col-head::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--colc,#888780);box-shadow:0 0 0 3px var(--accent-bg)}
 .col-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

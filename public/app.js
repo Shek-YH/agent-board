@@ -338,26 +338,18 @@ function renderBoard() {
   const board = $('board');
   board.innerHTML = '';
   const cols = effectiveCols();
-  // 聚焦列：被点击的列加宽，其他列缩小
-  const focused = state.focusedCol;
-  board.classList.toggle('has-focus', !!focused);
-  board.style.gridTemplateColumns = cols.map((c) => {
-    if (!focused) return 'minmax(0, 1fr)';
-    if (c === focused) return 'minmax(320px, 2.2fr)';
-    return 'minmax(0, 0.55fr)';
-  }).join(' ');
+  board.classList.remove('has-focus');
+  delete board.dataset.hoveredCol;
+  board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
   for (const key of cols) {
     const col = document.createElement('div');
-    col.className = 'agent-col' + (key === focused ? ' focused' : '');
+    col.className = 'agent-col';
     col.dataset.col = key;
     const meta = key === 'all' ? { name: '全部', color: '#888780', icon: null } : (state.agentsDef[key] || { name: key, color: '#888780', icon: null });
     const head = document.createElement('div');
     head.className = 'col-head';
     head.style.setProperty('--colc', meta.color);
-    const focusIcon = key === focused ? '<span class="col-focus-ic" title="已聚焦，点击取消">▣</span>' : '<span class="col-focus-ic" title="点击聚焦此列">▢</span>';
-    head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>${focusIcon}`;
-    head.querySelector('.col-name').onclick = () => toggleFocus(key);
-    head.querySelector('.col-focus-ic').onclick = (e) => { e.stopPropagation(); toggleFocus(key); };
+    head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>`;
     const cardsBox = document.createElement('div');
     cardsBox.className = 'col-cards';
     col.appendChild(head);
@@ -374,10 +366,22 @@ function renderBoard() {
     for (const s of list) cardsBox.appendChild(buildCard(s, key));
   }
 }
-// 点击列名 → 聚焦/取消聚焦该列（其他列缩小）
-function toggleFocus(key) {
-  state.focusedCol = state.focusedCol === key ? null : key;
-  renderBoard();
+function setHoveredColumn(key) {
+  const board = $('board');
+  if (board.dataset.hoveredCol === key) return;
+  const cols = effectiveCols();
+  board.dataset.hoveredCol = key;
+  board.classList.add('has-focus');
+  board.style.gridTemplateColumns = cols.map((col) => col === key ? 'minmax(320px, 2.2fr)' : 'minmax(0, 0.55fr)').join(' ');
+  board.querySelectorAll('.agent-col').forEach((col) => col.classList.toggle('focused', col.dataset.col === key));
+}
+function clearHoveredColumn() {
+  const board = $('board');
+  if (!board.dataset.hoveredCol) return;
+  delete board.dataset.hoveredCol;
+  board.classList.remove('has-focus');
+  board.style.gridTemplateColumns = effectiveCols().map(() => 'minmax(0, 1fr)').join(' ');
+  board.querySelectorAll('.agent-col').forEach((col) => col.classList.remove('focused'));
 }
 // 隐藏一列（从配置里移除；全部列不可隐藏）
 function hideCol(key) {
@@ -398,6 +402,13 @@ function buildCard(s, colKey) {
   const card = document.createElement('div');
   card.className = 's-card ' + (live ? 'active' : 'done') + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
+  card.addEventListener('mouseenter', () => setHoveredColumn(colKey));
+  card.addEventListener('mouseleave', (e) => {
+    if (e.relatedTarget?.closest?.('.s-card')) return;
+    requestAnimationFrame(() => {
+      if (!$('board').querySelector('.s-card:hover')) clearHoveredColumn();
+    });
+  });
   const isAll = colKey === 'all';
   const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
   const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || s.session_id.slice(0, 12))}</span>`;
