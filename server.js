@@ -378,7 +378,8 @@ function startWatchers() {
 // CLI agent 进程名 → 进程检查。仅收录已实测确认的 exe 名；匹配不到进程 = 该 agent 全部 session 提前 done
 const PROC_PATTERNS = {
   claude: ['claude.exe'],
-  codex: ['codex.exe'],
+  // Codex Desktop 的实际宿主进程不稳定（当前版本不一定叫 codex.exe），
+  // 不能用进程名缺失强制结束会话；Codex 以 JSONL 日志和 task_complete 判定为准。
   zcode: ['zcode.exe'],
   // pi / deepseek-harness 进程名未实测确认，暂不启用（保守）
 };
@@ -966,6 +967,8 @@ server.listen(PORT, '127.0.0.1', async () => {
   ensureFocusDll().then(() => { initFocusPs(); console.log('[focus] 窗口激活进程就绪'); });
   await scanAll();
   codex.reconcileRecentCompletions(store);
+  // 兼容旧版本曾把 Codex 误判为进程退出而留下的停止标记；现在 Codex 以日志为准。
+  store.setAgentStopped('codex', false, Date.now());
   // 修复存量数据里的 futCache：adapter 增/改了 system context 过滤规则后，旧入库的"系统注入"
   // 消息仍占着 userMsgFlag / futCache 首位，导致 board title 取到错误内容。重启时显式按
   // 当前 extractUserQuery 重算每会话首条真实用户输入。
