@@ -196,7 +196,7 @@ function renderChips() {
   // 6 列瀑布流自带 agent 维度，chips 仅做统计展示（不再影响列表内容）
   const box = $('agent-chips'); box.innerHTML = '';
   const cnt = { all: 0 };
-  for (const s of [...state.board.all]) cnt.all++;
+  for (const s of state.board.all || []) cnt.all++;
   for (const a of state.agents) cnt[a.id] = state.board[a.id] ? state.board[a.id].length : 0;
   const all = document.createElement('button');
   all.className = 'chip on';
@@ -210,16 +210,46 @@ function renderChips() {
   }
 }
 function renderProjects() {
-  // 同一份项目列表驱动两个筛选器（顶部时间线筛选 + 活跃区筛选），互不干扰各自的状态
-  for (const sel of [$('f-project'), $('active-project')]) {
-    const keep = sel.id === 'f-project' ? state.project : state.activeProject;
-    sel.innerHTML = '<option value="">全部项目</option>';
-    for (const p of state.projects) {
-      const o = document.createElement('option');
-      o.value = p.project; o.textContent = `${p.project} (${p.cnt})`;
-      sel.appendChild(o);
-    }
-    sel.value = keep;
+  const sel = $('active-project');
+  sel.innerHTML = '<option value="">全部项目</option>';
+  for (const p of state.projects) {
+    const o = document.createElement('option');
+    o.value = p.project; o.textContent = `${p.project} (${p.cnt})`;
+    sel.appendChild(o);
+  }
+  sel.value = state.activeProject;
+  renderProjectRail();
+}
+function projectItems() {
+  return state.projects
+    .filter((item) => item.project)
+    .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+}
+function projectLeaf(project) {
+  const path = String(project || '').replace(/[\\/]+$/, '');
+  return path.split(/[\\/]/).pop() || String(project || '');
+}
+function toggleProject(project) {
+  state.project = state.project === project ? '' : project;
+  renderProjectRail();
+  loadBoard();
+}
+function renderProjectRail() {
+  const rail = $('project-rail');
+  if (!rail) return;
+  const items = projectItems();
+  rail.innerHTML = '<div class="project-rail-head">全部项目</div>';
+  if (!items.length) {
+    rail.innerHTML += '<div class="project-empty">暂无项目路径</div>';
+    return;
+  }
+  for (const item of items) {
+    const button = document.createElement('button');
+    button.className = 'project-path' + (item.project === state.project ? ' on' : '');
+    button.title = item.project;
+    button.innerHTML = `<span class="project-path-short">${esc(projectLeaf(item.project))}</span><span class="project-path-full">${esc(item.project)}</span>`;
+    button.onclick = () => toggleProject(item.project);
+    rail.appendChild(button);
   }
 }
 const RANGE_LABEL = { day: '当天', '24h': '近 24 小时', week: '近一周', month: '近一个月' };
@@ -834,7 +864,6 @@ $('f-q').addEventListener('input', (e) => {
   clearTimeout(qTimer);
   qTimer = setTimeout(() => { state.q = e.target.value.trim(); loadBoard(); }, 400);
 });
-$('f-project').addEventListener('change', (e) => { state.project = e.target.value; loadBoard(); });
 $('f-onlyuser').addEventListener('change', (e) => {
   state.onlyUser = e.target.value === '1';
   loadBoard();       // 看板按过滤重载

@@ -256,11 +256,23 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
   .search{order:5;flex-basis:100%}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-/* 瀑布流看板：6 列（全部 + 5 个 agent），列内按时间倒序堆叠 session 卡 */
-.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;margin-top:4px;transition:grid-template-columns .2s ease}
+/* 项目导航 + 瀑布流看板：左侧项目路径，右侧按 agent 分列的 session 卡 */
+.board-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:14px;align-items:start;margin-top:4px}
+.project-rail{position:sticky;top:66px;max-height:calc(100vh - 86px);overflow-y:auto;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.project-rail-head{font-size:12px;font-weight:650;color:var(--text2);padding:2px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.project-path{display:block;width:100%;padding:8px 9px;border:1px solid transparent;border-radius:7px;color:var(--text2);text-align:left;cursor:pointer;transition:.15s;font:inherit;font-size:12px;line-height:1.35}
+.project-path:hover{background:#FBFAF8;color:var(--text)}
+.project-path.on{background:var(--accent-bg);border-color:#BFDBFE;color:var(--accent);font-weight:600}
+.project-path-short,.project-path-full{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-path-full{display:none}
+.project-rail:hover .project-path-short{display:none}
+.project-rail:hover .project-path-full{display:block}
+.project-rail:hover .project-path-full{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.project-empty{padding:12px 4px;color:var(--text3);font-size:12px}
+.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;min-width:0;transition:grid-template-columns .2s ease}
 @media (max-width:1400px){.board{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:1000px){.board{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media (max-width:700px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.board-layout{grid-template-columns:1fr}.project-rail{position:static;max-height:180px}.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .agent-col{min-width:0;transition:.2s}
 .agent-col .s-card{padding:12px 14px}
 /* 仅当存在聚焦列时，非聚焦列才缩小（避免未聚焦时所有卡片被 `:not(.focused)` 误缩小） */
@@ -304,7 +316,6 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 
   <div class="filters">
     <div class="chips" id="agent-chips"></div>
-    <select id="f-project"><option value="">全部项目</option></select>
     <select id="f-onlyuser" title="只显示你本人发过指令的会话，隐藏 AI 自行创建的会话">
       <option value="1" selected>仅我发过指令</option>
       <option value="0">全部会话</option>
@@ -354,7 +365,10 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
   </div>
   <div class="active-row" id="active-row"></div>
 
-  <div class="board" id="board"></div>
+  <div class="board-layout" id="board-layout">
+    <aside class="project-rail" id="project-rail"></aside>
+    <div class="board" id="board"></div>
+  </div>
 </div>
 
 <div class="drawer-mask" id="mask"></div>
