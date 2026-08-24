@@ -24,3 +24,9 @@ test('仅在完成迁移时按 Agent 分配播放提示音', () => {
   assert.match(source, /state\.completionSounds\.assignments\[agent\]/);
   assert.match(source, /if \(sound\) playSoundPreview\(sound\.url\)/);
 });
+
+test('升级修复时一次性清理旧的伪完成标记', () => {
+  assert.match(source, /const RECENT_DONE_STATE_VERSION = '2';/);
+  assert.match(source, /localStorage\.removeItem\('ab-recent-done'\)/);
+  assert.match(source, /localStorage\.removeItem\('ab-recent-dismissed'\)/);
+});

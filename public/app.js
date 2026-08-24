@@ -268,7 +268,16 @@ function removeFromBoard(b, agent, sessionId) {
 // 会话刚离开活跃窗口（进行中 → 已完成）时打绿色流光 + 「已读」按钮；
 // 点击「已读」→ 恢复普通已完成样式；超过 TTL 自动取消。localStorage 持久化。
 const RECENT_DONE_TTL = 30 * 60 * 1000; // 高亮保留时长：30 分钟
+const RECENT_DONE_STATE_VERSION = '2';
 function loadRecentDone() {
+  try {
+    if (localStorage.getItem('ab-recent-done-version') !== RECENT_DONE_STATE_VERSION) {
+      localStorage.removeItem('ab-recent-done');
+      localStorage.removeItem('ab-recent-dismissed');
+      localStorage.setItem('ab-recent-done-version', RECENT_DONE_STATE_VERSION);
+      return;
+    }
+  } catch {}
   try {
     const raw = JSON.parse(localStorage.getItem('ab-recent-done') || '{}');
     const now = Date.now();
