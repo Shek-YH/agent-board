@@ -184,17 +184,20 @@ function renderQuickAgents() {
   }
 }
 
-async function launchAgent(agent) {
+async function launchAgent(agent, target = '') {
   const def = state.agentsDef[agent];
   const name = def ? def.name : agent;
-  toast(`正在处理 ${name}…`);
+  const targetLabel = target === 'cli' ? ' CLI' : target === 'desktop' ? ' 桌面端' : '';
+  toast(`正在处理 ${name}${targetLabel}…`);
   try {
     const res = await fetch('/api/launch-agent', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent }),
+      body: JSON.stringify(target ? { agent, target } : { agent }),
     });
     const d = await res.json();
-    if (d.ok) { toast(`${name}：已运行则跳转，未运行已启动`); }
+    if (d.ok) {
+      toast(targetLabel ? `${name}${targetLabel}：已启动` : `${name}：已运行则跳转，未运行已启动`);
+    }
     else toast(`${name}：${d.error || '操作失败'}`);
   } catch { toast('请求失败'); }
   // 延迟刷新运行状态标记
@@ -236,6 +239,22 @@ async function openWorkBuddySession(sessionId) {
     if (d.ok) toast('WorkBuddy：已打开指定会话');
     else toast(`WorkBuddy：${d.error || '操作失败'}`);
   } catch { toast('WorkBuddy：请求失败'); }
+}
+async function openMarvisSession(sessionId) {
+  if (!sessionId) {
+    toast('Marvis：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Marvis 会话…');
+  try {
+    const res = await fetch('/api/open-marvis-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Marvis：已打开指定会话');
+    else toast(`Marvis：${d.error || '操作失败'}`);
+  } catch { toast('Marvis：请求失败'); }
 }
 async function openClaudeSession(sessionId) {
   if (!sessionId) {
@@ -305,6 +324,7 @@ function jumpToAgentSession(s) {
   if (s.agent === 'claude') return openClaudeSession(s.session_id);
   if (s.agent === 'codex') return openCodexThread(s.session_id);
   if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
+  if (s.agent === 'marvis') return openMarvisSession(s.session_id);
   if (s.agent === 'deepseek') return openDeepSeekSession(s.session_id);
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);
@@ -1455,15 +1475,34 @@ async function openSoundSettings() {
   renderSoundSettings(pop, soundAgents()[0]?.[0]);
 }
 
-// 每个 agent 默认走什么跳转方式的说明文字，纯展示用，不需要精确到底层字段名
-const LAUNCH_DEFAULT_HINT = {
-  claude: '默认：claude:// 协议跳转', codex: '默认：codex:// 协议跳转',
-  workbuddy: '默认：workbuddy:// 协议跳转', deepseek: '默认：命令行工具直接跳转',
-  marvis: '默认：启动脚本拉起',
-  zcode: '默认：启动脚本拉起', pi: '默认：命令行工具直接跳转',
-};
+// 每个 agent 默认
+function launchTargetText(target, info) {
+  if (!info || info.available !== true) return target === 'cli' ? '未找到 CLI' : '未找到桌面端';
+  return info.kind === 'path' && info.value ? info.value : (info.detail || '已找到');
+}
 
-/* ---------- 模型端口设置（自定义跳转启动命令） ---------- */
+function updateLaunchRowState(row) {
+  const manualEnabled = row.querySelector('.lo-manual-enabled').checked;
+  row.querySelectorAll('.lo-auto-btn').forEach((button) => {
+    button.disabled = manualEnabled || button.dataset.available !== '1';
+  });
+  const manualTarget = row.querySelector('.lo-input').value.trim();
+  const saveButton = row.querySelector('.lo-manual-save');
+  saveButton.disabled = !manualEnabled || !manualTarget;
+  row.classList.toggle('manual-on', manualEnabled);
+}
+
+async function saveLaunchOverrideSetting(agent, enabled, target) {
+  const response = await fetch('/api/launch-overrides', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent, enabled, target }),
+  });
+  const data = await response.json();
+  if (!response.ok || data.error) throw new Error(data.error || ('HTTP ' + response.status));
+  return data;
+}
+
+/* ---------- 模型端口设置（自动识别 + 手动指定桌面端） ---------- */
 async function openLaunchOverridesManager() {
   closePopover();
   state.popoverFor = 'launch-overrides';
@@ -1473,62 +1512,94 @@ async function openLaunchOverridesManager() {
   pop.style.top = '70px';
   pop.style.right = '16px';
   pop.style.zIndex = 60;
-  pop.style.minWidth = '420px';
-  pop.style.maxWidth = '520px';
+  pop.style.width = '560px';
+  pop.style.maxWidth = 'calc(100vw - 24px)';
   document.body.appendChild(pop);
   pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
 
-  let overrides;
+  let targets;
   try {
-    const r = await fetch('/api/launch-overrides');
+    const r = await fetch('/api/launch-targets');
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
-    overrides = d.overrides || {};
+    targets = d.targets || {};
   } catch {
-    // 拿不到真实数据就明确报错、不渲染表单——不能悄悄当成"空覆盖表"渲染一堆空输入框，
-    // 那样用户随手 blur 一下没改过的输入框就会把它当成"清空"提交，真把已保存的覆盖删掉
-    pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败，请稍后重试</div>';
+    // 拿不到真实数据就明确报错，不渲染空表，避免用户误以为自动目标都不存在。
+    pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">自动识别失败，请稍后重试</div>';
     return;
   }
 
   const defs = state.agentsDef || {};
-  let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（自定义跳转启动命令，留空用默认）</span></div>
-    <div style="padding:10px;max-height:60vh;overflow-y:auto">`;
+  let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（先用自动识别，手动方式可覆盖）</span></div>
+    <div class="lo-list">`;
   for (const id of Object.keys(defs)) {
     const meta = defs[id];
-    html += `<div class="lo-row" data-id="${esc(id)}" style="margin-bottom:10px">
-      <div style="font-size:12px;font-weight:600;margin-bottom:2px">${esc(meta.name || id)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${esc(LAUNCH_DEFAULT_HINT[id] || '默认：内置方式')}</div>
-      <input class="lo-input" type="text" placeholder="留空使用默认，填了则改用这条命令跳转" value="${esc(overrides[id] || '')}"
-        style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px">
-    </div>`;
+    const item = targets[id] || {};
+    const cli = item.cli || {};
+    const desktop = item.desktop || {};
+    const manual = item.manualDesktop || { enabled: false, target: '' };
+    const availableCount = [cli, desktop].filter((target) => target.available === true).length;
+    const status = availableCount === 2 ? '已找到 CLI 和桌面端'
+      : availableCount === 1 ? '当前只找到一种启动方式' : '暂未找到自动启动方式';
+    const icon = meta.icon
+      ? `<img src="/icons/${esc(meta.icon)}" alt="" class="lo-agent-icon">`
+      : `<span class="lo-agent-dot" style="background:${esc(meta.color || '#888')}"></span>`;
+    html += `<section class="lo-agent-row" data-id="${esc(id)}">
+      <div class="lo-agent-head">${icon}<div><div class="lo-agent-name">${esc(meta.name || id)}</div><div class="lo-status">${esc(status)}</div></div></div>
+      <div class="lo-auto-grid">
+        <div class="lo-auto-item"><button class="btn primary lo-auto-btn" data-target="cli" data-available="${cli.available === true ? '1' : '0'}">${cli.available === true ? '切换到 CLI' : 'CLI 未找到'}</button><div class="lo-target-detail">${esc(launchTargetText('cli', cli))}</div></div>
+        <div class="lo-auto-item"><button class="btn primary lo-auto-btn" data-target="desktop" data-available="${desktop.available === true ? '1' : '0'}">${desktop.available === true ? '切换到桌面端' : '桌面端未找到'}</button><div class="lo-target-detail">${esc(launchTargetText('desktop', desktop))}</div></div>
+      </div>
+      <div class="lo-manual-block">
+        <label class="lo-manual-label"><input type="checkbox" class="lo-manual-enabled" ${manual.enabled === true ? 'checked' : ''}>手动指定桌面端</label>
+        <input class="lo-input" type="text" placeholder="例如：C:\\Users\\Administrator\\AppData\\Local\\Programs\\DSH Desktop\\DSH Desktop.exe" value="${esc(manual.target || '')}">
+        <div class="lo-help">也可以填写 .cmd/.bat 或命令行；勾选后优先于上面的自动方式</div>
+        <button class="btn primary lo-manual-save">保存并切换到桌面端</button>
+      </div>
+    </section>`;
   }
   html += '</div>';
   pop.innerHTML = html;
 
-  pop.querySelectorAll('.lo-input').forEach((input) => {
-    // 记住刚加载时的值，blur 时没有真的改过就不发请求——避免"没编辑、只是路过点了一下
-    // 输入框又移开焦点"也触发一次保存，把这个字段悄悄清空成默认
-    input.dataset.orig = input.value;
-    input.addEventListener('blur', async () => {
-      const command = input.value.trim();
-      if (command === input.dataset.orig) return;
-      const id = input.closest('.lo-row').dataset.id;
+  pop.querySelectorAll('.lo-agent-row').forEach((row) => {
+    const id = row.dataset.id;
+    const checkbox = row.querySelector('.lo-manual-enabled');
+    const input = row.querySelector('.lo-input');
+    const manualSave = row.querySelector('.lo-manual-save');
+    const autoButtons = row.querySelectorAll('.lo-auto-btn');
+    updateLaunchRowState(row);
+    input.addEventListener('input', () => updateLaunchRowState(row));
+    checkbox.addEventListener('change', async () => {
+      const enabled = checkbox.checked;
+      const target = input.value.trim();
+      checkbox.disabled = true;
       try {
-        const r = await fetch('/api/launch-overrides', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agent: id, command }),
-        });
-        const d = await r.json();
-        if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
-        // 服务端会 trim 一遍，这里同步显示成实际保存的值（保存前已经 trim 过，值应该一致，
-        // 但显式赋一次更保险，不依赖"客户端和服务端 trim 逻辑必须永远一致"这个假设）
-        input.value = command;
-        input.dataset.orig = command;
-        toast(command ? '已保存自定义启动命令' : '已恢复默认');
+        await saveLaunchOverrideSetting(id, enabled, target);
+        toast(enabled ? '已启用手动桌面端' : '已恢复自动识别');
+      } catch (e) {
+        checkbox.checked = !enabled;
+        toast('保存失败：' + (e.message || '未知错误'));
+      } finally {
+        checkbox.disabled = false;
+        updateLaunchRowState(row);
+      }
+    });
+    manualSave.addEventListener('click', async () => {
+      const target = input.value.trim();
+      if (!checkbox.checked || !target) return;
+      manualSave.disabled = true;
+      try {
+        await saveLaunchOverrideSetting(id, true, target);
+        toast('已保存手动桌面端，正在切换…');
+        await launchAgent(id, 'desktop');
       } catch (e) {
         toast('保存失败：' + (e.message || '未知错误'));
+      } finally {
+        updateLaunchRowState(row);
       }
+    });
+    autoButtons.forEach((button) => {
+      button.addEventListener('click', () => launchAgent(id, button.dataset.target));
     });
   });
 }

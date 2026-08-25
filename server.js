@@ -11,6 +11,7 @@ const { clearAuthCache } = require('./lib/auth-cache');
 const soundSettings = require('./lib/sound-settings');
 const detect = require('./lib/detect');
 const launchLib = require('./lib/launch');
+const { buildLaunchTargets, selectLaunchTarget, resolveLaunchRequest } = require('./lib/launch-targets');
 const { buildCodexDeepLink } = require('./lib/codex-deep-link');
 const { buildWorkBuddyDeepLink } = require('./lib/workbuddy-deep-link');
 const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
@@ -20,6 +21,8 @@ const { resolveDeepSeekDesktopExe } = require('./lib/deepseek-desktop-path');
 const { resolveFocusDll } = require('./lib/focus-dll-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
+const { buildMarvisDeepLink } = require('./lib/marvis-deep-link');
+const { resolveMarvisLauncher } = require('./lib/marvis-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
 const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
@@ -80,18 +83,106 @@ function launchAgentExecutable(executable) {
   }
 }
 
-// 窗口激活：未运行 -> 按 scheme/launch 启动；运行中 -> 激活到前台
-function launchOrFocus(agent, cb) {
+function buildDesktopLaunchSpecs() {
+  const scheme = (id, detail) => ({
+    kind: 'scheme', available: Boolean(AGENT_DEFS[id].scheme),
+    value: AGENT_DEFS[id].scheme, detail,
+  });
+  const file = (value, detail) => ({
+    kind: 'path', available: Boolean(value) && fs.existsSync(value), value, detail,
+  });
+  return {
+    claude: scheme('claude', 'claude:// 协议'),
+    codex: scheme('codex', 'codex:// 协议'),
+    workbuddy: scheme('workbuddy', 'workbuddy:// 协议'),
+    deepseek: file(resolveDeepSeekDesktopExe(), 'DeepSeek Desktop'),
+    marvis: file(resolveMarvisLauncher(), 'MarvisLauncher.exe'),
+    zcode: file(AGENT_DEFS.zcode.launch, 'ZCode 启动脚本'),
+    pi: file(resolvePiAgentDesktopExe(), 'Pi Agent Desktop'),
+    hermes: file(resolveHermesDesktopExe(), 'Hermes.exe'),
+  };
+}
+
+async function getAutomaticLaunchTargets() {
+  return buildLaunchTargets({
+    defs: AGENT_DEFS,
+    probes: await getProbe(),
+    desktop: buildDesktopLaunchSpecs(),
+  });
+}
+
+function launchDetachedTarget(target, cb) {
+  try {
+    const raw = String(target || '').trim();
+    if (!raw) throw new Error('启动目标为空');
+    if (/^[a-z][a-z\d+.-]*:/i.test(raw) && !/^[a-z]:[\\/]/i.test(raw)) {
+      throw new Error('启动目标不能是网络地址');
+    }
+    const resolved = stripQuotes(raw);
+    const extension = path.extname(resolved).toLowerCase();
+    const direct = fs.existsSync(resolved) && extension !== '.cmd' && extension !== '.bat';
+    const command = direct ? resolved : 'cmd.exe';
+    let commandLine = raw;
+    if (!direct && /^[a-z]:[\\/]/i.test(resolved) && !/[&|<>]/.test(resolved) && /\s/.test(resolved)) {
+      commandLine = `"${resolved.replace(/"/g, '""')}"`;
+    }
+    const args = direct ? [] : ['/c', commandLine];
+    const child = spawn(command, args, { windowsHide: true, detached: true, stdio: 'ignore' });
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      cb(result);
+    };
+    child.once('error', (error) => finish({ ok: false, error: error.message || '启动目标失败' }));
+    child.unref();
+    setImmediate(() => finish({ ok: true, action: 'launch-target' }));
+  } catch (error) {
+    cb({ ok: false, error: error.message || '启动目标失败' });
+  }
+}
+
+function launchSchemeTarget(scheme, cb) {
+  try {
+    if (scheme.startsWith('claude://')) {
+      Promise.resolve(launchClaudeDeepLink(scheme)).then(
+        () => cb({ ok: true, action: 'launch-target' }),
+        (error) => cb({ ok: false, error: error.message || '启动协议失败' }),
+      );
+      return;
+    }
+    if (process.platform === 'win32') {
+      spawn('cmd.exe', ['/c', 'start', '', scheme], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [scheme], { detached: true, stdio: 'ignore' }).unref();
+    }
+    cb({ ok: true, action: 'launch-target' });
+  } catch (error) {
+    cb({ ok: false, error: error.message || '启动协议失败' });
+  }
+}
+
+function launchAutomaticTarget(agent, requestedTarget, cb) {
+  getAutomaticLaunchTargets().then((targets) => {
+    const selected = selectLaunchTarget(targets, agent, requestedTarget);
+    if (selected.kind === 'scheme') launchSchemeTarget(selected.value, cb);
+    else launchDetachedTarget(selected.value, cb);
+  }).catch((error) => cb({ ok: false, error: error.message || '自动启动失败' }));
+}
+
+// 窗口激活：手动桌面端优先；没有指定目标时保留原有默认启动/激活逻辑。
+function launchOrFocus(agent, requestedTarget, cb) {
   const def = AGENT_DEFS[agent];
   if (!def) { cb({ ok: false, error: '未知 agent' }); return; }
 
-  // 模型端口设置：用户配置了自定义启动命令，直接跑这条命令，不走下面任何默认逻辑。
-  // 不做"是否已运行"检测——覆盖命令是用户自己指定的任意程序，没法通用地判断它是否已经在跑，
-  // 交给用户自己选的程序/脚本自己处理，这里只负责"跑一下"。
-  const override = launchLib.loadLaunchOverrides()[agent];
-  if (override) {
-    spawn('cmd.exe', ['/c', override], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-    cb({ ok: true, action: 'launch-override', agent });
+  const manual = launchLib.loadLaunchOverrides()[agent];
+  const request = resolveLaunchRequest({ manual, requested: requestedTarget || '' });
+  if (request.kind === 'manual') {
+    launchDetachedTarget(request.target, (result) => cb({ ...result, action: result.ok ? 'launch-override' : result.action, agent }));
+    return;
+  }
+  if (request.target) {
+    launchAutomaticTarget(agent, request.target, (result) => cb({ ...result, agent }));
     return;
   }
 
@@ -713,6 +804,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Marvis 桌面端通过 marvis://conversation/share?id=<conversation_id>
+  // 伪协议命令打开已有会话。该命令由 Marvis 内部导航到 /chat/<id>。
+  // 直接调用已注册的 MarvisLauncher.exe：已有实例由 Marvis 的 pseudo protocol
+  // 单实例通道接收，未运行时由启动器创建唯一主实例，避免 cmd start 再开第二个窗口。
+  if (pathname === '/api/open-marvis-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const deepLink = buildMarvisDeepLink(sessionId);
+      if (!store.getSession(`marvis:${sessionId}`)) throw new Error('Marvis session 不存在');
+      if (process.platform !== 'win32') throw new Error('当前本地 Marvis 跳转只支持 Windows');
+      const launcher = resolveMarvisLauncher();
+      if (!launcher || !fs.existsSync(launcher)) throw new Error('未找到 MarvisLauncher.exe');
+      spawn(launcher, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId, deepLink }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Marvis 会话' }));
+    }
+    return;
+  }
+
   // 按 Claude Code session 精确打开 Claude Desktop。CLI-only/已导入会话走
   // resume；Desktop-native 会话走 desktopSessionId 的 focus 深链，绝不退回
   // resume(cliSessionId)，避免把原生会话复制成 transcript snapshot。
@@ -861,11 +975,15 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const agent = String(body.agent || '');
       if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
-      launchOrFocus(agent, (r) => {
+      const requestedTarget = typeof body.target === 'string' ? body.target.trim() : '';
+      if (requestedTarget && requestedTarget !== 'cli' && requestedTarget !== 'desktop') {
+        throw new Error('不支持的启动方式');
+      }
+      launchOrFocus(agent, requestedTarget, (r) => {
         console.log(`[launch-agent] ${agent} ->`, JSON.stringify(r));
+        res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...r, agent }));
       });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, agent }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
@@ -873,20 +991,46 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 模型端口设置：读取当前的启动命令覆盖表
+  // 模型端口设置：返回自动识别的 CLI/桌面端目标和手动配置。
+  if (pathname === '/api/launch-targets' && req.method === 'GET') {
+    try {
+      const automatic = await getAutomaticLaunchTargets();
+      const overrides = launchLib.loadLaunchOverrides();
+      const targets = {};
+      for (const id of Object.keys(AGENT_DEFS)) {
+        targets[id] = {
+          ...(automatic[id] || {}),
+          manualDesktop: overrides[id]?.manualDesktop || { enabled: false, target: '' },
+        };
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ targets }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '自动目标探测失败' }));
+    }
+    return;
+  }
+
+  // 模型端口设置：读取当前的手动桌面端配置
   if (pathname === '/api/launch-overrides' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ overrides: launchLib.loadLaunchOverrides() }));
     return;
   }
 
-  // 模型端口设置：保存/清除某个 agent 的启动命令覆盖
+  // 模型端口设置：保存/清除某个 agent 的手动桌面端配置
   if (pathname === '/api/launch-overrides' && req.method === 'POST') {
     try {
       const body = await readBody(req);
       const agent = String(body.agent || '');
       if (!AGENT_DEFS[agent]) throw new Error('未知 agent: ' + agent);
-      const overrides = launchLib.saveLaunchOverride(agent, String(body.command || ''));
+      const legacyCommand = typeof body.command === 'string' ? body.command.trim() : null;
+      const target = legacyCommand !== null
+        ? legacyCommand
+        : (typeof body.target === 'string' ? body.target.trim() : '');
+      const enabled = legacyCommand !== null ? Boolean(legacyCommand) : body.enabled === true;
+      const overrides = launchLib.saveLaunchOverride(agent, { enabled, target });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, overrides }));
     } catch (e) {

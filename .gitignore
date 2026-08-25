@@ -21,6 +21,33 @@ runtime/node.exe
 tools/wf.dll
 dist/
 
+# 构建、测试与增量缓存
+build/
+out/
+coverage/
+.cache/
+.next/
+.next-desktop/
+target/
+src-tauri/target/
+*.tsbuildinfo
+
+# Python 编译缓存
+__pycache__/
+*.py[cod]
+
+# 临时、调试与编辑器文件
+*.tmp
+*.dmp
+*.dump
+*.swp
+*.swo
+*.bak
+*.backup
+*.orig
+*.old
+*.log
+
 # brainstorming 可视化伴侣的临时草图
 .superpowers/
 
