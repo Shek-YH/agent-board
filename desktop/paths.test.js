@@ -17,6 +17,15 @@ test('开发态使用仓库里的 server.js 和当前 Node', () => {
   assert.equal(result.dataDir, path.join('C:\\Users\\test', 'AppData', 'Local', 'AgentBoard'));
 });
 
+test('开发态从 npm 使用的 Node 启动后端，而不是 Electron 可执行文件', () => {
+  const result = resolveDesktopPaths({
+    packaged: false,
+    projectRoot: 'C:\\work\\agent-board',
+    env: { npm_node_execpath: 'D:\\node.exe' },
+  });
+  assert.equal(result.nodeRuntime, 'D:\\node.exe');
+});
+
 test('打包态使用 resources/backend 和 resources/runtime', () => {
   const result = resolveDesktopPaths({
     packaged: true,

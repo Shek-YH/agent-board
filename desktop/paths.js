@@ -23,7 +23,9 @@ function resolveDesktopPaths({
     backendEntry: path.join(backendRoot, 'server.js'),
     nodeRuntime: packaged
       ? path.join(resourcesPath, 'runtime', 'node.exe')
-      : (nonBlank(env.AGENT_BOARD_NODE_RUNTIME) || process.execPath),
+      : (nonBlank(env.AGENT_BOARD_NODE_RUNTIME)
+        || nonBlank(env.npm_node_execpath)
+        || process.execPath),
     dataDir,
   };
 }
