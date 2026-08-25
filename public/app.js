@@ -1618,9 +1618,29 @@ $('btn-settings-hub').onclick = openSettingsHub;
 
 /* ---------- 应用管理（探测路径 + 官方下载入口） ---------- */
 
+const AGENT_INSTALL_SKILL_URL = '/downloads/agent-board-install-agents.skill';
+const AGENT_INSTALL_SKILL_PROMPT = '请调用 Agent Board Agent Installer skill，先询问我安装全部 Agent 还是选择指定 Agent，得到我的选择后再执行安装。';
+
+function agentManagerGuideMarkup() {
+  return `<section class="ab-install-guide" aria-label="AI 安装指引">
+    <div class="ab-guide-heading"><span class="ab-guide-kicker">快捷安装</span><span>让 AI 帮你安装 Agent</span></div>
+    <div class="ab-guide-copy">先安装 Agent Board 安装 Skill。调用后，AI 会先询问安装全部还是选择几个，再按你的选择处理。</div>
+    <div class="ab-guide-steps">
+      <div class="ab-guide-step"><b>01 · 安装</b>下载 Skill 文件，并在你的 AI 客户端中安装。</div>
+      <div class="ab-guide-step"><b>02 · 调用</b>发送下方指令，让 AI 先确认安装范围。</div>
+      <div class="ab-guide-step"><b>03 · 校验</b>安装完成后重新探测并配置启动路径。</div>
+    </div>
+    <div class="ab-guide-actions">
+      <a class="btn primary ab-skill-download" href="${AGENT_INSTALL_SKILL_URL}" download="agent-board-install-agents.skill">下载安装 Skill</a>
+      <button class="btn ab-copy-skill-prompt" type="button">复制调用指令</button>
+    </div>
+    <div class="ab-guide-prompt" title="${esc(AGENT_INSTALL_SKILL_PROMPT)}">${esc(AGENT_INSTALL_SKILL_PROMPT)}</div>
+  </section>`;
+}
+
 function agentManagerLoadingMarkup(force) {
   const text = force ? '正在重新探测应用状态…' : '正在检测应用状态…';
-  return `<div class="pop-head">应用管理</div>
+  return `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div>
     <div role="status" style="padding:18px 16px;color:var(--text2);font-size:13px;display:flex;align-items:center;gap:8px">
       <span aria-hidden="true" style="width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite"></span>
       <span>${text}</span>
@@ -1647,17 +1667,27 @@ function dataName(agent) {
   return state.agentsDef[agent]?.name || agent;
 }
 
+async function copyAgentInstallPrompt(button) {
+  try {
+    await navigator.clipboard.writeText(AGENT_INSTALL_SKILL_PROMPT);
+    const original = button.textContent;
+    button.textContent = '已复制';
+    toast('调用指令已复制');
+    setTimeout(() => { if (button.isConnected) button.textContent = original; }, 1400);
+  } catch {
+    toast('复制失败，请手动复制指引文字');
+  }
+}
+
 async function openAgentManager(force) {
   closePopover();
   state.popoverFor = 'agents';
   const pop = document.createElement('div');
-  pop.className = 'popover';
+  pop.className = 'popover ab-agent-manager';
   pop.style.position = 'fixed';
   pop.style.top = '70px';
   pop.style.right = '16px';
   pop.style.zIndex = 60;
-  pop.style.minWidth = '420px';
-  pop.style.maxWidth = '520px';
   document.body.appendChild(pop);
   pop.innerHTML = agentManagerLoadingMarkup(force);
 
@@ -1667,38 +1697,37 @@ async function openAgentManager(force) {
     data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
   } catch {
-    pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
+    pop.innerHTML = '<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
     return;
   }
 
   const agents = Object.values(data.agents || {});
   // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
-  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（安装请前往官方下载页）</span>
-    <button class="btn ab-rescan-probe" style="margin-left:auto;min-height:22px;padding:2px 8px;font-size:11px">重新探测</button>
-  </div>
-    <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
+  let html = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div>
+    <button class="btn ab-rescan-probe" type="button">重新探测</button>
+  </div>${agentManagerGuideMarkup()}<div class="ab-agent-grid">`;
   for (const a of agents) {
     const badge = a.installed
-      ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
-      : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
+      ? `<span class="ab-status-badge installed">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
+      : `<span class="ab-status-badge missing">未检测到</span>`;
     const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui')
       && a.install && /^https?:\/\//i.test(a.install.downloadUrl || '');
     const btn = canInstall
-      ? `<div style="margin-top:6px"><button class="btn ab-install" data-id="${esc(a.id)}" data-url="${esc(a.install.downloadUrl)}" style="min-height:28px;padding:3px 12px;font-size:12px">打开下载页</button></div>`
+      ? `<button class="btn ab-install" type="button" data-id="${esc(a.id)}" data-url="${esc(a.install.downloadUrl)}">打开下载页</button>`
       : '';
     const shownPath = a.executablePath || a.path;
     const pathLabel = a.executablePath ? '启动路径' : (a.path ? '数据路径' : '');
     const pathMarkup = shownPath
-      ? `<div title="${esc(shownPath)}" style="margin-top:6px;font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${pathLabel}：${esc(shownPath)}</div>`
-      : '<div style="margin-top:6px;font-size:10px;color:var(--text3);min-height:15px">未配置启动路径</div>';
-    html += `<div class="ab-card" data-id="${esc(a.id)}" style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
-      <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
-      <div style="font-size:12px;font-weight:600;margin-bottom:4px">${esc(a.name || a.id)}</div>
-      ${badge}
-      ${pathMarkup}
-      <div class="ab-progress" style="font-size:11px;color:var(--text3);margin-top:6px;min-height:14px"></div>
-      <div style="margin-top:6px"><button class="btn ab-discover-path" data-id="${esc(a.id)}" style="min-height:28px;padding:3px 10px;font-size:12px">自动配置路径</button></div>
-      ${btn}
+      ? `<div class="ab-card-path" title="${esc(shownPath)}">${pathLabel}：${esc(shownPath)}</div>`
+      : '<div class="ab-card-path empty">未配置启动路径</div>';
+    html += `<div class="ab-card" data-id="${esc(a.id)}">
+      <div class="ab-card-icon" style="background:${esc(a.color || '#888')}">${esc((a.name || a.id || '?').slice(0, 1))}</div>
+      <div class="ab-card-main">
+        <div class="ab-card-title-row"><div class="ab-card-title" title="${esc(a.name || a.id)}">${esc(a.name || a.id)}</div>${badge}</div>
+        ${pathMarkup}
+        <div class="ab-progress" role="status" aria-live="polite"></div>
+      </div>
+      <div class="ab-card-actions"><button class="btn ab-discover-path" type="button" data-id="${esc(a.id)}">自动配置路径</button>${btn}</div>
     </div>`;
   }
   html += '</div>';
@@ -1706,6 +1735,9 @@ async function openAgentManager(force) {
 
   const rescanBtn = pop.querySelector('.ab-rescan-probe');
   if (rescanBtn) rescanBtn.onclick = () => openAgentManager(true);
+
+  const copyPromptBtn = pop.querySelector('.ab-copy-skill-prompt');
+  if (copyPromptBtn) copyPromptBtn.onclick = () => copyAgentInstallPrompt(copyPromptBtn);
 
   pop.querySelectorAll('.ab-discover-path').forEach((b) => {
     b.onclick = () => discoverAgentPath(b.dataset.id, b);

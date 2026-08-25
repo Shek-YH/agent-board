@@ -1,6 +1,6 @@
 # Agent Board
 
-本地看板，实时汇总多个 AI 编程/办公 Agent 的会话记录到一个时间线，并提供一键检测/安装这些 Agent 的能力。
+本地看板，实时汇总多个 AI 编程/办公 Agent 的会话记录到一个时间线，并提供路径探测、官方下载入口和 AI 安装 Skill。
 
 后端使用 Node.js 内置 `http` 服务 + 原生前端，运行态零 npm 依赖，单机跑在 `http://127.0.0.1:4876`；Windows 桌面版会将 Electron、Node 运行时和后端一起打包。
 
@@ -8,12 +8,12 @@
 
 | Agent | 类型 | 说明 |
 |---|---|---|
-| Claude Code | 命令行 | 支持一键安装 |
-| Codex | 命令行 | 支持一键安装 |
-| Pi | 命令行 | 支持一键安装 |
-| DeepSeek Harness | 命令行 | 支持一键安装 |
-| WorkBuddy | 桌面应用 | 支持一键安装（winget） |
-| ZCode | 桌面应用 | 支持一键安装（winget） |
+| Claude Code | 命令行 | 提供官方下载页 |
+| Codex | 命令行 | 提供官方下载页 |
+| Pi | 命令行 | 提供官方下载页 |
+| DeepSeek Harness | 命令行 | 提供官方下载页 |
+| WorkBuddy | 桌面应用 | 提供官方下载页 |
+| ZCode | 桌面应用 | 提供官方下载页 |
 | Marvis | 桌面应用 | 仅支持跳转官方下载页手动安装 |
 
 ## 功能
@@ -21,7 +21,7 @@
 - **会话聚合**：按项目/时间线/Agent 分组展示所有会话，支持搜索、筛选、瀑布流多列布局
 - **实时活跃状态**：SSE 推送，实时显示哪个会话正在进行中
 - **探测引擎**：自动检测每个 Agent 装没装、装在哪、什么版本，探测结果带 5 分钟内存缓存
-- **应用管理**：实时探测 Agent 安装状态；每个 Agent 都可以自动配置真实可执行文件路径，未安装时点击“打开下载页”跳转到官方下载入口，由用户自行完成安装
+- **应用管理**：实时探测 Agent 安装状态；每个 Agent 都可以自动配置真实可执行文件路径，未安装时点击“打开下载页”跳转到官方下载入口；内置 Agent Board 安装 Skill，可让 AI 先询问安装范围后协助下载和安装
 - **瀑布流列联动**：首页默认只显示"已安装或有历史会话数据"的 Agent 列，用户手动配置过的列设置不受影响
 - **用户路径覆盖**：`~/.agent-board/tool-paths.json` 可手动指定某个命令行工具的真实安装路径，用于覆盖非标准安装位置探测不到的情况
 
@@ -84,6 +84,9 @@ lib/
   watcher.js               # 本地会话目录文件监听
 public/
   index.html, app.js       # 前端（原生 JS，无构建工具）
+  downloads/                # 可供用户下载的 Agent Board 安装 Skill
+skills/
+  agent-board-install-agents/ # Windows Agent 安装 Skill 源文件
 docs/superpowers/
   specs/*.md                 # 各功能的设计文档
   plans/*.md                  # 各功能的实现计划（含任务拆分、验证步骤）
