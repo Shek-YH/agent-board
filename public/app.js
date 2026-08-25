@@ -237,6 +237,22 @@ async function openWorkBuddySession(sessionId) {
     else toast(`WorkBuddy：${d.error || '操作失败'}`);
   } catch { toast('WorkBuddy：请求失败'); }
 }
+async function openMarvisSession(sessionId) {
+  if (!sessionId) {
+    toast('Marvis：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Marvis 会话…');
+  try {
+    const res = await fetch('/api/open-marvis-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Marvis：已打开指定会话');
+    else toast(`Marvis：${d.error || '操作失败'}`);
+  } catch { toast('Marvis：请求失败'); }
+}
 async function openClaudeSession(sessionId) {
   if (!sessionId) {
     toast('Claude Code：无效的会话 ID');
@@ -305,6 +321,7 @@ function jumpToAgentSession(s) {
   if (s.agent === 'claude') return openClaudeSession(s.session_id);
   if (s.agent === 'codex') return openCodexThread(s.session_id);
   if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
+  if (s.agent === 'marvis') return openMarvisSession(s.session_id);
   if (s.agent === 'deepseek') return openDeepSeekSession(s.session_id);
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);

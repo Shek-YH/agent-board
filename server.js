@@ -20,6 +20,8 @@ const { resolveDeepSeekDesktopExe } = require('./lib/deepseek-desktop-path');
 const { resolveFocusDll } = require('./lib/focus-dll-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
+const { buildMarvisDeepLink } = require('./lib/marvis-deep-link');
+const { resolveMarvisLauncher } = require('./lib/marvis-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
 const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
@@ -709,6 +711,29 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 WorkBuddy 会话' }));
+    }
+    return;
+  }
+
+  // Marvis 桌面端通过 marvis://conversation/share?id=<conversation_id>
+  // 伪协议命令打开已有会话。该命令由 Marvis 内部导航到 /chat/<id>。
+  // 直接调用已注册的 MarvisLauncher.exe：已有实例由 Marvis 的 pseudo protocol
+  // 单实例通道接收，未运行时由启动器创建唯一主实例，避免 cmd start 再开第二个窗口。
+  if (pathname === '/api/open-marvis-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const deepLink = buildMarvisDeepLink(sessionId);
+      if (!store.getSession(`marvis:${sessionId}`)) throw new Error('Marvis session 不存在');
+      if (process.platform !== 'win32') throw new Error('当前本地 Marvis 跳转只支持 Windows');
+      const launcher = resolveMarvisLauncher();
+      if (!launcher || !fs.existsSync(launcher)) throw new Error('未找到 MarvisLauncher.exe');
+      spawn(launcher, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId, deepLink }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Marvis 会话' }));
     }
     return;
   }
