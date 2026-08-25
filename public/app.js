@@ -1475,6 +1475,7 @@ async function openSoundSettings() {
   renderSoundSettings(pop, soundAgents()[0]?.[0]);
 }
 
+// 每个 agent 默认
 function launchTargetText(target, info) {
   if (!info || info.available !== true) return target === 'cli' ? '未找到 CLI' : '未找到桌面端';
   return info.kind === 'path' && info.value ? info.value : (info.detail || '已找到');
