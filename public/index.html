@@ -208,6 +208,28 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .pop-item.focus{background:var(--accent-bg);color:var(--accent);font-weight:500}
 .pop-item.focus:hover{background:#DDEBFF}
 .pop-item span:first-child{width:18px;text-align:center}
+.lo-list{padding:10px;max-height:68vh;overflow-y:auto;overscroll-behavior:contain}
+.lo-agent-row{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px;margin-bottom:10px;transition:.15s}
+.lo-agent-row.manual-on{border-color:var(--accent);background:#F8FBFF}
+.lo-agent-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.lo-agent-icon{width:24px;height:24px;object-fit:contain;flex:0 0 auto}
+.lo-agent-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.lo-agent-name{font-size:13px;font-weight:650;color:var(--text)}
+.lo-status{font-size:11px;color:var(--text3);margin-top:1px}
+.lo-auto-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.lo-auto-item{min-width:0}
+.lo-auto-btn{width:100%;justify-content:center;min-height:34px;padding:6px 8px;font-size:12px;border-radius:8px}
+.lo-auto-btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.lo-target-detail{margin-top:4px;color:var(--text3);font-size:10.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lo-manual-block{border-top:1px solid var(--border);margin-top:10px;padding-top:10px}
+.lo-manual-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer}
+.lo-manual-enabled{width:14px;height:14px;accent-color:var(--accent);margin:0}
+.lo-input{width:100%;box-sizing:border-box;margin-top:7px;padding:7px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;background:#fff;outline:none}
+.lo-input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,.12)}
+.lo-help{color:var(--text3);font-size:10.5px;line-height:1.45;margin-top:4px}
+.lo-manual-save{margin-top:8px;min-height:32px;padding:5px 10px;font-size:12px;border-radius:8px}
+.lo-manual-save:disabled{opacity:.45;cursor:not-allowed;filter:none}
+@media (max-width:560px){.lo-auto-grid{grid-template-columns:1fr}.lo-list{padding:8px}}
 .settings-toggle{justify-content:space-between;cursor:pointer}
 .settings-toggle span:first-child{width:auto;text-align:left}
 .settings-toggle input{width:15px;height:15px;margin-left:auto;accent-color:var(--accent)}
