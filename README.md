@@ -2,7 +2,7 @@
 
 本地看板，实时汇总多个 AI 编程/办公 Agent 的会话记录到一个时间线，并提供一键检测/安装这些 Agent 的能力。
 
-纯 Node.js 内置 `http` 服务 + 原生前端，零 npm 依赖，无需构建工具，单机跑在 `http://127.0.0.1:4876`。
+后端使用 Node.js 内置 `http` 服务 + 原生前端，运行态零 npm 依赖，单机跑在 `http://127.0.0.1:4876`；Windows 桌面版会将 Electron、Node 运行时和后端一起打包。
 
 ## 支持的 Agent
 
@@ -34,6 +34,36 @@ node server.js
 或双击 `start.bat`（Windows）/ 运行 `start.sh`（macOS/Linux）。启动后浏览器打开 `http://127.0.0.1:4876`。
 
 开机自启/常驻后台：`agent-board-watchdog.js`（配合 `agent-board-watchdog.bat`/`.vbs`）每 30 秒检测一次服务是否存活，挂了自动拉起。
+
+## 开发态运行
+
+桌面版开发启动需要先安装 Electron 构建依赖：
+
+```bash
+npm install
+npm run desktop:dev
+```
+
+Electron 会使用内置的本地 Node 进程启动后端，后端只监听 `127.0.0.1`。如果只需要调试后端，也可以继续使用上面的 `node server.js` 或 `start.bat`。
+
+## 构建 Windows 安装包
+
+在 Windows 开发机上准备固定版本的 Node 运行时和窗口聚焦 DLL，然后构建未签名的单用户 NSIS 安装包：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1
+npm run desktop:dist
+npm run desktop:verify
+```
+
+产物位于 `dist/Agent Board Setup 0.2.0.exe`。首版安装包面向 Windows x64 普通用户，不要求管理员权限；当前未启用自动更新，正式公开分发前还需要配置代码签名。
+
+## 普通用户安装
+
+下载安装包后双击运行，按向导选择安装目录。安装完成后可从桌面快捷方式或开始菜单启动 Agent Board；应用会自动管理本地后端，不需要用户单独安装 Node.js。
+
+用户数据默认保存在 `%LOCALAPPDATA%\AgentBoard`，卸载应用默认保留该目录。重新安装后仍可继续使用原有数据。
 
 ## 测试
 
