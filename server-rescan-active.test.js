@@ -13,4 +13,6 @@ test('全量重扫结束后只推送当前活跃会话快照', () => {
   assert.match(rescan, /sseBroadcast\('active', \{ active: store\.getActive\(\), statuses: store\.getRuntimeStatuses\(\) \}\)/);
   assert.doesNotMatch(rescan, /sseBroadcast\('active', store\.getRecentActive\('day'\)\)/);
   assert.match(source, /setInterval\(\(\) => \{\s*if \(!isScanning\) sseBroadcast\('active', \{ active: store\.getActive\(\), statuses: store\.getRuntimeStatuses\(\) \}\);\s*\}, 5000\)/);
+  assert.match(rescan, /store\.clearOffsets\(\)/);
+  assert.doesNotMatch(rescan, /store\.clearAll\(\)/);
 });

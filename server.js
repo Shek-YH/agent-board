@@ -1302,11 +1302,12 @@ const server = http.createServer(async (req, res) => {
     // 立即响应，后台执行
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, background: true }));
-    // 稍等一帧让响应先发出，再开始后台重建
+    // 稍等一帧让响应先发出，再开始后台重扫
     setTimeout(async () => {
       try {
-        // 清表全量重建：last_seen 可能已被旧解析器污染（MAX 只增不减），必须重建才能修正
-        store.clearAll();
+        // 非破坏式全量重扫：只清理各数据源的读取偏移，保留旧卡片。
+        // Marvis/其他 SQLite 数据源可能在 WAL 切换时暂时不可读，不能因一次重扫失败把看板清空。
+        store.clearOffsets();
         await scanAll();
         // 修复 custom-title 先创建导致 first_seen=0 的会话
         store.repairSessionTimestamps();
