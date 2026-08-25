@@ -12,11 +12,15 @@ const soundSettings = require('./lib/sound-settings');
 const detect = require('./lib/detect');
 const launchLib = require('./lib/launch');
 const { buildCodexDeepLink } = require('./lib/codex-deep-link');
+const { buildWorkBuddyDeepLink } = require('./lib/workbuddy-deep-link');
 const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
 const { buildPiAgentDesktopDeepLink } = require('./lib/pi-agent-deep-link');
 const { resolvePiAgentDesktopExe } = require('./lib/pi-agent-desktop-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
+const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
+const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
+const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -201,6 +205,15 @@ function focusHermesWindow(attempt = 0) {
       return;
     }
     console.log(`[open-hermes-session] focus Hermes -> ${result || '?'}`);
+  });
+}
+function focusWorkBuddyWindow(attempt = 0) {
+  focusAppCall('WorkBuddy', (result) => {
+    if (result === 'NOT_RUNNING' && attempt < 12) {
+      setTimeout(() => focusWorkBuddyWindow(attempt + 1), 150);
+      return;
+    }
+    console.log(`[open-workbuddy-session] focus WorkBuddy -> ${result || '?'}`);
   });
 }
 const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi, hermes];
@@ -635,6 +648,86 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 Codex 会话' }));
+    }
+    return;
+  }
+
+  // WorkBuddy 桌面端原生支持 workbuddy://chat/<conversationId> 深链。
+  // Windows 的协议处理由 WorkBuddy 单实例主进程接收：已有实例走
+  // second-instance，未运行时走初始 argv，不会创建第二个可见主窗口。
+  if (pathname === '/api/open-workbuddy-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const deepLink = buildWorkBuddyDeepLink(sessionId);
+      if (!store.getSession(`workbuddy:${sessionId}`)) throw new Error('WorkBuddy session 不存在');
+      if (process.platform !== 'win32') throw new Error('当前本地 WorkBuddy 跳转只支持 Windows');
+      spawn('cmd.exe', ['/c', 'start', '', deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      // Shell 已把深链交给 WorkBuddy；这里仅补一次前台激活，不改变最大化状态。
+      setTimeout(() => focusWorkBuddyWindow(), 120);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionId, deepLink }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 WorkBuddy 会话' }));
+    }
+    return;
+  }
+
+  // 按 Claude Code session 精确打开 Claude Desktop。CLI-only/已导入会话走
+  // resume；Desktop-native 会话走 desktopSessionId 的 focus 深链，绝不退回
+  // resume(cliSessionId)，避免把原生会话复制成 transcript snapshot。
+  if (pathname === '/api/open-claude-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const session = store.getSession(`claude:${sessionId}`);
+      if (!session) throw new Error('Claude session 不存在');
+      const target = resolveClaudeSessionTarget({ cliSessionId: sessionId, cwd: session.project });
+      if (target.status === 'ambiguous') {
+        throw new Error('Claude Desktop 存在多个匹配会话，请先按项目路径区分');
+      }
+      // Imported CLI descriptor 通常没有 title；UIA 仍需要用看板里的会话标题
+      // 找到 Desktop sidebar 卡片。只补充内存中的定位信息，不修改 Claude 文件。
+      target.title ||= session.title;
+      // Desktop-native 会话已经存在于 Claude Desktop 时，只做无副作用的进程探测，
+      // 不再先调用通用前台激活器。前台切换统一交给 UIA 精确定位目标 session，
+      // 避免通用 Focus + UIA 双重抢前台导致用户切换到其它程序后又被抢回 Claude。
+      const claudeAlreadyRunning = target.origin === 'desktop'
+        && process.platform === 'win32'
+        && isClaudeDesktopRunning();
+      if (!claudeAlreadyRunning) await launchClaudeDeepLink(target.deepLink);
+      if (target.desktopSessionId && process.platform === 'win32') {
+        // UIA 只激活并选择目标 session 一次。冷启动要等 Desktop 窗口出现，
+        // 已运行实例则立即执行；Desktop-native 失败时绝不改用 resume。
+        if (target.origin === 'desktop') {
+          await new Promise((resolve) => setTimeout(resolve, claudeAlreadyRunning ? 0 : 900));
+          const result = await focusClaudeSessionWithUiAutomation(target);
+          console.log(`[open-claude-session] UIA fallback -> ${result.status}`);
+          if (result.status !== 'ok') {
+            throw new Error('Claude Desktop 未找到对应的 Code session 卡片，请先打开 Code 会话列表后重试');
+          }
+        } else {
+          setTimeout(() => {
+            focusClaudeSessionWithUiAutomation(target).then((result) => {
+              console.log(`[open-claude-session] UIA fallback -> ${result.status}`);
+            }).catch((error) => {
+              console.log(`[open-claude-session] UIA fallback failed -> ${error.message}`);
+            });
+          }, 900);
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        sessionId,
+        origin: target.origin,
+        action: target.action,
+        desktopSessionId: target.desktopSessionId,
+      }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 Claude Desktop 会话' }));
     }
     return;
   }

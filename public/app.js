@@ -221,6 +221,38 @@ async function openCodexThread(sessionId) {
     else toast(`Codex：${d.error || '操作失败'}`);
   } catch { toast('Codex：请求失败'); }
 }
+async function openWorkBuddySession(sessionId) {
+  if (!sessionId) {
+    toast('WorkBuddy：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 WorkBuddy 会话…');
+  try {
+    const res = await fetch('/api/open-workbuddy-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('WorkBuddy：已打开指定会话');
+    else toast(`WorkBuddy：${d.error || '操作失败'}`);
+  } catch { toast('WorkBuddy：请求失败'); }
+}
+async function openClaudeSession(sessionId) {
+  if (!sessionId) {
+    toast('Claude Code：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 Claude Desktop 会话…');
+  try {
+    const res = await fetch('/api/open-claude-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const d = await res.json();
+    if (d.ok) toast('Claude Code：已打开指定 Desktop 会话');
+    else toast(`Claude Code：${d.error || '操作失败'}`);
+  } catch { toast('Claude Code：请求失败'); }
+}
 async function openDeepSeekSession(sessionId) {
   if (!sessionId) {
     toast('DeepSeek Harness：无效的会话 ID');
@@ -270,7 +302,9 @@ async function openHermesSession(sessionId) {
   } catch { toast('Hermes Agent：请求失败'); }
 }
 function jumpToAgentSession(s) {
+  if (s.agent === 'claude') return openClaudeSession(s.session_id);
   if (s.agent === 'codex') return openCodexThread(s.session_id);
+  if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
   if (s.agent === 'deepseek') return openDeepSeekSession(s.session_id);
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);
@@ -491,8 +525,9 @@ function applyFlowDecor(el, ref, nowLive) {
       syncFlowDecor(ref);
       toast('已恢复普通已完成样式');
     });
-    const more = el.querySelector('.s-more');
-    (more ? more.parentElement : el).insertBefore(btn, more);
+    const jump = el.querySelector('.s-jump');
+    if (jump) jump.parentElement.insertBefore(btn, jump);
+    else el.appendChild(btn);
   } else if (!recent && btn) {
     btn.remove();
   }
@@ -728,9 +763,9 @@ function buildCard(s, colKey) {
     <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
     <div class="s-row2">
       <span class="s-msg">${s.msg_count} 条</span>
-      ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
       <button class="s-more" data-ref="${esc(s.id)}" title="更多操作">···</button>
-      <button class="s-jump" data-ref="${esc(s.id)}" data-agent="${esc(s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
+      ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
+      <button class="s-jump" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
         ${iconHtml}
       </button>
     </div>`;

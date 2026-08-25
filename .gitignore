@@ -21,3 +21,4 @@ node_modules/
 
 # graphify 代码图谱输出
 graphify-out/
+.gstack/
