@@ -16,6 +16,8 @@ const { buildWorkBuddyDeepLink } = require('./lib/workbuddy-deep-link');
 const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
 const { buildPiAgentDesktopDeepLink } = require('./lib/pi-agent-deep-link');
 const { resolvePiAgentDesktopExe } = require('./lib/pi-agent-desktop-path');
+const { resolveDeepSeekDesktopExe } = require('./lib/deepseek-desktop-path');
+const { resolveFocusDll } = require('./lib/focus-dll-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
@@ -42,11 +44,11 @@ const AGENT_DEFS = {
   codex:     { name: 'Codex',            color: '#10A37F', icon: 'codex.png',     proc: 'Codex',     scheme: 'codex://',      launch: null },
   workbuddy: { name: 'WorkBuddy',        color: '#3B82F6', icon: 'workbuddy.png', proc: 'WorkBuddy', scheme: 'workbuddy://',  launch: null },
   deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'DSHDesktop', scheme: 'dshdesktop://', launch: null,
-    launchCmd: '"C:\\Users\\Administrator\\AppData\\Local\\Programs\\DSH Desktop\\DSH Desktop.exe"' },
+    launchCmd: null },
   marvis:    { name: 'Marvis',           color: '#7C3AED', icon: 'marvis.png',    proc: 'Marvis',    scheme: null,            launch: null,
-    launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\marvis-launch.bat"' },
+    launch: path.join(__dirname, 'marvis-launch.bat') },
   zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
-    launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\zcode-launch.bat"' },
+    launch: path.join(__dirname, 'zcode-launch.bat') },
   pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null },
   hermes:    { name: 'Hermes Agent',     color: '#F59E0B', icon: 'hermes.png',    proc: 'hermes-agent', scheme: 'hermes://', launch: null },
 };
@@ -106,6 +108,21 @@ function launchOrFocus(agent, cb) {
     return;
   }
 
+  if (agent === 'deepseek') {
+    const desktopExe = resolveDeepSeekDesktopExe();
+    if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+      cb({ ok: false, error: `未找到 DeepSeek Desktop：${desktopExe}` });
+      return;
+    }
+    try {
+      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      cb({ ok: true, action: 'launch', agent });
+    } catch (e) {
+      cb({ ok: false, error: e.message || '启动 DeepSeek Desktop 失败', agent });
+    }
+    return;
+  }
+
   // launchCmd 用于浏览器/Web 类应用：直接调用外部启动脚本（含自启动+开浏览器逻辑），不再走窗口句柄激活
   if (def.launchCmd) {
     const p = stripQuotes(def.launchCmd);
@@ -137,7 +154,7 @@ function launchOrFocus(agent, cb) {
 }
 
 // ---------- 窗口激活：预编译 Win32 DLL（避免每次点跳转都重新编译 C#） ----------
-const FOCUS_DLL = path.join(require('os').homedir(), '.agent-board', 'wf.dll');
+const FOCUS_DLL = resolveFocusDll({ backendDir: __dirname });
 const FOCUS_CS = `
 using System;
 using System.Runtime.InteropServices;
@@ -151,9 +168,12 @@ public class WF {
 `;
 function ensureFocusDll() {
   if (fs.existsSync(FOCUS_DLL)) return Promise.resolve();
-  const ps = `$dir = "$env:USERPROFILE\\.agent-board"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; Add-Type -TypeDefinition @"
+  const escapePsSingleQuoted = (value) => value.replace(/'/g, "''");
+  const focusDir = escapePsSingleQuoted(path.dirname(FOCUS_DLL));
+  const focusDll = escapePsSingleQuoted(FOCUS_DLL);
+  const ps = `$dir = '${focusDir}'; if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; Add-Type -TypeDefinition @"
 ${FOCUS_CS}
-"@ -OutputAssembly "$dir\\wf.dll"`;
+"@ -OutputAssembly '${focusDll}'`;
   return new Promise((resolve) => {
     const enc = Buffer.from(ps, 'utf16le').toString('base64');
     exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${enc}`, { windowsHide: true }, () => resolve());
@@ -182,7 +202,7 @@ function initFocusPs() {
   });
   focusPs.on('exit', () => { focusPs = null; focusReady = false; });
   focusPs.stdin.write([
-    `$ErrorActionPreference='SilentlyContinue'; Add-Type -Path '${FOCUS_DLL}'`,
+    `$ErrorActionPreference='SilentlyContinue'; Add-Type -Path '${FOCUS_DLL.replace(/'/g, "''")}'`,
     `function Focus($n){$p=Get-Process -Name $n -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0}|Sort-Object StartTime -Descending|Select-Object -First 1;if(-not $p){Write-Output 'DONE:NOT_RUNNING';return};$h=$p.MainWindowHandle;if([WF]::IsIconic($h)){[WF]::ShowWindow($h,9)|Out-Null};[WF]::keybd_event(0x12,0,0,[UIntPtr]::Zero);[WF]::keybd_event(0x12,0,2,[UIntPtr]::Zero);[WF]::SetForegroundWindow($h)|Out-Null;[WF]::BringWindowToTop($h)|Out-Null;Start-Sleep -Milliseconds 80;[WF]::SetForegroundWindow($h)|Out-Null;Write-Output ('DONE:OK:'+$p.Id)}`,
     `Write-Output 'READY'`,
   ].join('\r\n') + '\r\n');
@@ -742,7 +762,7 @@ const server = http.createServer(async (req, res) => {
       const deepLink = buildDeepSeekDesktopDeepLink(sessionId);
       const session = store.getSession(`deepseek:${sessionId}`);
       if (!session) throw new Error('DeepSeek session 不存在');
-      const desktopExe = path.join(require('os').homedir(), 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+      const desktopExe = resolveDeepSeekDesktopExe();
       if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
         spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
       } else if (process.platform === 'darwin') {
