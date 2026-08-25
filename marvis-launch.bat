@@ -1,13 +1,17 @@
 @echo off
-:: Launch Marvis UI (latest version dir). No for/dir loops to keep cmd happy.
-:: If the pinned Marvis.exe is missing, fall back to the official launcher.
+:: Launch Marvis UI from common per-user or machine-wide install locations.
+setlocal
 
-if exist "F:\Program Files\Tencent\Marvis\Application\1.60.2200.168\Marvis.exe" (
-  start "" "F:\Program Files\Tencent\Marvis\Application\1.60.2200.168\Marvis.exe"
-  exit /b 0
+for %%R in ("%LOCALAPPDATA%\Tencent\Marvis" "%ProgramFiles%\Tencent\Marvis" "%ProgramFiles(x86)%\Tencent\Marvis") do (
+  if exist "%%~R\Application\MarvisLauncher.exe" (
+    start "" "%%~R\Application\MarvisLauncher.exe"
+    exit /b 0
+  )
+  for /f "delims=" %%V in ('dir /b /ad /o-n "%%~R\Application" 2^>nul') do (
+    if exist "%%~R\Application\%%V\Marvis.exe" (
+      start "" "%%~R\Application\%%V\Marvis.exe"
+      exit /b 0
+    )
+  )
 )
-if exist "F:\Program Files\Tencent\Marvis\Application\1.60.2100.152\Marvis.exe" (
-  start "" "F:\Program Files\Tencent\Marvis\Application\1.60.2100.152\Marvis.exe"
-  exit /b 0
-)
-start "" "F:\Program Files\Tencent\Marvis\Application\MarvisLauncher.exe"
+exit /b 1

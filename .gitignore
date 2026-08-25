@@ -16,6 +16,11 @@ Thumbs.db
 # Node
 node_modules/
 
+# Electron 发布构建时生成的本地资源
+runtime/node.exe
+tools/wf.dll
+dist/
+
 # brainstorming 可视化伴侣的临时草图
 .superpowers/
 

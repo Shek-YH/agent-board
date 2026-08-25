@@ -16,6 +16,8 @@ const { buildWorkBuddyDeepLink } = require('./lib/workbuddy-deep-link');
 const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
 const { buildPiAgentDesktopDeepLink } = require('./lib/pi-agent-deep-link');
 const { resolvePiAgentDesktopExe } = require('./lib/pi-agent-desktop-path');
+const { resolveDeepSeekDesktopExe } = require('./lib/deepseek-desktop-path');
+const { resolveFocusDll } = require('./lib/focus-dll-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
@@ -42,11 +44,11 @@ const AGENT_DEFS = {
   codex:     { name: 'Codex',            color: '#10A37F', icon: 'codex.png',     proc: 'Codex',     scheme: 'codex://',      launch: null },
   workbuddy: { name: 'WorkBuddy',        color: '#3B82F6', icon: 'workbuddy.png', proc: 'WorkBuddy', scheme: 'workbuddy://',  launch: null },
   deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'DSHDesktop', scheme: 'dshdesktop://', launch: null,
-    launchCmd: '"C:\\Users\\Administrator\\AppData\\Local\\Programs\\DSH Desktop\\DSH Desktop.exe"' },
+    launchCmd: null },
   marvis:    { name: 'Marvis',           color: '#7C3AED', icon: 'marvis.png',    proc: 'Marvis',    scheme: null,            launch: null,
-    launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\marvis-launch.bat"' },
+    launch: path.join(__dirname, 'marvis-launch.bat') },
   zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
-    launch: '"C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\agent-board\\zcode-launch.bat"' },
+    launch: path.join(__dirname, 'zcode-launch.bat') },
   pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null },
   hermes:    { name: 'Hermes Agent',     color: '#F59E0B', icon: 'hermes.png',    proc: 'hermes-agent', scheme: 'hermes://', launch: null },
 };
@@ -56,6 +58,26 @@ function stripQuotes(s) {
   if (typeof s !== 'string') return s;
   const m = s.match(/^"(.+)"$/);
   return m ? m[1] : s;
+}
+
+function resolveAgentExecutable(agent) {
+  const overrides = detect.loadUserOverrides()[agent] || [];
+  const configured = overrides.map(stripQuotes).find((candidate) => fs.existsSync(candidate));
+  if (configured) return configured;
+  const adapter = ADAPTERS.find((item) => item.ID === agent);
+  if (!adapter) return null;
+  const probed = detect.probeAgent(adapter, { userOverrides: {} });
+  return probed.executablePath && fs.existsSync(probed.executablePath) ? probed.executablePath : null;
+}
+
+function launchAgentExecutable(executable) {
+  const resolved = stripQuotes(executable);
+  const extension = path.extname(resolved).toLowerCase();
+  if (extension === '.cmd' || extension === '.bat') {
+    spawn('cmd.exe', ['/c', resolved], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+  } else {
+    spawn(resolved, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+  }
 }
 
 // 窗口激活：未运行 -> 按 scheme/launch 启动；运行中 -> 激活到前台
@@ -106,6 +128,21 @@ function launchOrFocus(agent, cb) {
     return;
   }
 
+  if (agent === 'deepseek') {
+    const desktopExe = resolveDeepSeekDesktopExe();
+    if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+      cb({ ok: false, error: `未找到 DeepSeek Desktop：${desktopExe}` });
+      return;
+    }
+    try {
+      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      cb({ ok: true, action: 'launch', agent });
+    } catch (e) {
+      cb({ ok: false, error: e.message || '启动 DeepSeek Desktop 失败', agent });
+    }
+    return;
+  }
+
   // launchCmd 用于浏览器/Web 类应用：直接调用外部启动脚本（含自启动+开浏览器逻辑），不再走窗口句柄激活
   if (def.launchCmd) {
     const p = stripQuotes(def.launchCmd);
@@ -117,7 +154,10 @@ function launchOrFocus(agent, cb) {
     if (result.startsWith('OK')) {
       cb({ ok: true, action: 'focus', pid: result.split(':')[1] || '' });
     } else if (result === 'NOT_RUNNING') {
-      if (def.scheme) {
+      const configuredExecutable = resolveAgentExecutable(agent);
+      if (configuredExecutable) {
+        launchAgentExecutable(configuredExecutable);
+      } else if (def.scheme) {
         spawn('cmd.exe', ['/c', 'start', '', def.scheme], { windowsHide: true, detached: true }).unref();
       } else if (def.launch) {
         const p = stripQuotes(def.launch);
@@ -137,7 +177,7 @@ function launchOrFocus(agent, cb) {
 }
 
 // ---------- 窗口激活：预编译 Win32 DLL（避免每次点跳转都重新编译 C#） ----------
-const FOCUS_DLL = path.join(require('os').homedir(), '.agent-board', 'wf.dll');
+const FOCUS_DLL = resolveFocusDll({ backendDir: __dirname });
 const FOCUS_CS = `
 using System;
 using System.Runtime.InteropServices;
@@ -151,9 +191,12 @@ public class WF {
 `;
 function ensureFocusDll() {
   if (fs.existsSync(FOCUS_DLL)) return Promise.resolve();
-  const ps = `$dir = "$env:USERPROFILE\\.agent-board"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; Add-Type -TypeDefinition @"
+  const escapePsSingleQuoted = (value) => value.replace(/'/g, "''");
+  const focusDir = escapePsSingleQuoted(path.dirname(FOCUS_DLL));
+  const focusDll = escapePsSingleQuoted(FOCUS_DLL);
+  const ps = `$dir = '${focusDir}'; if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; Add-Type -TypeDefinition @"
 ${FOCUS_CS}
-"@ -OutputAssembly "$dir\\wf.dll"`;
+"@ -OutputAssembly '${focusDll}'`;
   return new Promise((resolve) => {
     const enc = Buffer.from(ps, 'utf16le').toString('base64');
     exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${enc}`, { windowsHide: true }, () => resolve());
@@ -182,7 +225,7 @@ function initFocusPs() {
   });
   focusPs.on('exit', () => { focusPs = null; focusReady = false; });
   focusPs.stdin.write([
-    `$ErrorActionPreference='SilentlyContinue'; Add-Type -Path '${FOCUS_DLL}'`,
+    `$ErrorActionPreference='SilentlyContinue'; Add-Type -Path '${FOCUS_DLL.replace(/'/g, "''")}'`,
     `function Focus($n){$p=Get-Process -Name $n -ErrorAction SilentlyContinue|Where-Object{$_.MainWindowHandle -ne 0}|Sort-Object StartTime -Descending|Select-Object -First 1;if(-not $p){Write-Output 'DONE:NOT_RUNNING';return};$h=$p.MainWindowHandle;if([WF]::IsIconic($h)){[WF]::ShowWindow($h,9)|Out-Null};[WF]::keybd_event(0x12,0,0,[UIntPtr]::Zero);[WF]::keybd_event(0x12,0,2,[UIntPtr]::Zero);[WF]::SetForegroundWindow($h)|Out-Null;[WF]::BringWindowToTop($h)|Out-Null;Start-Sleep -Milliseconds 80;[WF]::SetForegroundWindow($h)|Out-Null;Write-Output ('DONE:OK:'+$p.Id)}`,
     `Write-Output 'READY'`,
   ].join('\r\n') + '\r\n');
@@ -218,11 +261,6 @@ function focusWorkBuddyWindow(attempt = 0) {
 }
 const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi, hermes];
 store.migrateCodexCompletionSignals();
-// 全局安装锁：同时只允许一个安装任务（installAgent 内部是阻塞的 spawnSync，
-// 多个并发跑会互相抢终端输出、也没法在 UI 上清晰呈现进度）。
-// 内存态，server 重启自动清零，不会出现「永久卡在进行中」。
-let installInProgress = false;
-
 // 探测结果缓存：5 分钟 TTL。避免 /api/board（首页高频调用）每次都触发一次完整探测
 // （registry 查询 + 逐个 agent spawnSync 查版本号）。安装成功时主动失效，不等 TTL。
 const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -475,6 +513,7 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8',
+  '.skill': 'application/zip',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -742,7 +781,7 @@ const server = http.createServer(async (req, res) => {
       const deepLink = buildDeepSeekDesktopDeepLink(sessionId);
       const session = store.getSession(`deepseek:${sessionId}`);
       if (!session) throw new Error('DeepSeek session 不存在');
-      const desktopExe = path.join(require('os').homedir(), 'AppData', 'Local', 'Programs', 'DSH Desktop', 'DSH Desktop.exe');
+      const desktopExe = resolveDeepSeekDesktopExe();
       if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
         spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
       } else if (process.platform === 'darwin') {
@@ -1145,17 +1184,14 @@ const server = http.createServer(async (req, res) => {
       const agents = {};
       for (const [id, r] of Object.entries(probed)) {
         const meta = AGENT_DEFS[id] || {};
-        // install 数据透传给前端：渲染「安装」按钮的确认弹窗要用（要跑什么命令、有什么警告）
-        // picked/pickedCommand 复用 installAgent 实际执行时用的同一套 pickMethod/methodToCommand，
-        // 保证确认框显示的命令和真正会跑的命令必定一致（不在前端另外拼一套）
+        // 应用管理只提供官方下载入口，不在 Agent Board 内执行第三方安装命令。
         const def = (byId[id] && byId[id].detect) || {};
         let install = null;
         if (def.install) {
-          const picked = detect.pickMethod(def.install.methods || [], process.platform);
+          const download = (def.install.methods || []).find((method) => method.kind === 'download');
           install = {
             ...def.install,
-            picked,
-            pickedCommand: picked ? detect.methodToCommand(picked, process.platform) : null,
+            downloadUrl: download ? download.url : null,
           };
         }
         agents[id] = {
@@ -1173,8 +1209,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 安装某个 agent（支持 tier:'cli' 和 tier:'gui'）。全局同时只允许一个安装任务在跑。
-  // 响应立即返回（参考 /api/rescan 的异步模式），真实进度走 SSE 的 agent-install-progress 事件。
+  // 强制重新读取本机路径/卸载注册表，并把真实可执行文件路径保存到用户配置。
+  if (pathname.startsWith('/api/agents/') && pathname.endsWith('/discover-path') && req.method === 'POST') {
+    const id = pathname.slice('/api/agents/'.length, -'/discover-path'.length);
+    const adapter = ADAPTERS.find((a) => a.ID === id);
+    if (!adapter || !adapter.detect) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未知 agent: ' + id }));
+      return;
+    }
+    try {
+      const probed = detect.probeAgent(adapter, { userOverrides: {} });
+      if (!probed.executablePath) throw new Error(`未找到 ${AGENT_DEFS[id]?.name || id} 的可执行文件，请先完成安装`);
+      const overrides = detect.saveUserOverride(id, probed.executablePath);
+      probeCache = { data: null, ts: 0 };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, agent: id, path: probed.executablePath, overrides }));
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '未找到可执行文件' }));
+    }
+    return;
+  }
+
+  // 保留旧 API 路径，但行为改为只返回官方下载链接，不再执行 npm/winget/脚本。
   if (pathname.startsWith('/api/agents/') && pathname.endsWith('/install') && req.method === 'POST') {
     const id = pathname.slice('/api/agents/'.length, -'/install'.length);
     const adapter = ADAPTERS.find((a) => a.ID === id);
@@ -1183,33 +1241,15 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: '未知 agent: ' + id }));
       return;
     }
-    if (adapter.detect.tier !== 'cli' && adapter.detect.tier !== 'gui') {
+    const download = (adapter.detect.install && adapter.detect.install.methods || [])
+      .find((method) => method.kind === 'download' && /^https?:\/\//i.test(method.url || ''));
+    if (!download) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '这一版只支持命令行类和桌面类工具的自动安装' }));
+      res.end(JSON.stringify({ error: '该 Agent 没有配置官方下载链接' }));
       return;
     }
-    if (installInProgress) {
-      res.writeHead(409, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '已有安装任务在进行，请等它结束' }));
-      return;
-    }
-    installInProgress = true;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, background: true }));
-    // 让响应先发出去再开跑（installAgent 内部是同步 spawnSync，会阻塞事件循环）
-    setTimeout(() => {
-      try {
-        detect.installAgent(adapter, (step, detail) => {
-          if (step === 'done') probeCache = { data: null, ts: 0 };
-          sseBroadcast('agent-install-progress', { agentId: id, step, ...detail });
-        });
-      } catch (e) {
-        console.error(`[install] ${id} 未预期的异常:`, e.message);
-        sseBroadcast('agent-install-progress', { agentId: id, step: 'failed', reason: e.message || '未知错误' });
-      } finally {
-        installInProgress = false;
-      }
-    }, 50);
+    res.end(JSON.stringify({ ok: true, downloadUrl: download.url }));
     return;
   }
 

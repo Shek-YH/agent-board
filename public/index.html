@@ -156,6 +156,52 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 @keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .pop-head{font-size:12px;font-weight:600;color:var(--text2);padding:4px 8px 6px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);margin-bottom:4px}
 .pop-head .dot{width:8px;height:8px;border-radius:50%}
+.ab-agent-manager{width:min(720px,calc(100vw - 24px));min-width:0;max-width:none;max-height:calc(100vh - 84px);padding:0;overflow:hidden;display:flex;flex-direction:column}
+.ab-manager-head{flex:0 0 auto;padding:12px 14px 10px;margin:0;align-items:center}
+.ab-manager-heading{min-width:0;display:flex;flex-direction:column;gap:1px}
+.ab-manager-title{font-size:14px;font-weight:650;color:var(--text)}
+.ab-manager-subtitle{font-size:11px;font-weight:400;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-manager-head .ab-rescan-probe{flex:0 0 auto;min-height:30px!important;padding:4px 9px!important;font-size:11px!important}
+.ab-install-guide{margin:10px 12px 0;padding:12px 14px;background:var(--accent-bg);border:1px solid #CFE0FF;border-radius:10px;flex:0 0 auto}
+.ab-guide-heading{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:650;color:var(--text)}
+.ab-guide-kicker{display:inline-flex;align-items:center;padding:2px 6px;border-radius:5px;background:var(--accent);color:#fff;font-size:10px;font-weight:650;letter-spacing:.2px}
+.ab-guide-copy{margin-top:4px;color:var(--text2);font-size:12px;line-height:1.55}
+.ab-guide-steps{display:flex;gap:8px;margin-top:9px;color:var(--text2);font-size:11px;line-height:1.45}
+.ab-guide-step{flex:1;min-width:0;padding:7px 8px;background:rgba(255,255,255,.72);border:1px solid rgba(59,130,246,.16);border-radius:7px}
+.ab-guide-step b{display:block;color:var(--accent);font-size:10px;margin-bottom:2px}
+.ab-guide-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.ab-guide-actions .btn{min-height:30px;padding:5px 10px;font-size:11px}
+.ab-guide-actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.ab-guide-prompt{margin-top:8px;padding:7px 9px;background:rgba(255,255,255,.82);border:1px dashed #B7CDF4;border-radius:7px;color:var(--text2);font-family:ui-monospace,Consolas,monospace;font-size:10px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-agent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;overflow-y:auto;min-height:0;flex:1;overscroll-behavior:contain}
+.ab-card{min-width:0;display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);box-shadow:var(--shadow);text-align:left;transition:.15s}
+.ab-card:hover{border-color:var(--border2);box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+.ab-card-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:650;flex:0 0 auto}
+.ab-card-main{min-width:0}
+.ab-card-title-row{display:flex;align-items:center;gap:6px;min-width:0}
+.ab-card-title{min-width:0;font-size:12px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-status-badge{flex:0 0 auto;font-size:10px;padding:2px 6px;border-radius:5px;line-height:1.35;white-space:nowrap}
+.ab-status-badge.installed{background:#DCFCE7;color:#15803D}
+.ab-status-badge.missing{background:#F2F4F7;color:var(--text3)}
+.ab-card-path{margin-top:4px;min-width:0;font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-card-path.empty{color:#B0B7C3}
+.ab-progress{min-height:14px;margin-top:3px;font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-card-actions{display:flex;flex-direction:column;align-items:stretch;gap:5px;min-width:88px}
+.ab-card-actions .btn{justify-content:center;min-height:30px;padding:5px 8px;font-size:11px;white-space:nowrap}
+@media (max-width:620px){
+  .ab-agent-grid{grid-template-columns:1fr}
+}
+@media (max-width:470px){
+  .ab-agent-manager{right:12px!important;width:calc(100vw - 24px)!important}
+  .ab-install-guide{margin-left:10px;margin-right:10px;padding:10px}
+  .ab-guide-steps{display:block}
+  .ab-guide-step+.ab-guide-step{margin-top:5px}
+  .ab-agent-grid{padding:10px}
+  .ab-card{grid-template-columns:32px minmax(0,1fr);gap:8px;padding:10px}
+  .ab-card-icon{width:32px;height:32px;border-radius:8px;font-size:13px}
+  .ab-card-actions{grid-column:1/-1;display:flex;flex-direction:row;flex-wrap:wrap;min-width:0;padding-left:40px}
+  .ab-card-actions .btn{flex:1 1 120px}
+}
 .pop-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 10px;border-radius:6px;font-size:13px;color:var(--text);transition:.1s}
 .pop-item:hover:not([disabled]){background:var(--accent-bg);color:var(--accent)}
 .pop-item[disabled]{opacity:.45;cursor:not-allowed}

@@ -1616,31 +1616,78 @@ function openColManager() {
 }
 $('btn-settings-hub').onclick = openSettingsHub;
 
-/* ---------- 应用管理（探测各 AI Agent 安装状态，只读） ---------- */
-// 安装兜底计时器：SSE 断线重连可能丢掉终态事件，导致安装按钮永久锁死。
-// 全局只会有一个安装任务在跑（服务端也是这个限制），单个句柄够用。
-let installFallbackTimer = null;
+/* ---------- 应用管理（探测路径 + 官方下载入口） ---------- */
+
+const AGENT_INSTALL_SKILL_URL = '/downloads/agent-board-install-agents.skill';
+const AGENT_INSTALL_SKILL_PROMPT = '请调用 Agent Board Agent Installer skill，先询问我安装全部 Agent 还是选择指定 Agent，得到我的选择后再执行安装。';
+
+function agentManagerGuideMarkup() {
+  return `<section class="ab-install-guide" aria-label="AI 安装指引">
+    <div class="ab-guide-heading"><span class="ab-guide-kicker">快捷安装</span><span>让 AI 帮你安装 Agent</span></div>
+    <div class="ab-guide-copy">先安装 Agent Board 安装 Skill。调用后，AI 会先询问安装全部还是选择几个，再按你的选择处理。</div>
+    <div class="ab-guide-steps">
+      <div class="ab-guide-step"><b>01 · 安装</b>下载 Skill 文件，并在你的 AI 客户端中安装。</div>
+      <div class="ab-guide-step"><b>02 · 调用</b>发送下方指令，让 AI 先确认安装范围。</div>
+      <div class="ab-guide-step"><b>03 · 校验</b>安装完成后重新探测并配置启动路径。</div>
+    </div>
+    <div class="ab-guide-actions">
+      <a class="btn primary ab-skill-download" href="${AGENT_INSTALL_SKILL_URL}" download="agent-board-install-agents.skill">下载安装 Skill</a>
+      <button class="btn ab-copy-skill-prompt" type="button">复制调用指令</button>
+    </div>
+    <div class="ab-guide-prompt" title="${esc(AGENT_INSTALL_SKILL_PROMPT)}">${esc(AGENT_INSTALL_SKILL_PROMPT)}</div>
+  </section>`;
+}
 
 function agentManagerLoadingMarkup(force) {
   const text = force ? '正在重新探测应用状态…' : '正在检测应用状态…';
-  return `<div class="pop-head">应用管理</div>
+  return `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div>
     <div role="status" style="padding:18px 16px;color:var(--text2);font-size:13px;display:flex;align-items:center;gap:8px">
       <span aria-hidden="true" style="width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite"></span>
       <span>${text}</span>
     </div>`;
 }
 
+async function discoverAgentPath(agent, button) {
+  button.disabled = true;
+  button.textContent = '探测中…';
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(agent)}/discover-path`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+    toast(`${dataName(agent)}：已配置路径 ${d.path}`);
+    await openAgentManager(true);
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = '自动配置路径';
+    toast(e.message || '未找到可执行文件');
+  }
+}
+
+function dataName(agent) {
+  return state.agentsDef[agent]?.name || agent;
+}
+
+async function copyAgentInstallPrompt(button) {
+  try {
+    await navigator.clipboard.writeText(AGENT_INSTALL_SKILL_PROMPT);
+    const original = button.textContent;
+    button.textContent = '已复制';
+    toast('调用指令已复制');
+    setTimeout(() => { if (button.isConnected) button.textContent = original; }, 1400);
+  } catch {
+    toast('复制失败，请手动复制指引文字');
+  }
+}
+
 async function openAgentManager(force) {
   closePopover();
   state.popoverFor = 'agents';
   const pop = document.createElement('div');
-  pop.className = 'popover';
+  pop.className = 'popover ab-agent-manager';
   pop.style.position = 'fixed';
   pop.style.top = '70px';
   pop.style.right = '16px';
   pop.style.zIndex = 60;
-  pop.style.minWidth = '420px';
-  pop.style.maxWidth = '520px';
   document.body.appendChild(pop);
   pop.innerHTML = agentManagerLoadingMarkup(force);
 
@@ -1650,33 +1697,37 @@ async function openAgentManager(force) {
     data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
   } catch {
-    pop.innerHTML = '<div class="pop-head">应用管理</div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
+    pop.innerHTML = '<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
     return;
   }
 
   const agents = Object.values(data.agents || {});
   // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
-  let html = `<div class="pop-head">应用管理 <span style="opacity:.5;font-weight:400">（命令行/桌面类工具支持一键安装）</span>
-    <button class="btn ab-rescan-probe" style="margin-left:auto;min-height:22px;padding:2px 8px;font-size:11px">重新探测</button>
-  </div>
-    <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow-y:auto">`;
+  let html = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div>
+    <button class="btn ab-rescan-probe" type="button">重新探测</button>
+  </div>${agentManagerGuideMarkup()}<div class="ab-agent-grid">`;
   for (const a of agents) {
     const badge = a.installed
-      ? `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#DCFCE7;color:#15803D">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
-      : `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text3)">未检测到</span>`;
-    // 未安装的 cli/gui 类工具、且有至少一种安装方式，才给按钮；
-    // 按钮文案区分「能静默装」（picked 有值）和「只能手动下载」（picked 为空）
-    const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui') && a.install && (a.install.methods || []).length;
-    const btnLabel = a.install && a.install.picked ? '安装' : '下载安装';
+      ? `<span class="ab-status-badge installed">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
+      : `<span class="ab-status-badge missing">未检测到</span>`;
+    const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui')
+      && a.install && /^https?:\/\//i.test(a.install.downloadUrl || '');
     const btn = canInstall
-      ? `<div style="margin-top:6px"><button class="btn ab-install" data-id="${esc(a.id)}" style="min-height:28px;padding:3px 12px;font-size:12px">${btnLabel}</button></div>`
+      ? `<button class="btn ab-install" type="button" data-id="${esc(a.id)}" data-url="${esc(a.install.downloadUrl)}">打开下载页</button>`
       : '';
-    html += `<div class="ab-card" data-id="${esc(a.id)}" style="border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
-      <div style="width:32px;height:32px;border-radius:8px;margin:0 auto 6px;background:${esc(a.color || '#888')};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600">${esc((a.name || a.id || '?').slice(0, 1))}</div>
-      <div style="font-size:12px;font-weight:600;margin-bottom:4px">${esc(a.name || a.id)}</div>
-      ${badge}
-      <div class="ab-progress" style="font-size:11px;color:var(--text3);margin-top:6px;min-height:14px"></div>
-      ${btn}
+    const shownPath = a.executablePath || a.path;
+    const pathLabel = a.executablePath ? '启动路径' : (a.path ? '数据路径' : '');
+    const pathMarkup = shownPath
+      ? `<div class="ab-card-path" title="${esc(shownPath)}">${pathLabel}：${esc(shownPath)}</div>`
+      : '<div class="ab-card-path empty">未配置启动路径</div>';
+    html += `<div class="ab-card" data-id="${esc(a.id)}">
+      <div class="ab-card-icon" style="background:${esc(a.color || '#888')}">${esc((a.name || a.id || '?').slice(0, 1))}</div>
+      <div class="ab-card-main">
+        <div class="ab-card-title-row"><div class="ab-card-title" title="${esc(a.name || a.id)}">${esc(a.name || a.id)}</div>${badge}</div>
+        ${pathMarkup}
+        <div class="ab-progress" role="status" aria-live="polite"></div>
+      </div>
+      <div class="ab-card-actions"><button class="btn ab-discover-path" type="button" data-id="${esc(a.id)}">自动配置路径</button>${btn}</div>
     </div>`;
   }
   html += '</div>';
@@ -1685,55 +1736,23 @@ async function openAgentManager(force) {
   const rescanBtn = pop.querySelector('.ab-rescan-probe');
   if (rescanBtn) rescanBtn.onclick = () => openAgentManager(true);
 
-  // 安装按钮：能静默装的（picked 有值）走「确认 + POST + SSE」；只能手动下载的直接跳转下载页
+  const copyPromptBtn = pop.querySelector('.ab-copy-skill-prompt');
+  if (copyPromptBtn) copyPromptBtn.onclick = () => copyAgentInstallPrompt(copyPromptBtn);
+
+  pop.querySelectorAll('.ab-discover-path').forEach((b) => {
+    b.onclick = () => discoverAgentPath(b.dataset.id, b);
+  });
+
+  // 所有安装动作统一跳转官方下载页，不在看板内执行 npm/winget/脚本。
   pop.querySelectorAll('.ab-install').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.id;
-      const a = data.agents[id];
-
-      // 没有能静默执行的方法：找 download 方式直接跳转，不经过后端、不占用安装锁。
-      // 注意：这个 if 块不是每条路径都 return——找不到可跳转的 download 方式时会故意穿透到
-      // 下面，落回原来的静默安装流程（见块尾注释）。
-      if (!a.install.picked) {
-        const dl = (a.install.methods || []).find((m) => m.kind === 'download');
-        // dl.url 目前只会来自仓库里 adapter 文件写死的配置，不是运行时用户输入；
-        // 但既然是要传给 window.open 做页面导航（不是 spawnSync 那种 shell 命令上下文），
-        // 顺手校验一下协议，避免以后有人不小心把 javascript:/data: 之类的值写进这个字段。
-        if (dl && dl.url && /^https?:\/\//i.test(dl.url)) {
-          window.open(dl.url, '_blank');
-          toast('已在新标签页打开下载页，按提示完成安装后关闭再重新打开本弹窗可刷新状态');
-          return;
-        }
-        // 穿透到这里：没有 download 方式，或 url 协议不是 http(s)（理论上不会发生，
-        // canInstall 已经要求 methods.length>0，且 adapter 数据都是硬编码的 https 字面量）。
-        // 不在前端假装成功，落回原来的静默安装流程，让后端 installAgent 报 no-method，
-        // SSE 会显示「这个平台没有可用的安装方式」
+    b.onclick = () => {
+      const downloadUrl = b.dataset.url;
+      if (!/^https?:\/\//i.test(downloadUrl || '')) {
+        toast('没有可用的官方下载链接');
+        return;
       }
-
-      // pickedCommand 是服务端用 methodToCommand() 拼出的真实命令（和 installAgent 实际执行的完全一致），
-      // 前端不再自己拼一遍，避免两边逻辑分叉（比如漏掉 winget 的 flags）
-      const cmdHint = a.install.pickedCommand || '(未知)';
-      const warn = a.install.warning ? `\n\n注意：${a.install.warning}` : '';
-      if (!confirm(`即将安装 ${a.name || id}\n\n将执行：${cmdHint}${warn}\n\n确定继续吗？`)) return;
-      b.disabled = true;
-      // 一次只能装一个：把所有安装按钮都禁掉，等这次跑完再刷新
-      pop.querySelectorAll('.ab-install').forEach((x) => { x.disabled = true; });
-      try {
-        const r = await fetch(`/api/agents/${encodeURIComponent(id)}/install`, { method: 'POST' });
-        const d = await r.json();
-        if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
-        // 兜底：SSE 如果断线重连，装完的终态事件可能丢失，按钮会一直锁死。
-        // 给一个比后端 10 分钟安装超时更长的兜底计时器，到点了还没收到终态事件就自己解锁。
-        if (installFallbackTimer) clearTimeout(installFallbackTimer);
-        installFallbackTimer = setTimeout(() => {
-          installFallbackTimer = null;
-          document.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
-          toast('安装状态未知，可能已完成或失败——请刷新查看');
-        }, 11 * 60 * 1000);
-      } catch (e) {
-        toast('安装请求失败：' + (e.message || '未知错误'));
-        pop.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
-      }
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      toast('已打开官方下载页，安装完成后点击“重新探测”刷新状态');
     };
   });
 }
@@ -1804,37 +1823,6 @@ function connectSSE() {
         // 流光装饰与状态解耦刷新：新完成迁移后立即点亮绿色流光（含「已读」按钮）
         applyFlowDecor(el, ref, nowLive);
       });
-    } catch {}
-  });
-  // 安装进度：更新对应卡片的状态行。弹窗关掉了就什么也不做（querySelector 找不到元素）
-  es.addEventListener('agent-install-progress', (ev) => {
-    try {
-      const d = JSON.parse(ev.data);
-      const card = document.querySelector(`.ab-card[data-id="${CSS.escape(d.agentId)}"]`);
-      const line = card && card.querySelector('.ab-progress');
-      const TEXT = {
-        blocked: () => '⛔ ' + (d.message || '当前网络环境无法安装'),
-        'deps-missing': () => `⛔ 需要 Node ${d.need}，当前 ${d.have}`,
-        'no-method': () => '⛔ 这个平台没有可用的安装方式',
-        installing: () => '⏳ 安装中…',
-        verifying: () => '⏳ 校验中…',
-        done: () => '✅ 完成 ' + (d.version || ''),
-        failed: () => '❌ ' + (d.reason || d.stderr || '安装失败'),
-      };
-      if (line) line.textContent = (TEXT[d.step] || (() => d.step))();
-      // 终态：解锁按钮 + 刷新弹窗（done 时要展示 tellUser 提示）
-      if (d.step === 'done' || d.step === 'failed' || d.step === 'blocked'
-          || d.step === 'deps-missing' || d.step === 'no-method') {
-        if (installFallbackTimer) { clearTimeout(installFallbackTimer); installFallbackTimer = null; }
-        document.querySelectorAll('.ab-install').forEach((x) => { x.disabled = false; });
-        if (d.step === 'done') {
-          const tips = (d.tellUser || []).join('\n');
-          toast('安装完成' + (d.version ? '：' + d.version : ''));
-          if (tips) setTimeout(() => alert('安装完成，几点说明：\n\n' + tips), 300);
-          // 重新探测，刷新卡片状态
-          if (state.popoverFor === 'agents') setTimeout(() => openAgentManager(), 600);
-        }
-      }
     } catch {}
   });
   es.addEventListener('scan', (ev) => {

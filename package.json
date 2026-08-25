@@ -2,11 +2,52 @@
   "name": "agent-board",
   "version": "0.2.0",
   "description": "AI Agent 会话看板 - 实时汇总多个 AI 编程/办公 Agent 的所有对话时间线",
-  "main": "server.js",
+  "main": "desktop/main.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "desktop:dev": "electron .",
+    "desktop:dist": "electron-builder --win nsis",
+    "desktop:verify": "node tools/verify-package.js dist/win-unpacked"
   },
   "license": "UNLICENSED",
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.agentboard.desktop",
+    "productName": "Agent Board",
+    "directories": {
+      "output": "dist",
+      "buildResources": "desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json",
+      "LICENSE"
+    ],
+    "extraResources": [
+      { "from": "server.js", "to": "backend/server.js" },
+      { "from": "lib", "to": "backend/lib", "filter": ["**/*.js", "!**/*.test.js"] },
+      { "from": "public", "to": "backend/public", "filter": ["**/*", "!**/*.test.js"] },
+      { "from": "marvis-launch.bat", "to": "backend/marvis-launch.bat" },
+      { "from": "zcode-launch.bat", "to": "backend/zcode-launch.bat" },
+      { "from": "tools/wf.dll", "to": "backend/tools/wf.dll" },
+      { "from": "runtime/node.exe", "to": "runtime/node.exe" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "desktop/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    }
+  }
 }

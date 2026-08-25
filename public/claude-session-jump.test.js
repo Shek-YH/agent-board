@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const normalizedServer = server.replace(/\r\n/g, '\n');
 
 test('Claude session 卡片跳转调用按 session 定位接口，而不是只激活 Claude', () => {
   assert.match(app, /function openClaudeSession\(sessionId\)/);
@@ -26,7 +27,11 @@ test('Session 卡中的第二个 button 始终是跳转按钮', () => {
 });
 
 test('Claude 精确跳转不再叠加通用前台激活和重试链', () => {
-  const route = server.match(/if \(pathname === '\/api\/open-claude-session'[\s\S]*?\n  \}\n\n  \/\/ 按 sessionId 打开已安装的 DeepSeek Harness Desktop/)?.[0];
+  const startMarker = "if (pathname === '/api/open-claude-session' && req.method === 'POST') {";
+  const endMarker = '\n\n  // 按 sessionId 打开已安装的 DeepSeek Harness Desktop';
+  const start = normalizedServer.indexOf(startMarker);
+  const end = start >= 0 ? normalizedServer.indexOf(endMarker, start) : -1;
+  const route = start >= 0 && end >= 0 ? normalizedServer.slice(start, end) : null;
   assert.ok(route, '未找到 Claude 跳转路由');
   assert.match(route, /isClaudeDesktopRunning\(\)/);
   assert.doesNotMatch(route, /focusClaudeWindow(Result)?\(\)/, 'Claude 精确跳转不能再调用通用前台激活器');
