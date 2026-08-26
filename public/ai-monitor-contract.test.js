@@ -24,3 +24,11 @@ test('AI monitor uses orchestration API and does not use desktop open endpoints'
   assert.match(app, /data-action="takeover"/);
   assert.doesNotMatch(app, /ai-workflow-action[^\n]*open-with/);
 });
+
+test('AI monitor exposes the Jarvis recording MVP without coupling it to desktop navigation', () => {
+  assert.match(html, /id="jarvis-record"/);
+  assert.match(html, /id="jarvis-project-path"/);
+  assert.match(html, /id="jarvis-audio"/);
+  assert.match(app, /getUserMedia/);
+  assert.match(app, /\/api\/jarvis\/voice/);
+});

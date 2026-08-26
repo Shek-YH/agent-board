@@ -367,6 +367,16 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
  .ai-capability{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;font-size:11px}
  .ai-capability b{font-weight:600}
  .ai-capability .ready{color:#15803D}.ai-capability .missing{color:var(--text3)}
+ .ai-voice{padding:14px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+ .ai-voice-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px}
+ .ai-voice-head h3{font-size:13px;font-weight:650}.ai-voice-head p{margin-top:3px;color:var(--text2);font-size:11px}
+ .ai-voice-controls{display:flex;align-items:end;gap:9px;flex-wrap:wrap}.ai-voice-controls label{display:flex;flex:1;min-width:260px;flex-direction:column;gap:4px;color:var(--text2);font-size:12px}
+ .ai-voice-controls input{min-height:38px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#fff;outline:none;font-size:13px}
+ .ai-voice-controls input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+ #jarvis-record{min-width:108px;justify-content:center}.ai-voice-recording{background:#DC2626!important;border-color:#DC2626!important;color:#fff!important}
+ .ai-voice-status{min-height:30px;display:flex;align-items:center;color:var(--text2);font-size:11px}
+ .ai-voice-result{margin-top:12px;padding:11px;border:1px solid var(--border);border-radius:8px;background:#FBFAF8;font-size:12px;line-height:1.55}.ai-voice-result[hidden]{display:none}
+ .ai-voice-result b{color:var(--text2);font-weight:600}.ai-voice-result audio{display:block;width:min(100%,420px);margin-top:8px}.ai-voice-detail{display:block;margin-top:7px;color:var(--text3);font-size:11px;overflow-wrap:anywhere}
  @media (max-width:780px){.ai-monitor-grid{grid-template-columns:1fr}.ai-monitor-head{display:block}.ai-monitor-head .ai-readiness{display:block;margin:7px 0 0}}
 
 @media (max-width:640px){
@@ -508,6 +518,20 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
       <div><h2>AI 监控</h2><p>Jarvis 负责判断与编排，执行 Agent 负责在受控项目目录内执行。</p></div>
       <div class="ai-readiness" id="ai-readiness">正在读取模型能力…</div>
     </div>
+    <section class="ai-voice" aria-label="Jarvis 语音入口">
+      <div class="ai-voice-head"><div><h3>Jarvis 语音 MVP</h3><p>按下开始录音，说“用 WorkBuddy 查一下明天深圳的天气”，再次按下结束并执行。</p></div></div>
+      <div class="ai-voice-controls">
+        <label>Session 项目目录<input id="jarvis-project-path" placeholder="例如 C:\\Projects\\demo"></label>
+        <button class="btn primary" id="jarvis-record" type="button">开始录音</button>
+        <span class="ai-voice-status" id="jarvis-voice-status">等待录音</span>
+      </div>
+      <div class="ai-voice-result" id="jarvis-voice-result" hidden>
+        <div><b>识别内容：</b><span id="jarvis-transcript"></span></div>
+        <div><b>语音摘要：</b><span id="jarvis-summary"></span></div>
+        <audio id="jarvis-audio" controls preload="none"></audio>
+        <span class="ai-voice-detail" id="jarvis-detail-path"></span>
+      </div>
+    </section>
     <div class="ai-monitor-grid">
       <form class="ai-create" id="ai-create-form">
         <h3>创建接管任务</h3>

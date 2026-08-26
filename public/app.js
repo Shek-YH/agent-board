@@ -35,7 +35,7 @@ const state = {
   popoverFor: null,
   autoExpandOnHover: loadAutoExpand(),
   monitorMode: 'manual',
-  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false },
+  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null },
 };
 
 // 瀑布流列配置：localStorage 持久化（显示哪些 agent 列 + 顺序），null 表示用默认
@@ -186,6 +186,7 @@ async function loadOrchestration() {
       workflows: Array.isArray(data.workflows) ? data.workflows : [],
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
       headlessEnabled: data.headlessEnabled === true,
+      jarvisVoice: data.jarvisVoice || null,
     };
     renderAIMonitor();
   } catch {
@@ -197,8 +198,13 @@ function renderAIMonitor() {
   const data = state.orchestration;
   const capabilities = data.capabilities || {};
   const supervisor = capabilities.supervisor_llm || {};
+  const voice = data.jarvisVoice || {};
   const roots = data.allowedRoots.length ? `允许目录 ${data.allowedRoots.length} 个` : '尚未配置允许项目目录';
-  $('ai-readiness').textContent = `${supervisor.available ? '监督模型已就绪' : '监督模型未配置'} · ${data.headlessEnabled ? 'headless 已开启' : 'headless 未开启'} · ${roots}`;
+  const voiceReady = voice.enabled && voice.asr && voice.asr.available && voice.tts && voice.tts.available && voice.workbuddy && voice.workbuddy.available;
+  $('ai-readiness').textContent = `${supervisor.available ? '监督模型已就绪' : '监督模型未配置'} · ${data.headlessEnabled ? 'headless 已开启' : 'headless 未开启'} · ${voiceReady ? '语音 MVP 已就绪' : '语音 MVP 未就绪'} · ${roots}`;
+  const jarvisProject = $('jarvis-project-path');
+  if (jarvisProject && !jarvisProject.value) jarvisProject.value = localStorage.getItem('ab-jarvis-project') || $('ai-project-path').value || '';
+  setJarvisStatus(voiceReady ? '可以开始录音' : '请先配置 headless、ZAI_API_KEY、允许目录和 WorkBuddy CLI');
 
   const capabilityBox = $('ai-capability-list');
   capabilityBox.innerHTML = Object.entries(ORCHESTRATION_SLOT_LABELS).map(([slot, label]) => {
@@ -235,6 +241,85 @@ function setMonitorMode(mode) {
   if (state.monitorMode === 'ai') loadOrchestration();
 }
 
+let jarvisRecorder = null;
+let jarvisStream = null;
+let jarvisChunks = [];
+
+function setJarvisStatus(text) {
+  const node = $('jarvis-voice-status');
+  if (node) node.textContent = text;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.onerror = () => reject(new Error('录音读取失败'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function submitJarvisRecording(blob) {
+  const projectPath = $('jarvis-project-path').value.trim();
+  if (!projectPath) throw new Error('请先填写 Session 项目目录');
+  localStorage.setItem('ab-jarvis-project', projectPath);
+  const audioBase64 = await blobToBase64(blob);
+  const response = await fetch('/api/jarvis/voice', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audioBase64, mimeType: blob.type || 'audio/webm', projectPath }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Jarvis 语音任务失败');
+  $('jarvis-transcript').textContent = data.transcript || '';
+  $('jarvis-summary').textContent = data.summary || '';
+  $('jarvis-detail-path').textContent = data.detailPath ? `详细 session：${data.detailPath}` : '';
+  $('jarvis-voice-result').hidden = false;
+  const audio = $('jarvis-audio');
+  audio.removeAttribute('src');
+  if (data.audio && data.audio.url) {
+    audio.src = data.audio.url;
+    audio.load();
+    audio.play().catch(() => {});
+    setJarvisStatus('已完成，摘要音频已返回');
+  } else {
+    setJarvisStatus('已完成，但 TTS 未生成；已保留文字摘要和详细 session');
+    if (window.speechSynthesis && data.summary) window.speechSynthesis.speak(new SpeechSynthesisUtterance(data.summary));
+  }
+  await loadOrchestration();
+}
+
+async function startJarvisRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    throw new Error('当前环境不支持浏览器录音');
+  }
+  jarvisStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const preferredType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+  jarvisChunks = [];
+  jarvisRecorder = new MediaRecorder(jarvisStream, { mimeType: preferredType });
+  jarvisRecorder.ondataavailable = (event) => { if (event.data && event.data.size) jarvisChunks.push(event.data); };
+  jarvisRecorder.onstop = async () => {
+    const blob = new Blob(jarvisChunks, { type: jarvisRecorder.mimeType || preferredType });
+    jarvisRecorder = null;
+    if (jarvisStream) jarvisStream.getTracks().forEach((track) => track.stop());
+    jarvisStream = null;
+    $('jarvis-record').disabled = true;
+    $('jarvis-record').textContent = '处理中…';
+    setJarvisStatus('正在识别、判断、调用 WorkBuddy 并生成摘要音频…');
+    try { await submitJarvisRecording(blob); } catch (error) { setJarvisStatus(error.message || 'Jarvis 语音任务失败'); }
+    $('jarvis-record').disabled = false;
+    $('jarvis-record').textContent = '开始录音';
+    $('jarvis-record').classList.remove('ai-voice-recording');
+  };
+  jarvisRecorder.start();
+  $('jarvis-record').textContent = '停止录音';
+  $('jarvis-record').classList.add('ai-voice-recording');
+  setJarvisStatus('录音中，再次按下结束');
+}
+
+function stopJarvisRecording() {
+  if (jarvisRecorder && jarvisRecorder.state !== 'inactive') jarvisRecorder.stop();
+}
+
 async function runOrchestrationAction(action, id) {
   const endpoint = action === 'takeover' ? 'takeover' : 'run';
   try {
@@ -249,6 +334,17 @@ async function runOrchestrationAction(action, id) {
 }
 
 document.querySelectorAll('[data-monitor-mode]').forEach((button) => button.addEventListener('click', () => setMonitorMode(button.dataset.monitorMode)));
+$('jarvis-record').addEventListener('click', async () => {
+  try {
+    if (jarvisRecorder) stopJarvisRecording();
+    else await startJarvisRecording();
+  } catch (error) {
+    if (jarvisStream) jarvisStream.getTracks().forEach((track) => track.stop());
+    jarvisStream = null; jarvisRecorder = null;
+    setJarvisStatus(error.message || '无法开始录音');
+  }
+});
+$('jarvis-project-path').addEventListener('input', (event) => localStorage.setItem('ab-jarvis-project', event.target.value.trim()));
 $('ai-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = {

@@ -28,6 +28,8 @@ const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
 const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
+const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
+const { createJarvisVoiceRuntime } = require('./lib/jarvis-voice');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -379,8 +381,11 @@ function sseBroadcast(event, data) {
 // 人工监控和 AI 监控共用这一个工作流状态源；AI 面板只负责展示/发起编排请求，
 // 不再另起一套会话缓存。默认不允许 headless Agent 执行，需显式配置环境变量开启。
 const orchestration = createOrchestrationRuntime({
+  workbuddyCliPath: resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentExecutable('workbuddy') }),
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
 });
+const jarvisVoice = createJarvisVoiceRuntime({ orchestration, env: process.env });
+orchestration.jarvisVoice = jarvisVoice;
 
 // ---------- 采集调度 ----------
 let isScanning = false;
@@ -667,6 +672,36 @@ function readAudioBody(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+
+  if (pathname === '/api/jarvis/readiness' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(jarvisVoice.readiness()));
+    return;
+  }
+
+  if (pathname === '/api/jarvis/voice' && req.method === 'POST') {
+    try {
+      const body = await readAudioBody(req);
+      const result = await jarvisVoice.handleVoice(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (error) {
+      const status = Number(error.statusCode) || 400;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Jarvis 语音任务失败' }));
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/jarvis/audio/') && req.method === 'GET') {
+    let fileName = '';
+    try { fileName = decodeURIComponent(pathname.slice('/api/jarvis/audio/'.length)); } catch { fileName = ''; }
+    const audio = jarvisVoice.readAudio(fileName);
+    if (!audio) { res.writeHead(404); res.end('Not Found'); return; }
+    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Cache-Control': 'private, max-age=3600' });
+    res.end(audio);
+    return;
+  }
 
   // Jarvis / AI 监控 / CLI 共用的编排 API。
   if (pathname.startsWith('/api/orchestration/')) {
