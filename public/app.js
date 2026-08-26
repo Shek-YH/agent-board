@@ -34,6 +34,8 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   autoExpandOnHover: loadAutoExpand(),
+  monitorMode: 'manual',
+  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false },
 };
 
 // 瀑布流列配置：localStorage 持久化（显示哪些 agent 列 + 顺序），null 表示用默认
@@ -163,6 +165,109 @@ async function loadBoard() {
   } catch { /* 网络错误忽略 */ }
   finally { state.loading = false; }
 }
+
+const ORCHESTRATION_SLOT_LABELS = {
+  supervisor_llm: 'Jarvis 监督模型', stt_streaming: '流式语音转文字', stt_batch: '非流式语音转文字',
+  tts_streaming: '流式文生语音', tts_batch: '非流式文生语音', voice_clone: '语音克隆', vision: '视觉理解',
+  image_generation: '文生图', video_generation: '视频生成', embeddings: '向量检索', moderation: '安全审核',
+};
+const ORCHESTRATION_STATUS_LABELS = {
+  draft: '草稿', queued: '排队中', running: '执行中', waiting_user: '等待人工', verifying: '验收中',
+  completed: '已完成', failed: '失败', paused: '已暂停',
+};
+const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维护', existing_unversioned: '未纳入 Git 的项目' };
+
+async function loadOrchestration() {
+  try {
+    const response = await fetch('/api/orchestration/state');
+    if (!response.ok) throw new Error('orchestration state unavailable');
+    const data = await response.json();
+    state.orchestration = {
+      workflows: Array.isArray(data.workflows) ? data.workflows : [],
+      capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
+      headlessEnabled: data.headlessEnabled === true,
+    };
+    renderAIMonitor();
+  } catch {
+    $('ai-readiness').textContent = 'AI 监控服务未连接';
+  }
+}
+
+function renderAIMonitor() {
+  const data = state.orchestration;
+  const capabilities = data.capabilities || {};
+  const supervisor = capabilities.supervisor_llm || {};
+  const roots = data.allowedRoots.length ? `允许目录 ${data.allowedRoots.length} 个` : '尚未配置允许项目目录';
+  $('ai-readiness').textContent = `${supervisor.available ? '监督模型已就绪' : '监督模型未配置'} · ${data.headlessEnabled ? 'headless 已开启' : 'headless 未开启'} · ${roots}`;
+
+  const capabilityBox = $('ai-capability-list');
+  capabilityBox.innerHTML = Object.entries(ORCHESTRATION_SLOT_LABELS).map(([slot, label]) => {
+    const item = capabilities[slot] || {};
+    return `<div class="ai-capability"><b>${esc(label)}</b><span class="${item.available ? 'ready' : 'missing'}">${item.available ? `可用 · ${esc(item.providerName || item.provider || '')}` : '未配置'}</span></div>`;
+  }).join('');
+
+  const list = $('ai-workflow-list');
+  const workflows = data.workflows || [];
+  if (!workflows.length) { list.innerHTML = '<div class="ai-empty">暂无 AI 工作流</div>'; return; }
+  list.innerHTML = workflows.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((workflow) => {
+    const plan = workflow.executionPlan || {};
+    const classification = workflow.classification || {};
+    const status = workflow.status || 'draft';
+    const canRun = ['draft', 'queued', 'paused', 'failed'].includes(status) && workflow.controlOwner !== 'human';
+    const canTakeover = !['completed', 'paused'].includes(status) && workflow.controlOwner !== 'human';
+    const actions = [];
+    if (canRun) actions.push(`<button class="btn primary ai-workflow-action" data-action="run" data-id="${esc(workflow.id)}">${status === 'failed' ? '重新排队' : '开始执行'}</button>`);
+    if (canTakeover) actions.push(`<button class="btn ai-workflow-action" data-action="takeover" data-id="${esc(workflow.id)}">人工接管</button>`);
+    return `<article class="ai-workflow-card ${esc(status)}">
+      <div class="ai-workflow-top"><strong title="${esc(plan.goal || workflow.id)}">${esc(smartTitle(plan.goal || workflow.id, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
+      <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')}</div>
+      ${workflow.lastError ? `<div class="ai-workflow-error">${esc(workflow.lastError)}</div>` : ''}
+      <div class="ai-workflow-actions">${actions.join('') || '<span class="ai-hint">当前状态无需操作</span>'}</div>
+    </article>`;
+  }).join('');
+}
+
+function setMonitorMode(mode) {
+  state.monitorMode = mode === 'ai' ? 'ai' : 'manual';
+  document.querySelectorAll('[data-monitor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.monitorMode === state.monitorMode));
+  $('manual-monitor-panel').hidden = state.monitorMode !== 'manual';
+  $('ai-monitor-panel').hidden = state.monitorMode !== 'ai';
+  if (state.monitorMode === 'ai') loadOrchestration();
+}
+
+async function runOrchestrationAction(action, id) {
+  const endpoint = action === 'takeover' ? 'takeover' : 'run';
+  try {
+    const response = await fetch(`/api/orchestration/workflows/${encodeURIComponent(id)}/${endpoint}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '操作失败');
+    toast(action === 'takeover' ? '已人工接管，AI 工作流已暂停' : 'AI 工作流已进入执行队列');
+    await loadOrchestration();
+  } catch (error) { toast(error.message || 'AI 工作流操作失败'); }
+}
+
+document.querySelectorAll('[data-monitor-mode]').forEach((button) => button.addEventListener('click', () => setMonitorMode(button.dataset.monitorMode)));
+$('ai-create-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const body = {
+    projectPath: $('ai-project-path').value.trim(), goal: $('ai-goal').value.trim(),
+    agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human',
+  };
+  try {
+    const response = await fetch('/api/orchestration/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '创建失败');
+    toast(`已创建${ORCHESTRATION_KIND_LABELS[data.classification.kind] || ''} AI 工作流`);
+    $('ai-goal').value = '';
+    await loadOrchestration();
+  } catch (error) { toast(error.message || 'AI 工作流创建失败'); }
+});
+$('ai-workflow-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.ai-workflow-action');
+  if (button) runOrchestrationAction(button.dataset.action, button.dataset.id);
+});
 
 /* ---------- 顶栏 AI Agent 快捷图标 ---------- */
 function renderQuickAgents() {
@@ -1913,6 +2018,7 @@ function connectSSE() {
     } catch {}
   });
   es.addEventListener('unhide', () => { loadBoard(); });
+  es.addEventListener('orchestration', () => { loadOrchestration(); });
   es.onerror = () => { /* 断线自动重连 */ };
 }
 
@@ -1929,6 +2035,7 @@ function toast(msg) {
   loadRecentDone();
   await loadState();
   await loadBoard();
+  await loadOrchestration();
   await loadCompletionSounds();
   connectSSE();
 })();

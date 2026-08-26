@@ -326,8 +326,48 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .hint{font-size:12px;color:var(--text3)}
 .hint code{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:0 4px}
 
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1F2328;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;z-index:99;transition:transform .25s;opacity:0}
-.toast.show{transform:translateX(-50%);opacity:1}
+ .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1F2328;color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;z-index:99;transition:transform .25s;opacity:0}
+ .toast.show{transform:translateX(-50%);opacity:1}
+ .monitor-nav{display:flex;align-items:center;gap:6px;margin:0 0 14px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);width:max-content}
+ .monitor-tab{min-height:36px;padding:6px 15px;border-radius:8px;color:var(--text2);font-size:13px;font-weight:600;transition:.15s}
+ .monitor-tab:hover{background:var(--accent-bg);color:var(--accent)}
+ .monitor-tab.active{background:var(--accent);color:#fff}
+ .monitor-panel[hidden]{display:none!important}
+ .ai-monitor{display:flex;flex-direction:column;gap:14px}
+ .ai-monitor-head{display:flex;align-items:flex-start;gap:14px;padding:16px 18px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+ .ai-monitor-head h2{font-size:16px;font-weight:650}
+ .ai-monitor-head p{margin-top:3px;color:var(--text2);font-size:12px}
+ .ai-monitor-head .ai-readiness{margin-left:auto;color:var(--text3);font-size:12px;white-space:nowrap}
+ .ai-monitor-grid{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);gap:14px;align-items:start}
+ .ai-create,.ai-workflows,.ai-capabilities{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+ .ai-create{padding:14px}
+ .ai-create h3,.ai-workflows h3,.ai-capabilities h3{padding:13px 14px;font-size:13px;font-weight:650;border-bottom:1px solid var(--border)}
+ .ai-create h3{padding:0 0 12px}
+ .ai-create .ai-form-body{display:flex;flex-direction:column;gap:9px}
+ .ai-create label{display:flex;flex-direction:column;gap:4px;color:var(--text2);font-size:12px}
+ .ai-create input,.ai-create select,.ai-create textarea{width:100%;min-height:38px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#fff;outline:none;font-size:13px}
+ .ai-create textarea{min-height:84px;resize:vertical}
+ .ai-create input:focus,.ai-create select:focus,.ai-create textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+ .ai-create .btn{width:100%;justify-content:center;min-height:38px}
+ .ai-hint{font-size:11px;line-height:1.5;color:var(--text3)}
+ .ai-workflow-list{display:flex;flex-direction:column;gap:8px;padding:12px}
+ .ai-workflow-card{padding:12px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:9px;background:#fff}
+ .ai-workflow-card.waiting_user{border-left-color:#F59E0B;background:#FFFBEB}
+ .ai-workflow-card.failed{border-left-color:#DC2626;background:#FFF7F7}
+ .ai-workflow-card.completed{border-left-color:#16A34A;background:#F6FEF8}
+ .ai-workflow-top,.ai-workflow-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+ .ai-workflow-top strong{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+ .ai-badge{padding:2px 7px;border-radius:5px;background:#F2F4F7;color:var(--text2);font-size:10px;white-space:nowrap}
+ .ai-badge.status{background:var(--accent-bg);color:var(--accent);font-weight:650}
+ .ai-workflow-meta{margin:5px 0 8px;color:var(--text2);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ai-workflow-error{margin:5px 0 8px;color:#B45309;font-size:11px;line-height:1.45}
+ .ai-workflow-actions .btn{min-height:30px;padding:5px 9px;font-size:11px}
+ .ai-empty{padding:18px 14px;color:var(--text3);font-size:12px;text-align:center}
+ .ai-capability-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px}
+ .ai-capability{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;font-size:11px}
+ .ai-capability b{font-weight:600}
+ .ai-capability .ready{color:#15803D}.ai-capability .missing{color:var(--text3)}
+ @media (max-width:780px){.ai-monitor-grid{grid-template-columns:1fr}.ai-monitor-head{display:block}.ai-monitor-head .ai-readiness{display:block;margin:7px 0 0}}
 
 @media (max-width:640px){
   .stats .stat:nth-child(3){display:none}
@@ -400,6 +440,12 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
     </button>
   </header>
 
+  <nav class="monitor-nav" id="monitor-nav" aria-label="监控模式">
+    <button class="monitor-tab active" type="button" data-monitor-mode="manual">人工监控</button>
+    <button class="monitor-tab" type="button" data-monitor-mode="ai">AI 监控</button>
+  </nav>
+
+  <div class="monitor-panel" id="manual-monitor-panel">
   <div class="filters">
     <div class="chips" id="agent-chips"></div>
     <select id="f-onlyuser" title="只显示你本人发过指令的会话，隐藏 AI 自行创建的会话">
@@ -455,6 +501,29 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
     <aside class="project-rail" id="project-rail"></aside>
     <div class="board" id="board"></div>
   </div>
+  </div>
+
+  <section class="monitor-panel ai-monitor" id="ai-monitor-panel" hidden>
+    <div class="ai-monitor-head">
+      <div><h2>AI 监控</h2><p>Jarvis 负责判断与编排，执行 Agent 负责在受控项目目录内执行。</p></div>
+      <div class="ai-readiness" id="ai-readiness">正在读取模型能力…</div>
+    </div>
+    <div class="ai-monitor-grid">
+      <form class="ai-create" id="ai-create-form">
+        <h3>创建接管任务</h3>
+        <div class="ai-form-body">
+          <label>项目目录<input id="ai-project-path" required placeholder="例如 C:\\Projects\\demo"></label>
+          <label>任务目标<textarea id="ai-goal" required placeholder="描述要完成的目标、验收条件或维护事项"></textarea></label>
+          <label>执行 Agent<select id="ai-agent"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="workbuddy">WorkBuddy</option></select></label>
+          <label>接管范围<select id="ai-mode"><option value="project">单个项目 AI 接管</option><option value="global">全局 AI 接管策略</option></select></label>
+          <button class="btn primary" type="submit">创建 AI 工作流</button>
+          <div class="ai-hint">创建只生成草稿；执行前仍会检查项目类型、Git 状态、允许目录和当前控制权。未启用 headless 执行时不会启动 CLI。</div>
+        </div>
+      </form>
+      <div class="ai-workflows"><h3>工作流</h3><div class="ai-workflow-list" id="ai-workflow-list"><div class="ai-empty">暂无 AI 工作流</div></div></div>
+    </div>
+    <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div></div>
+  </section>
 </div>
 
 <div class="drawer-mask" id="mask"></div>

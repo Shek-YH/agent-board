@@ -26,6 +26,8 @@ const { resolveMarvisLauncher } = require('./lib/marvis-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
 const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
+const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
+const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -374,6 +376,12 @@ function sseBroadcast(event, data) {
   }
 }
 
+// 人工监控和 AI 监控共用这一个工作流状态源；AI 面板只负责展示/发起编排请求，
+// 不再另起一套会话缓存。默认不允许 headless Agent 执行，需显式配置环境变量开启。
+const orchestration = createOrchestrationRuntime({
+  onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
+});
+
 // ---------- 采集调度 ----------
 let isScanning = false;
 const SCAN_DAYS = 30;          // 首次只扫近 30 天，老文件由增量/rescan 补齐
@@ -659,6 +667,26 @@ function readAudioBody(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+
+  // Jarvis / AI 监控 / CLI 共用的编排 API。
+  if (pathname.startsWith('/api/orchestration/')) {
+    try {
+      const body = req.method === 'POST' ? await readBody(req) : {};
+      const result = await handleOrchestrationRequest({
+        method: req.method, pathname, query: url.searchParams, body, runtime: orchestration,
+      });
+      if (!result) { res.writeHead(404); res.end(JSON.stringify({ error: 'orchestration endpoint not found' })); return; }
+      const background = result.background;
+      res.writeHead(result.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result.body));
+      if (background) background.catch((error) => console.error('[orchestration] background failed:', error.message));
+    } catch (error) {
+      const status = Number(error.statusCode) || 400;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'orchestration request failed' }));
+    }
+    return;
+  }
 
   // SSE
   if (pathname === '/api/events') {
