@@ -17,5 +17,6 @@ test('后端 WorkBuddy 跳转接口构造 chat 会话深链并校验存储会话
   assert.match(server, /\/api\/open-workbuddy-session/);
   assert.match(server, /buildWorkBuddyDeepLink\(sessionId\)/);
   assert.match(server, /store\.getSession\(`workbuddy:\$\{sessionId\}`\)/);
-  assert.match(server, /spawn\('cmd\.exe', \['\/c', 'start', '', deepLink\]/);
+  assert.match(server, /ensureAppThenDeepLink/);
+  assert.match(server, /launchSchemeTargetPromise\(deepLink\)/);
 });

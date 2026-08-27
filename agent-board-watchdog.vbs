@@ -3,13 +3,32 @@ Option Explicit
 ' 随登录启动（Startup 文件夹），循环守护，解决"看板经常无法访问"的问题。
 ' 如需停止：任务管理器结束 wscript.exe 进程即可（或注销重新登录前先删除本文件）。
 
-Dim nodePath, workDir, url, oShell, cmd, ready, failCount
+Dim fso, nodePath, workDir, url, oShell, cmd, ready, failCount
 
-nodePath = "C:\Program Files\nodejs\node.exe"
-workDir  = "C:\Users\Administrator\WorkBuddy\2026-08-20-03-52-10\agent-board"
+Set fso = CreateObject("Scripting.FileSystemObject")
+workDir = fso.GetParentFolderName(WScript.ScriptFullName)
+nodePath = fso.BuildPath(workDir, "runtime\node.exe")
+If Not fso.FileExists(nodePath) Then nodePath = "node.exe"
 url      = "http://127.0.0.1:4876"
 
 Set oShell = CreateObject("WScript.Shell")
+oShell.CurrentDirectory = workDir
+
+Function RuntimeUrl()
+  Dim markerPath, text, re, matches
+  RuntimeUrl = "http://127.0.0.1:4876"
+  markerPath = oShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\AgentBoard\.runtime.json"
+  On Error Resume Next
+  If fso.FileExists(markerPath) Then
+    text = fso.OpenTextFile(markerPath, 1, False).ReadAll
+    Set re = New RegExp
+    re.Pattern = """port""\s*:\s*(\d+)"
+    re.Global = False
+    Set matches = re.Execute(text)
+    If matches.Count > 0 Then RuntimeUrl = "http://127.0.0.1:" & matches(0).SubMatches(0)
+  End If
+  On Error GoTo 0
+End Function
 
 Function Ping()
   Dim h, ok
@@ -28,6 +47,7 @@ End Function
 ' 主循环：持续守护
 failCount = 0
 Do While True
+  url = RuntimeUrl()
   If Ping() Then
     failCount = 0
   Else

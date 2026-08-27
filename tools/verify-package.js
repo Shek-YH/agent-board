@@ -9,14 +9,15 @@ const backendDir = path.join(resourcesDir, 'backend');
 const required = [
   'resources/backend/server.js',
   'resources/backend/lib/store.js',
+  'resources/backend/lib/agent-detection-catalog.js',
+  'resources/backend/lib/runtime-marker.js',
   'resources/backend/public/index.html',
+  'resources/backend/public/app.js',
+  'resources/backend/public/api-client.js',
   'resources/backend/tools/wf.dll',
   'resources/runtime/node.exe',
 ];
-const forbiddenText = [
-  'C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10',
-  'C:\\Users\\Administrator\\AppData',
-];
+const forbiddenPathPattern = /[A-Za-z]:[\\/]+Users[\\/]+[^\\/\\r\\n"'<>]+[\\/]+(?:WorkBuddy|AppData|Desktop|Documents|Downloads)[\\/]/i;
 
 function walk(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -37,6 +38,10 @@ function fail(message) {
 for (const relativePath of required) {
   if (!fs.existsSync(path.join(unpackedDir, relativePath))) fail(`missing ${relativePath}`);
 }
+const runtimePath = path.join(unpackedDir, 'resources', 'runtime', process.platform === 'win32' ? 'node.exe' : 'node');
+if (fs.existsSync(runtimePath) && fs.statSync(runtimePath).size < 1024 * 1024) {
+  fail(`runtime is unexpectedly small: ${path.relative(unpackedDir, runtimePath)}`);
+}
 
 for (const filePath of walk(backendDir)) {
   const relativePath = path.relative(backendDir, filePath);
@@ -49,9 +54,7 @@ for (const filePath of walk(backendDir)) {
   }
   if (/\.(?:js|json|html|css|bat|ps1|md|txt)$/.test(normalized)) {
     const content = fs.readFileSync(filePath, 'utf8');
-    for (const marker of forbiddenText) {
-      if (content.includes(marker)) fail(`development path leaked in ${normalized}`);
-    }
+    if (forbiddenPathPattern.test(content)) fail(`machine-specific absolute path leaked in ${normalized}`);
   }
 }
 

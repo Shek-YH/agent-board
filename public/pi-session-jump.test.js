@@ -16,5 +16,6 @@ test('Pi session 卡片跳转调用桌面端指定 session 接口', () => {
 test('后端 Pi 跳转接口只接受 sessionId 并构造 piagent 深链', () => {
   assert.match(server, /\/api\/open-pi-agent-session/);
   assert.match(server, /buildPiAgentDesktopDeepLink\(sessionId\)/);
+  assert.match(server, /pi:\s*\{[\s\S]*?proc:\s*'pi-agent-desktop'/);
   assert.doesNotMatch(server, /body\.url/);
 });

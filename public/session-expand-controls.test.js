@@ -8,9 +8,11 @@ const test = require('node:test');
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
-test('悬停自动展开默认开启且可在设置面板切换', () => {
-  assert.match(app, /const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand';/);
+test('点击列头是默认展开方式，悬停自动展开仍可手动开启', () => {
+  assert.match(app, /const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand-v2';/);
   assert.match(app, /function loadAutoExpand\(\)/);
+  assert.match(app, /return value === null \? false : value === '1';/);
+  assert.match(app, /catch \{\s+return false;\s+\}/);
   assert.match(app, /autoExpandOnHover: loadAutoExpand\(\)/);
   assert.match(app, /settings-hover-expand/);
   assert.match(app, /悬停 session 卡自动展开/);
@@ -33,7 +35,7 @@ test('聚焦列真正展开，并且展开幅度不再使用原来的超宽比�
   assert.doesNotMatch(app, /0\.55fr/);
   assert.doesNotMatch(app, /minmax\(320px/);
   assert.match(app, /col === key \? 'minmax\(0, 2fr\)' : 'minmax\(0, 1fr\)'/);
-  assert.match(html, /\.board\.has-focus \.agent-col\.focused \.s-card\{padding:14px 16px\}/);
+  assert.match(html, /\.board\.has-focus \.agent-col\.focused \.s-card\{padding:16px 18px;min-height:154px\}/);
   assert.match(html, /\.board\.has-focus \.agent-col:not\(\.focused\) \.s-card\{padding:10px 12px;opacity:\.88\}/);
   assert.match(html, /\.board\{[^}]*transition:grid-template-columns \.2s ease[^}]*\}/);
 });

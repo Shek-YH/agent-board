@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { exec, spawn, spawnSync } = require('child_process');
+const { exec, execFile, spawn, spawnSync } = require('child_process');
 const store = require('./lib/store');
 const account = require('./lib/account');
 const { clearAuthCache } = require('./lib/auth-cache');
@@ -22,12 +22,18 @@ const { resolveFocusDll } = require('./lib/focus-dll-path');
 const { buildHermesDesktopDeepLink } = require('./lib/hermes-deep-link');
 const { resolveHermesDesktopExe } = require('./lib/hermes-desktop-path');
 const { buildMarvisDeepLink } = require('./lib/marvis-deep-link');
-const { resolveMarvisLauncher } = require('./lib/marvis-desktop-path');
+const { resolveMarvisLauncher, resolveMarvisMain } = require('./lib/marvis-desktop-path');
+const { resolveClaudeDesktopExe } = require('./lib/claude-desktop-path');
 const { resolveClaudeSessionTarget } = require('./lib/claude-desktop-session');
 const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
+const { repairCredentialsFile } = require('./lib/dsh-credentials');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
+const { focusZCodeSessionWithUiAutomation } = require('./lib/zcode-desktop-uia');
 const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
+const { buildRuntimeIdentity } = require('./lib/runtime-identity');
+const { getDataDir, getConfigDir } = require('./lib/runtime-paths');
+const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
 const codex = require('./lib/adapters/codex');
@@ -37,25 +43,48 @@ const marvis = require('./lib/adapters/marvis');
 const zcode = require('./lib/adapters/zcode');
 const pi = require('./lib/adapters/pi');
 const hermes = require('./lib/adapters/hermes');
+const detectionCatalog = require('./lib/agent-detection-catalog');
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
+const RUNTIME_IDENTITY = buildRuntimeIdentity({
+  serverRoot: __dirname,
+  serverEntry: __filename,
+  cwd: process.cwd(),
+  nodeRuntime: process.execPath,
+  nodeVersion: process.version,
+  pid: process.pid,
+  ppid: process.ppid,
+  port: PORT,
+  runtimeMode: process.env.AB_RUNTIME || 'source',
+  dataDir: getDataDir(),
+  configDir: getConfigDir(),
+});
+if (!writeRuntimeMarker(RUNTIME_IDENTITY, { dataDir: RUNTIME_IDENTITY.dataDir })) {
+  console.warn('[runtime] 无法写入运行 marker，watchdog 将退化为端口探测');
+}
+process.on('exit', () => clearRuntimeMarker(RUNTIME_IDENTITY, { dataDir: RUNTIME_IDENTITY.dataDir }));
 
 // ---------- Agent 可扩展配置表 ----------
 // 新增 agent：加一条定义即可（proc=进程名用于激活；scheme=URL协议用于冷启动拉起；launch=备选启动命令；icon=public/icons 下的图标文件）
 const AGENT_DEFS = {
-  claude:    { name: 'Claude Code',      color: '#D97757', icon: 'claude.png',    proc: 'claude',    scheme: 'claude://',     launch: null },
+  claude:    { name: 'Claude Code',      color: '#D97757', icon: 'claude.png',    proc: 'claude',    scheme: null,             launch: null },
   codex:     { name: 'Codex',            color: '#10A37F', icon: 'codex.png',     proc: 'Codex',     scheme: 'codex://',      launch: null },
   workbuddy: { name: 'WorkBuddy',        color: '#3B82F6', icon: 'workbuddy.png', proc: 'WorkBuddy', scheme: 'workbuddy://',  launch: null },
-  deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'DSHDesktop', scheme: 'dshdesktop://', launch: null,
+  deepseek:  { name: 'DeepSeek Harness', color: '#4D6BFE', icon: 'deepseek.png',  proc: 'DSH Desktop', scheme: 'dshdesktop://', launch: null,
     launchCmd: null },
   marvis:    { name: 'Marvis',           color: '#7C3AED', icon: 'marvis.png',    proc: 'Marvis',    scheme: null,            launch: null,
     launch: path.join(__dirname, 'marvis-launch.bat') },
   zcode:     { name: 'ZCode',            color: '#1772F0', icon: 'zcode.png',     proc: 'ZCode',     scheme: null,            launch: null,
     launch: path.join(__dirname, 'zcode-launch.bat') },
-  pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi',        scheme: null,            launch: null },
-  hermes:    { name: 'Hermes Agent',     color: '#F59E0B', icon: 'hermes.png',    proc: 'hermes-agent', scheme: 'hermes://', launch: null },
+  // Pi CLI 命令叫 pi，但 Windows Desktop 的实际进程名是
+  // pi-agent-desktop；前台检测必须使用后者，否则会出现“已启动但
+  // windowVerified=false”，session 卡片也无法把窗口切到前台。
+  pi:        { name: 'Pi Agent',         color: '#01BEBF', icon: 'pi.png',        proc: 'pi-agent-desktop', scheme: null,            launch: null },
+  // Hermes CLI/安装目录叫 hermes-agent，但 Windows 桌面窗口对应的进程
+  // 是 Hermes.exe；前台检测必须使用实际进程名。
+  hermes:    { name: 'Hermes Agent',     color: '#F59E0B', icon: 'hermes.png',    proc: 'Hermes', scheme: 'hermes://', launch: null },
 };
 
 // 去掉配置值两端可能存在的引号（兼容旧配置写法）
@@ -65,24 +94,164 @@ function stripQuotes(s) {
   return m ? m[1] : s;
 }
 
-function resolveAgentExecutable(agent) {
-  const overrides = detect.loadUserOverrides()[agent] || [];
-  const configured = overrides.map(stripQuotes).find((candidate) => fs.existsSync(candidate));
-  if (configured) return configured;
-  const adapter = ADAPTERS.find((item) => item.ID === agent);
-  if (!adapter) return null;
-  const probed = detect.probeAgent(adapter, { userOverrides: {} });
-  return probed.executablePath && fs.existsSync(probed.executablePath) ? probed.executablePath : null;
+function launchAgentExecutable(executable) {
+  try {
+    const resolved = stripQuotes(executable);
+    const extension = path.extname(resolved).toLowerCase();
+    const child = process.platform === 'win32' && (extension === '.cmd' || extension === '.bat')
+      ? spawn('cmd.exe', ['/c', resolved], { windowsHide: true, detached: true, stdio: 'ignore', env: cleanLaunchEnv() })
+      : process.platform !== 'win32' && (extension === '.sh' || extension === '.command')
+        ? spawn(process.env.SHELL || '/bin/sh', [resolved], { detached: true, stdio: 'ignore', env: cleanLaunchEnv() })
+      : spawn(resolved, [], { windowsHide: true, detached: true, stdio: 'ignore', env: cleanLaunchEnv() });
+    // 不能让 detached 子进程的异步启动错误变成 Agent Board 未处理异常；
+    // 最终是否真正打开由 launch verification 统一判断。
+    child.once('error', (error) => console.warn('[launch-agent] executable start failed:', error.message));
+    child.unref();
+  } catch (error) {
+    console.warn('[launch-agent] executable spawn failed:', error.message);
+  }
 }
 
-function launchAgentExecutable(executable) {
-  const resolved = stripQuotes(executable);
-  const extension = path.extname(resolved).toLowerCase();
-  if (extension === '.cmd' || extension === '.bat') {
-    spawn('cmd.exe', ['/c', resolved], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-  } else {
-    spawn(resolved, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+// Agent Desktop 可能从 Electron/Node 宿主进程继承这两个变量；
+// ELECTRON_RUN_AS_NODE 会让 Electron exe 直接按 Node 脚本模式退出，
+// NODE_OPTIONS 也可能注入不兼容参数。所有桌面端冷启动和深链启动统一清理。
+function cleanLaunchEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  return env;
+}
+
+function spawnDetachedClean(command, args = [], options = {}) {
+  const child = spawn(command, args, {
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+    ...options,
+    env: cleanLaunchEnv(options.env || {}),
+  });
+  child.once('error', (error) => console.warn('[agent-launch] detached start failed:', error.message));
+  child.unref();
+  return child;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function execCommand(command, options = {}) {
+  return new Promise((resolve, reject) => {
+    exec(command, options, (error, stdout, stderr) => {
+      if (error) {
+        const detail = String(stderr || stdout || '').trim();
+        reject(new Error(detail ? `${error.message}: ${detail}` : error.message));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+// focusAppCall 同时完成“窗口可见性检查”和前台激活。它可能需要编译/加载聚焦后端，
+// 因此必须有超时，不能让 session API 永久等待。
+function isAppWindowVisible(procName, timeoutMs = 2500) {
+  if (!['win32', 'darwin'].includes(process.platform) || !procName) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    try {
+      focusAppCall(procName, (result) => finish(String(result || '').startsWith('OK:')));
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+async function waitForAppWindow(procName, timeoutMs = 9000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isAppWindowVisible(procName, 1200)) return true;
+    await delay(250);
   }
+  return false;
+}
+
+function launchGuiViaShell(executable) {
+  const target = stripQuotes(executable);
+  if (!target || !fs.existsSync(target)) {
+    throw new Error(`未找到桌面端可执行文件：${target || '(空)'}`);
+  }
+  if (process.platform === 'darwin') {
+    const appIndex = target.indexOf('.app/');
+    const appBundle = appIndex >= 0 ? target.slice(0, appIndex + 4) : (target.endsWith('.app') ? target : '');
+    spawnDetachedClean('open', [appBundle || target]);
+    return;
+  }
+  if (process.platform !== 'win32') {
+    spawnDetachedClean(target, []);
+    return;
+  }
+  // explorer.exe 使用 Windows Shell 语义处理带空格/非系统盘的 exe，
+  // 比 cmd /c start 更不容易把路径误解析成窗口标题或参数。
+  spawnDetachedClean('explorer.exe', [target]);
+}
+
+function launchSchemeTargetPromise(scheme) {
+  return new Promise((resolve, reject) => {
+    launchSchemeTarget(scheme, (result) => result.ok ? resolve(result) : reject(new Error(result.error || '启动协议失败')));
+  });
+}
+
+function launchDetachedTargetPromise(target, args = []) {
+  return new Promise((resolve, reject) => {
+    try {
+      spawnDetachedClean(target, args);
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function ensureAppThenDeepLink({ procName, launchExe, sendDeepLink }) {
+  // 深链本身就是桌面端的单实例启动/切换请求。不要先同步探测窗口、等待就绪再返回，
+  // 否则前端 12 秒请求上限会在应用最终成功打开前先报“请求超时”。
+  let launched = false;
+  if (sendDeepLink) {
+    await sendDeepLink();
+    launched = true;
+  } else if (launchExe) {
+    launchGuiViaShell(launchExe);
+    launched = true;
+  } else {
+    throw new Error('未配置桌面端启动目标');
+  }
+  if (procName) {
+    setTimeout(() => {
+      waitForAppWindow(procName, 2500)
+        .then((verified) => console.log(`[launch] ${procName} window -> ${verified ? 'found' : 'pending'}`))
+        .catch((error) => console.log(`[launch] ${procName} window check failed -> ${error.message}`));
+    }, 0);
+  }
+  return { running: null, launched, windowVerified: null, verification: 'pending' };
+}
+
+function resolveAgentGuiExecutable(agent) {
+  if (agent === 'claude') return resolveClaudeDesktopExe();
+  if (agent === 'marvis') return resolveMarvisMain();
+  if (agent === 'deepseek') return resolveDeepSeekDesktopExe();
+  if (agent === 'pi') return resolvePiAgentDesktopExe();
+  if (agent === 'hermes') return resolveHermesDesktopExe();
+  const adapter = ADAPTERS.find((item) => item.ID === agent);
+  if (!adapter) return '';
+  const probed = detect.probeAgent(adapter, { userOverrides: {} }) || {};
+  return probed.desktopExecutablePath || (probed.tier === 'gui' ? probed.executablePath : '') || '';
 }
 
 function buildDesktopLaunchSpecs() {
@@ -94,12 +263,12 @@ function buildDesktopLaunchSpecs() {
     kind: 'path', available: Boolean(value) && fs.existsSync(value), value, detail,
   });
   return {
-    claude: scheme('claude', 'claude:// 协议'),
+    claude: file(resolveClaudeDesktopExe(), 'Claude Desktop'),
     codex: scheme('codex', 'codex:// 协议'),
     workbuddy: scheme('workbuddy', 'workbuddy:// 协议'),
     deepseek: file(resolveDeepSeekDesktopExe(), 'DeepSeek Desktop'),
-    marvis: file(resolveMarvisLauncher(), 'MarvisLauncher.exe'),
-    zcode: file(AGENT_DEFS.zcode.launch, 'ZCode 启动脚本'),
+    marvis: file(resolveMarvisMain(), 'Marvis.exe 主程序'),
+    zcode: file(resolveAgentGuiExecutable('zcode') || (process.platform === 'win32' ? AGENT_DEFS.zcode.launch : ''), 'ZCode Desktop'),
     pi: file(resolvePiAgentDesktopExe(), 'Pi Agent Desktop'),
     hermes: file(resolveHermesDesktopExe(), 'Hermes.exe'),
   };
@@ -122,14 +291,27 @@ function launchDetachedTarget(target, cb) {
     }
     const resolved = stripQuotes(raw);
     const extension = path.extname(resolved).toLowerCase();
-    const direct = fs.existsSync(resolved) && extension !== '.cmd' && extension !== '.bat';
-    const command = direct ? resolved : 'cmd.exe';
-    let commandLine = raw;
-    if (!direct && /^[a-z]:[\\/]/i.test(resolved) && !/[&|<>]/.test(resolved) && /\s/.test(resolved)) {
-      commandLine = `"${resolved.replace(/"/g, '""')}"`;
+    if (process.platform !== 'win32' && ['.cmd', '.bat'].includes(extension)) {
+      throw new Error('当前系统不能直接运行 Windows .cmd/.bat 启动脚本');
     }
-    const args = direct ? [] : ['/c', commandLine];
-    const child = spawn(command, args, { windowsHide: true, detached: true, stdio: 'ignore' });
+    const direct = fs.existsSync(resolved) && !['.cmd', '.bat'].includes(extension);
+    let command;
+    let args;
+    if (direct) {
+      command = resolved;
+      args = [];
+    } else if (process.platform === 'win32') {
+      let commandLine = raw;
+      if (/^[a-z]:[\\/]/i.test(resolved) && !/[&|<>]/.test(resolved) && /\s/.test(resolved)) {
+        commandLine = `"${resolved.replace(/"/g, '""')}"`;
+      }
+      command = 'cmd.exe';
+      args = ['/c', commandLine];
+    } else {
+      command = process.env.SHELL || '/bin/sh';
+      args = ['-lc', raw];
+    }
+    const child = spawn(command, args, { windowsHide: true, detached: true, stdio: 'ignore', env: cleanLaunchEnv() });
     let settled = false;
     const finish = (result) => {
       if (settled) return;
@@ -154,11 +336,34 @@ function launchSchemeTarget(scheme, cb) {
       return;
     }
     if (process.platform === 'win32') {
-      spawn('cmd.exe', ['/c', 'start', '', scheme], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      const child = spawn('cmd.exe', ['/d', '/s', '/c', 'start', '', scheme], { windowsHide: true, detached: true, stdio: 'ignore', env: cleanLaunchEnv() });
+      let settled = false;
+      child.once('error', (error) => {
+        if (settled) return;
+        settled = true;
+        cb({ ok: false, error: error.message || '启动协议失败' });
+      });
+      child.unref();
+      setImmediate(() => {
+        if (settled) return;
+        settled = true;
+        cb({ ok: true, action: 'launch-target' });
+      });
     } else {
-      spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [scheme], { detached: true, stdio: 'ignore' }).unref();
+      const child = spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [scheme], { detached: true, stdio: 'ignore', env: cleanLaunchEnv() });
+      let settled = false;
+      child.once('error', (error) => {
+        if (settled) return;
+        settled = true;
+        cb({ ok: false, error: error.message || '启动协议失败' });
+      });
+      child.unref();
+      setImmediate(() => {
+        if (settled) return;
+        settled = true;
+        cb({ ok: true, action: 'launch-target' });
+      });
     }
-    cb({ ok: true, action: 'launch-target' });
   } catch (error) {
     cb({ ok: false, error: error.message || '启动协议失败' });
   }
@@ -168,12 +373,20 @@ function launchAutomaticTarget(agent, requestedTarget, cb) {
   getAutomaticLaunchTargets().then((targets) => {
     const selected = selectLaunchTarget(targets, agent, requestedTarget);
     if (selected.kind === 'scheme') launchSchemeTarget(selected.value, cb);
+    else if (agent === 'claude') {
+      try {
+        launchGuiViaShell(selected.value);
+        cb({ ok: true, action: 'launch-target' });
+      } catch (error) {
+        cb({ ok: false, error: error.message || 'Claude Desktop 启动失败' });
+      }
+    }
     else launchDetachedTarget(selected.value, cb);
   }).catch((error) => cb({ ok: false, error: error.message || '自动启动失败' }));
 }
 
 // 窗口激活：手动桌面端优先；没有指定目标时保留原有默认启动/激活逻辑。
-function launchOrFocus(agent, requestedTarget, cb) {
+function launchOrFocusRaw(agent, requestedTarget, cb) {
   const def = AGENT_DEFS[agent];
   if (!def) { cb({ ok: false, error: '未知 agent' }); return; }
 
@@ -197,7 +410,7 @@ function launchOrFocus(agent, requestedTarget, cb) {
       return;
     }
     try {
-      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      launchGuiViaShell(desktopExe);
       cb({ ok: true, action: 'launch', agent });
     } catch (e) {
       cb({ ok: false, error: e.message || '启动 Hermes Desktop 失败', agent });
@@ -213,7 +426,7 @@ function launchOrFocus(agent, requestedTarget, cb) {
       return;
     }
     try {
-      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      launchGuiViaShell(desktopExe);
       cb({ ok: true, action: 'launch', agent });
     } catch (e) {
       cb({ ok: false, error: e.message || '启动 Pi Agent Desktop 失败', agent });
@@ -222,13 +435,19 @@ function launchOrFocus(agent, requestedTarget, cb) {
   }
 
   if (agent === 'deepseek') {
+    const credentialRepair = repairCredentialsFile();
+    if (credentialRepair.error) {
+      cb({ ok: false, error: `DeepSeek Desktop 凭据配置错误：${credentialRepair.error}`, agent });
+      return;
+    }
+    if (credentialRepair.repaired) console.warn(`[deepseek] 已迁移旧凭据格式，备份：${credentialRepair.backupPath}`);
     const desktopExe = resolveDeepSeekDesktopExe();
     if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
       cb({ ok: false, error: `未找到 DeepSeek Desktop：${desktopExe}` });
       return;
     }
     try {
-      spawn(desktopExe, [], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      launchGuiViaShell(desktopExe);
       cb({ ok: true, action: 'launch', agent });
     } catch (e) {
       cb({ ok: false, error: e.message || '启动 DeepSeek Desktop 失败', agent });
@@ -239,34 +458,155 @@ function launchOrFocus(agent, requestedTarget, cb) {
   // launchCmd 用于浏览器/Web 类应用：直接调用外部启动脚本（含自启动+开浏览器逻辑），不再走窗口句柄激活
   if (def.launchCmd) {
     const p = stripQuotes(def.launchCmd);
-    spawn('cmd.exe', ['/c', p], { windowsHide: true, detached: true }).unref();
-    cb({ ok: true, action: 'launch', agent });
+    launchDetachedTarget(p, (result) => cb({ ...result, action: result.ok ? 'launch' : result.action, agent }));
+    return;
+  }
+  // 已有协议/启动脚本的 Agent 直接交给系统处理；协议或脚本会负责单实例聚焦，
+  // 顶栏接口不再先等待 PowerShell 窗口探测。
+  if (def.scheme) {
+    launchSchemeTarget(def.scheme, (result) => cb({ ...result, action: result.ok ? 'launch' : result.action, agent }));
+    return;
+  }
+  if (def.launch) {
+    const p = stripQuotes(def.launch);
+    launchDetachedTarget(p, (result) => cb({ ...result, action: result.ok ? 'launch' : result.action, agent }));
     return;
   }
   focusAppCall(def.proc, (result) => {
     if (result.startsWith('OK')) {
       cb({ ok: true, action: 'focus', pid: result.split(':')[1] || '' });
     } else if (result === 'NOT_RUNNING') {
-      const configuredExecutable = resolveAgentExecutable(agent);
+      const configuredExecutable = resolveAgentGuiExecutable(agent);
       if (configuredExecutable) {
-        launchAgentExecutable(configuredExecutable);
+        if (agent === 'claude') launchGuiViaShell(configuredExecutable);
+        else launchAgentExecutable(configuredExecutable);
       } else if (def.scheme) {
-        spawn('cmd.exe', ['/c', 'start', '', def.scheme], { windowsHide: true, detached: true }).unref();
+        launchSchemeTarget(def.scheme, () => {});
       } else if (def.launch) {
         const p = stripQuotes(def.launch);
-        spawn('cmd.exe', ['/c', p], { windowsHide: true, detached: true }).unref();
+        launchDetachedTarget(p, () => {});
       } else {
         cb({ ok: false, error: '未配置启动方式，请打开应用后重试' });
         return;
       }
-      // 等应用起来后再次激活窗口
-      setTimeout(() => {
-        focusAppCall(def.proc, (r2) => cb({ ok: true, action: 'launched', pid: r2.startsWith('OK:') ? r2.split(':')[1] : '' }));
-      }, 3000);
+      // 启动请求已经交给系统，窗口确认放到统一的后台验证，不阻塞 HTTP 响应。
+      cb({ ok: true, action: 'launched', pid: '' });
     } else {
       cb({ ok: false, error: result });
     }
   });
+}
+
+// spawn/cmd start 返回成功只代表启动请求被交给系统，不能证明目标应用真的出现。
+// 统一在启动后按 agent 的窗口进程名复核，避免前端显示“已启动”但实际没有打开。
+function verifyAgentWindow(agent, cb, timeoutMs = 8000) {
+  const def = AGENT_DEFS[agent];
+  if (!['win32', 'darwin'].includes(process.platform)) {
+    cb({ verified: null, reason: 'platform-verification-unavailable' });
+    return;
+  }
+  if (!def || !def.proc) {
+    cb({ verified: false, reason: 'process-name-unavailable' });
+    return;
+  }
+  let settled = false;
+  const startedAt = Date.now();
+  const finish = (result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(deadlineTimer);
+    cb(result);
+  };
+  const deadlineTimer = setTimeout(() => finish({ verified: false, reason: 'verification-timeout' }), timeoutMs);
+  const check = () => {
+    if (settled) return;
+    focusAppCall(def.proc, (result) => {
+      const text = String(result || '');
+      if (text.startsWith('OK:')) {
+        finish({ verified: true, pid: text.slice(3), reason: 'window-found' });
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        finish({ verified: false, reason: text === 'NOT_RUNNING' ? 'process-not-running' : (text || 'focus-check-failed') });
+        return;
+      }
+      setTimeout(check, 250);
+    });
+  };
+  check();
+}
+
+function buildLaunchRecovery(agent, requestedTarget) {
+  const def = AGENT_DEFS[agent] || {};
+  const adapter = ADAPTERS.find((item) => item.ID === agent);
+  let probe = {};
+  if (adapter) {
+    try { probe = detect.probeAgent(adapter, { userOverrides: {} }) || {}; } catch (error) {
+      probe = { probeError: error.message || '探测失败' };
+    }
+  }
+  let desktop = {};
+  try { desktop = buildDesktopLaunchSpecs()[agent] || {}; } catch { desktop = {}; }
+  const detectedPath = [probe.executablePath, probe.desktopExecutablePath]
+    .find((candidate) => typeof candidate === 'string' && fs.existsSync(candidate)) || null;
+  const suggestions = [];
+  if (detectedPath) {
+    const variantLabel = probe.desktopExecutablePath === detectedPath && !probe.executablePath ? 'Desktop' : 'CLI';
+    suggestions.push(`已找到真实 ${variantLabel} 可执行文件：${detectedPath}`);
+    suggestions.push('打开“应用管理”，点击该 Agent 的“自动配置路径”，然后重新点击启动。');
+  } else if (probe.installed !== true && desktop.available !== true) {
+    suggestions.push('未找到可用的 CLI 或桌面端，请先安装对应 Agent，或确认安装路径。');
+  }
+  if (probe.tier === 'cli' && requestedTarget !== 'cli') {
+    suggestions.push('当前只识别到 CLI 变体；CLI 可能需要在终端中带参数启动，若需要窗口请安装对应 Desktop 版本。');
+  }
+  if (requestedTarget === 'desktop' && desktop.available !== true) {
+    suggestions.push('当前没有可用的桌面端启动目标，请在“应用管理”确认 Desktop 是否安装。');
+  }
+  if (!suggestions.length) suggestions.push('请打开“应用管理”重新探测，并确认 Agent 的真实安装路径。');
+  return {
+    status: detectedPath || desktop.available ? 'target-found-but-not-verified' : 'target-not-found',
+    detectedPath,
+    detectedTier: probe.tier || null,
+    detectedVersion: probe.version || probe.registryName || null,
+    detectedSource: probe.source || null,
+    desktopTarget: desktop.available ? { detail: desktop.detail || '', value: desktop.value || '' } : null,
+    autoConfigureAvailable: Boolean(detectedPath),
+    suggestions,
+  };
+}
+
+function finalizeLaunchResult(agent, requestedTarget, result, cb) {
+  if (!result || result.ok !== true) {
+    cb({ ...(result || { ok: false }), verified: false, recovery: buildLaunchRecovery(agent, requestedTarget) });
+    return;
+  }
+  // 已经由 focusAppCall 确认过的窗口不需要再次等待；其他路径先返回投递结果，
+  // 再异步复核窗口，避免桌面端冷启动拖过前端请求超时。
+  if (result.action === 'focus') {
+    cb({ ...result, verified: true, verification: 'window-found' });
+    return;
+  }
+  cb({ ...result, verified: null, verification: 'pending' });
+  setTimeout(() => verifyAgentWindow(agent, (verification) => {
+    if (verification.verified === true) {
+      console.log(`[launch-agent] ${agent} window verified -> ${verification.pid || '?'}`);
+      return;
+    }
+    const recovery = buildLaunchRecovery(agent, requestedTarget);
+    console.warn(`[launch-agent] ${agent} background verification failed`, JSON.stringify({
+      ...result,
+      ok: false,
+      code: 'launch-not-verified',
+      error: '启动请求已发送，但未确认目标应用窗口或进程已打开',
+      ...verification,
+      recovery,
+    }));
+  }), 0);
+}
+
+function launchOrFocus(agent, requestedTarget, cb) {
+  launchOrFocusRaw(agent, requestedTarget, (result) => finalizeLaunchResult(agent, requestedTarget, result, cb));
 }
 
 // ---------- 窗口激活：预编译 Win32 DLL（避免每次点跳转都重新编译 C#） ----------
@@ -324,6 +664,30 @@ function initFocusPs() {
   ].join('\r\n') + '\r\n');
 }
 function focusAppCall(procName, cb) {
+  if (process.platform === 'darwin') {
+    const name = String(procName || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const script = [
+      'tell application "System Events"',
+      `tell process "${name}"`,
+      'if (count of windows) > 0 then',
+      'set frontmost to true',
+      'return "OK"',
+      'else',
+      'return "NOT_RUNNING"',
+      'end if',
+      'end tell',
+      'end tell',
+    ].join('\n');
+    execFile('osascript', ['-e', script], { encoding: 'utf8', timeout: 3000 }, (error, stdout) => {
+      if (error) { cb('NOT_RUNNING'); return; }
+      cb(String(stdout || '').trim() === 'OK' ? 'OK:mac' : 'NOT_RUNNING');
+    });
+    return;
+  }
+  if (process.platform !== 'win32') {
+    cb('UNSUPPORTED');
+    return;
+  }
   ensureFocusDll().then(() => {
     if (!focusPs) initFocusPs();
     if (focusReady) {
@@ -353,18 +717,76 @@ function focusWorkBuddyWindow(attempt = 0) {
   });
 }
 const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi, hermes];
+// 只探测条目不参与 scanAll / fs.watch；它们仅用于应用管理，后续补齐正式 adapter
+// 后从这个目录迁入即可。
+const PROBE_ONLY_ADAPTERS = detectionCatalog;
+const PROBE_ADAPTERS = [...ADAPTERS, ...PROBE_ONLY_ADAPTERS];
 store.migrateCodexCompletionSignals();
+const collectorHealth = new Map(ADAPTERS.map((adapter) => [adapter.ID, {
+  root: adapter.ROOT,
+  rootExists: fs.existsSync(adapter.ROOT),
+  lastScanAt: null,
+  lastScanMode: null,
+  lastScanFiles: 0,
+  lastEventAt: null,
+  lastMessageCount: 0,
+  lastError: null,
+}]));
+
+function updateCollectorHealth(agent, patch) {
+  const previous = collectorHealth.get(agent) || {};
+  collectorHealth.set(agent, { ...previous, ...patch });
+}
+
+function getCollectorHealth() {
+  return Object.fromEntries([...collectorHealth.entries()].map(([agent, value]) => [agent, {
+    ...value,
+    rootExists: fs.existsSync(value.root),
+  }]));
+}
+
+function fileMetaKey(kind, adapter, filePath) {
+  return `${kind}:${adapter.ID}:${filePath}`;
+}
+
+function prepareFileOffset(adapter, filePath) {
+  const current = watcher.fileSignature(filePath);
+  if (!current) return null;
+  const previousIdentity = store.stmts.getMeta.get(fileMetaKey('file-id', adapter, filePath))?.v || '';
+  const previousSizeValue = store.stmts.getMeta.get(fileMetaKey('file-size', adapter, filePath))?.v;
+  const previous = previousIdentity || previousSizeValue !== undefined
+    ? { identity: previousIdentity, size: Number(previousSizeValue || 0) }
+    : null;
+  if (watcher.shouldResetOffset(previous, current)) {
+    store.stmts.setMeta.run(fileMetaKey('offset', adapter, filePath), '0');
+  }
+  return current;
+}
+
+function rememberFileOffset(adapter, filePath, signature) {
+  if (!signature) return;
+  store.stmts.setMeta.run(fileMetaKey('file-id', adapter, filePath), signature.identity);
+  store.stmts.setMeta.run(fileMetaKey('file-size', adapter, filePath), String(signature.size));
+}
+
 // 探测结果缓存：5 分钟 TTL。避免 /api/board（首页高频调用）每次都触发一次完整探测
 // （registry 查询 + 逐个 agent spawnSync 查版本号）。安装成功时主动失效，不等 TTL。
 const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
 let probeCache = { data: null, ts: 0 };
+let probeInFlight = null;
 async function getProbe(force = false) {
   if (!force && probeCache.data && Date.now() - probeCache.ts < PROBE_CACHE_TTL_MS) {
     return probeCache.data;
   }
-  const data = await detect.probeAll(ADAPTERS);
-  probeCache = { data, ts: Date.now() };
-  return data;
+  // 多个页面/按钮同时请求时共用一次探测，避免重复调用 reg.exe、where.exe 和版本命令。
+  if (probeInFlight) return probeInFlight;
+  probeInFlight = detect.probeAll(PROBE_ADAPTERS)
+    .then((data) => {
+      probeCache = { data, ts: Date.now() };
+      return data;
+    })
+    .finally(() => { probeInFlight = null; });
+  return probeInFlight;
 }
 
 // ---------- SSE 客户端管理 ----------
@@ -386,17 +808,20 @@ const orchestration = createOrchestrationRuntime({
 let isScanning = false;
 const SCAN_DAYS = 30;          // 首次只扫近 30 天，老文件由增量/rescan 补齐
 const BIG_FILE = 2 * 1024 * 1024;   // 大于 2MB 的文件只取末尾（最近消息）
-async function scanAll() {
+async function scanAll({ full = false } = {}) {
   if (isScanning) return;
   isScanning = true;
-  const cutoff = Date.now() - SCAN_DAYS * 24 * 3600 * 1000;
+  const cutoff = full ? 0 : Date.now() - SCAN_DAYS * 24 * 3600 * 1000;
   const jobs = [];
+  const scanCounts = new Map(ADAPTERS.map((adapter) => [adapter.ID, 0]));
   for (const a of ADAPTERS) {
+    updateCollectorHealth(a.ID, { rootExists: fs.existsSync(a.ROOT), lastError: null });
     if (!fs.existsSync(a.ROOT)) continue;
     for (const f of watcher.collectFiles(a.ROOT, a.isSessionFile)) {
       const mtime = watcher.fileMtime(f);
-      if (mtime < cutoff) continue; // 老文件跳过，等增量或手动 rescan
+      if (!full && mtime < cutoff) continue; // 老文件跳过，等增量或手动 rescan
       jobs.push({ adapter: a, file: f });
+      scanCounts.set(a.ID, scanCounts.get(a.ID) + 1);
     }
   }
   // 按修改时间倒序：最近的对话先入库，看板秒出数据
@@ -408,18 +833,28 @@ async function scanAll() {
     store.tx(() => {
       for (const j of batch) {
         const key = `offset:${j.adapter.ID}:${j.file}`;
-        const offset = Number(store.stmts.getMeta.get(key)?.v || 0);
+        const signature = prepareFileOffset(j.adapter, j.file);
+        const offset = full ? 0 : Number(store.stmts.getMeta.get(key)?.v || 0);
         const size = watcher.fileSize(j.file);
         let lines = [], newOffset = offset;
         if (j.adapter.readFile) {
           // 自定义读取（如 zstd 压缩文件），offset 语义由 adapter 自行解释（通常是行号）
           const t = j.adapter.readFile(j.file, offset);
           lines = t.lines; newOffset = t.newOffset;
-        } else if (offset >= size) {
+        } else if (!full && offset >= size) {
+          // Codex 旧版已经消费完日志时仍要读取首条 session_meta，
+          // 让存量记录获得新的父子拓扑，不必清空 offset 或重扫全文。
+          if (j.adapter.ID === 'codex') {
+            const metaLine = codex.readSessionMetaLine(j.file);
+            if (metaLine) {
+              const metaMsgs = j.adapter.parseLines([metaLine], j.file);
+              for (const m of metaMsgs) { store.ingest(m); total++; }
+            }
+          }
           continue; // 已消费完
-        } else if (size > BIG_FILE) {
-          // 大文件：始终从 0 全量读取（readAll 循环读完，消息按 source_id 幂等覆盖，不会重复）。
-          // 不能用增量：旧 offset 可能停在文件中部，前面的历史永远读不到。
+        } else if (full || size > BIG_FILE) {
+          // 全量重扫和大文件都必须从 0 读完；消息按 source_id 幂等覆盖，不会重复。
+          // 普通增量才使用 offset，否则 旧 offset 可能让历史永久漏掉。
           const t = watcher.readAll(j.file, 0);
           lines = t.lines; newOffset = t.newOffset;
         } else {
@@ -436,6 +871,7 @@ async function scanAll() {
           }
         }
         store.stmts.setMeta.run(key, String(newOffset));
+        rememberFileOffset(j.adapter, j.file, signature);
       }
     });
     const done = Math.min(i + 5, jobs.length);
@@ -453,7 +889,11 @@ async function scanAll() {
       try {
         const c = a.scanAll(store);
         if (c > 0) { total += c; console.log(`[${a.ID}] +${c} 条`); sseBroadcast('message', { agent: a.ID, count: c }); }
-      } catch (e) { console.error(`[${a.ID}] scanAll failed:`, e.message); }
+        updateCollectorHealth(a.ID, { lastScanAt: new Date().toISOString(), lastScanMode: full ? 'full' : 'recent', lastMessageCount: c, lastError: null });
+      } catch (e) {
+        updateCollectorHealth(a.ID, { lastScanAt: new Date().toISOString(), lastError: e.message });
+        console.error(`[${a.ID}] scanAll failed:`, e.message);
+      }
     }
   }
   try {
@@ -466,6 +906,13 @@ async function scanAll() {
   } catch (e) { console.error('[codex] session_index 同步失败:', e.message); }
   try { workbuddy.scanHeartbeats(store); } catch { /* ignore */ }
   isScanning = false;
+  for (const a of ADAPTERS) {
+    updateCollectorHealth(a.ID, {
+      lastScanAt: new Date().toISOString(),
+      lastScanMode: full ? 'full' : 'recent',
+      lastScanFiles: scanCounts.get(a.ID) || 0,
+    });
+  }
   console.log(`[scan] 完成 ${jobs.length} 个文件，入库 ${total} 条，耗时 ${((Date.now() - now) / 1000).toFixed(1)}s`);
   sseBroadcast('scan', { done: jobs.length, total: jobs.length, finished: true });
   sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
@@ -487,13 +934,21 @@ function pollChanged(adapter, paths) {
   }
   try {
     if (live.length) {
+      const signatures = new Map(live.map((filePath) => [filePath, prepareFileOffset(adapter, filePath)]));
       const n = store.tx(() => adapter.poll(store, live));
+      for (const [filePath, signature] of signatures) rememberFileOffset(adapter, filePath, signature || watcher.fileSignature(filePath));
+      updateCollectorHealth(adapter.ID, {
+        lastEventAt: new Date().toISOString(), lastMessageCount: n, lastError: null,
+      });
       if (n > 0) {
         console.log(`[${adapter.ID}] +${n} 条`);
         sseBroadcast('message', { agent: adapter.ID, count: n });
       }
     }
-  } catch (e) { console.error(`[${adapter.ID}] 增量解析失败:`, e.message); }
+  } catch (e) {
+    updateCollectorHealth(adapter.ID, { lastEventAt: new Date().toISOString(), lastError: e.message });
+    console.error(`[${adapter.ID}] 增量解析失败:`, e.message);
+  }
   if (deleted.length) {
     console.log(`[${adapter.ID}] 源文件删除，移除 ${deleted.length} 个会话`);
     sseBroadcast('hide', { sessions: deleted });
@@ -502,10 +957,28 @@ function pollChanged(adapter, paths) {
 
 function startWatchers() {
   const stops = [];
+  const snapshots = new Map();
   for (const a of ADAPTERS) {
-    if (!fs.existsSync(a.ROOT)) continue;
+    // Hermes 的数据源是 state.db，根目录下还包含十万级缓存文件；它已有
+    // 专用 SQLite 兜底轮询，不能对整个根目录做递归快照/监听。
+    if (a.ID === 'hermes') continue;
+    snapshots.set(a.ID, watcher.snapshotTree(a.ROOT, () => true));
     stops.push(watcher.watchTree(a.ROOT, (p) => pollChanged(a, [p])));
   }
+  // fs.watch 是低延迟加速器，定时快照是跨 Windows/macOS 文件系统、目录晚创建、
+  // WAL/原子替换和偶发丢事件时的正确性兜底。这里不要求 ROOT 在启动时已经存在。
+  const reconcileTimer = setInterval(() => {
+    if (isScanning) return;
+    for (const a of ADAPTERS) {
+      if (a.ID === 'hermes') continue;
+      const previous = snapshots.get(a.ID) || {};
+      const current = watcher.snapshotTree(a.ROOT, () => true);
+      const diff = watcher.diffSnapshots(previous, current);
+      snapshots.set(a.ID, current);
+      const changed = [...diff.changed, ...diff.deleted];
+      if (changed.length) pollChanged(a, changed);
+    }
+  }, 10 * 1000);
   // WorkBuddy 心跳目录 + 本地 SQLite 会话状态：轮询（文件每秒都在变，watch 事件太密）。
   // 只更新内部状态，不在此推送 active 事件——统一由下方 5s 定时器推送 getActive()，
   // 避免两个定时器推送不一致快照（含 active:false 条目）导致前端状态每 5 秒来回闪。
@@ -531,6 +1004,7 @@ function startWatchers() {
   // DeepSeek 列在 board 上一直空着。其它 adapter 也已经走 fs.watch，但 deepseek 的
   // session 路径最深（~/.dsh/sessions/<workspace>/session-<uuid>/），命中率最低。
   const dsTimer = setInterval(() => {
+    if (isScanning) return;
     try {
       const c = deepseek.scanAll(store);
       if (c > 0) {
@@ -543,6 +1017,7 @@ function startWatchers() {
   // 短暂重命名/重建，监听器容易丢事件），每 30 秒调 adapter 自身 scanAll（sequence 增量、开销小）
   // 补全漏掉的新消息，避免 ZCode 列实时性差。
   const zcTimer = setInterval(() => {
+    if (isScanning) return;
     try {
       const c = zcode.scanAll(store);
       if (c > 0) {
@@ -554,6 +1029,7 @@ function startWatchers() {
   // Hermes SQLite WAL 兜底重扫：state.db 在 checkpoint 时可能重命名 WAL，
   // Windows fs.watch 偶发漏事件；每 5 秒读取消息和 session 终态字段，开销可控。
   const hermesTimer = setInterval(() => {
+    if (isScanning) return;
     try {
       const c = hermes.scanAll(store);
       if (c > 0) {
@@ -574,21 +1050,29 @@ function startWatchers() {
   // 进程全无 = 该 agent 一定不在运行 → 提前结束「进行中」（不必等满 10 分钟）。
   // 只在进程名精确确认的 agent 上启用（进程名匹配不全时宁可保守不判，避免误伤正在运行的会话）。
   const procTimer = setInterval(checkAgentProcesses, 30 * 1000);
-  return () => { for (const s of stops) s(); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(hermesTimer); clearInterval(deskTimer); clearInterval(procTimer); };
+  return () => { for (const s of stops) s(); clearInterval(reconcileTimer); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(hermesTimer); clearInterval(deskTimer); clearInterval(procTimer); };
 }
 
-// CLI agent 进程名 → 进程检查。仅收录已实测确认的 exe 名；匹配不到进程 = 该 agent 全部 session 提前 done
-const PROC_PATTERNS = {
-  claude: ['claude.exe'],
-  // Codex Desktop 的实际宿主进程不稳定（当前版本不一定叫 codex.exe），
-  // 不能用进程名缺失强制结束会话；Codex 以 JSONL 日志和 task_complete 判定为准。
-  zcode: ['zcode.exe'],
-  // pi / deepseek-harness 进程名未实测确认，暂不启用（保守）
-};
+// CLI agent 进程名 → 进程检查。仅收录已实测确认的进程名；匹配不到进程
+// = 该 agent 全部 session 提前 done。Windows/macOS 的进程查询格式不同，
+// 不能在 macOS 继续调用 tasklist。
+const PROC_PATTERNS = process.platform === 'darwin'
+  ? {
+      claude: ['claude'],
+      zcode: ['zcode'],
+    }
+  : {
+      claude: ['claude.exe'],
+      // Codex Desktop 的实际宿主进程不稳定（当前版本不一定叫 codex.exe），
+      // 不能用进程名缺失强制结束会话；Codex 以 JSONL 日志和 task_complete 判定为准。
+      zcode: ['zcode.exe'],
+    };
 function checkAgentProcesses() {
   let text;
   try {
-    const r = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+    const command = process.platform === 'win32' ? 'tasklist' : 'ps';
+    const args = process.platform === 'win32' ? ['/FO', 'CSV', '/NH'] : ['-axo', 'command='];
+    const r = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, timeout: 15000 });
     if (r.error || r.status !== 0) return;
     text = (r.stdout || '').toLowerCase();
   } catch { return; }
@@ -628,7 +1112,11 @@ function serveStatic(req, res, urlPath) {
   let p = path.normalize(path.join(PUBLIC, urlPath === '/' ? 'index.html' : urlPath));
   if (!p.startsWith(PUBLIC)) { res.writeHead(403); res.end(); return; }
   fs.readFile(p, (err, data) => {
-    if (err) { res.writeHead(404); res.end('Not Found'); return; }
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(p)] || 'application/octet-stream' });
     res.end(data);
   });
@@ -703,6 +1191,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 运行/采集诊断：只返回身份、路径摘要和计数，不返回任何会话正文。
+  if (pathname === '/api/health' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      scanning: isScanning,
+      runtime: RUNTIME_IDENTITY,
+      collectors: getCollectorHealth(),
+      sseClients: sseClients.size,
+      checkedAt: new Date().toISOString(),
+    }));
+    return;
+  }
+
   // 总览状态
   if (pathname === '/api/state') {
     const agents = store.stmts.agents.all().map((r) => ({
@@ -717,7 +1219,7 @@ const server = http.createServer(async (req, res) => {
     // live 字段已统一为「最后真实消息 < 10 分钟」（lastMsgAt），不再被心跳保活顶起。
     stats.active = active.filter((s) => s.live).length;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ stats, agents, projects, active, agentsDef: AGENT_DEFS }));
+    res.end(JSON.stringify({ runtime: RUNTIME_IDENTITY, stats, agents, projects, active, agentsDef: AGENT_DEFS }));
     return;
   }
 
@@ -799,10 +1301,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const threadId = body && body.threadId;
       const deepLink = buildCodexDeepLink(threadId);
-      if (process.platform !== 'win32') throw new Error('当前本地 Agent 只支持 Windows Codex 深链');
-      spawn('cmd.exe', ['/c', 'start', '', deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+      // Codex 的 Windows Store/Electron 架构没有稳定可用的独立主窗口进程名：
+      // 不能用 guessed procName 阻塞 11 秒后再判定失败。协议本身会把目标
+      // thread 交给 Codex 单实例，接口只报告“已投递”，由系统负责拉起/切换。
+      await launchSchemeTargetPromise(deepLink);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, threadId }));
+      res.end(JSON.stringify({ ok: true, threadId, action: 'protocol-dispatched', windowVerified: null }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 Codex 会话' }));
@@ -819,12 +1323,14 @@ const server = http.createServer(async (req, res) => {
       const sessionId = String(body.sessionId || '');
       const deepLink = buildWorkBuddyDeepLink(sessionId);
       if (!store.getSession(`workbuddy:${sessionId}`)) throw new Error('WorkBuddy session 不存在');
-      if (process.platform !== 'win32') throw new Error('当前本地 WorkBuddy 跳转只支持 Windows');
-      spawn('cmd.exe', ['/c', 'start', '', deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-      // Shell 已把深链交给 WorkBuddy；这里仅补一次前台激活，不改变最大化状态。
-      setTimeout(() => focusWorkBuddyWindow(), 120);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, sessionId, deepLink }));
+      const result = await ensureAppThenDeepLink({
+        procName: AGENT_DEFS.workbuddy.proc,
+        launchExe: resolveAgentGuiExecutable('workbuddy'),
+        sendDeepLink: () => launchSchemeTargetPromise(deepLink),
+      });
+      const ok = result.windowVerified !== false;
+      res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, sessionId, deepLink, ...result, ...(ok ? {} : { error: 'WorkBuddy 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 WorkBuddy 会话' }));
@@ -842,12 +1348,18 @@ const server = http.createServer(async (req, res) => {
       const sessionId = String(body.sessionId || '');
       const deepLink = buildMarvisDeepLink(sessionId);
       if (!store.getSession(`marvis:${sessionId}`)) throw new Error('Marvis session 不存在');
-      if (process.platform !== 'win32') throw new Error('当前本地 Marvis 跳转只支持 Windows');
       const launcher = resolveMarvisLauncher();
+      const mainExe = resolveMarvisMain();
       if (!launcher || !fs.existsSync(launcher)) throw new Error('未找到 MarvisLauncher.exe');
-      spawn(launcher, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, sessionId, deepLink }));
+      if (!mainExe || !fs.existsSync(mainExe)) throw new Error('未找到 Marvis.exe 主程序');
+      const result = await ensureAppThenDeepLink({
+        procName: AGENT_DEFS.marvis.proc,
+        launchExe: mainExe,
+        sendDeepLink: () => launchDetachedTargetPromise(launcher, [deepLink]),
+      });
+      const ok = result.windowVerified !== false;
+      res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, sessionId, deepLink, ...result, ...(ok ? {} : { error: 'Marvis 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 Marvis 会话' }));
@@ -874,21 +1386,34 @@ const server = http.createServer(async (req, res) => {
       // Desktop-native 会话已经存在于 Claude Desktop 时，只做无副作用的进程探测，
       // 不再先调用通用前台激活器。前台切换统一交给 UIA 精确定位目标 session，
       // 避免通用 Focus + UIA 双重抢前台导致用户切换到其它程序后又被抢回 Claude。
-      const claudeAlreadyRunning = target.origin === 'desktop'
-        && process.platform === 'win32'
-        && isClaudeDesktopRunning();
-      if (!claudeAlreadyRunning) await launchClaudeDeepLink(target.deepLink);
+      const claudeWindowRunning = process.platform === 'win32' && isClaudeDesktopRunning();
+      const claudeAlreadyRunning = target.origin === 'desktop' && claudeWindowRunning;
+      if (!claudeAlreadyRunning) {
+        // Claude Desktop 的 WindowsApps 目录受保护，不能依赖目录枚举；
+        // resolver 会优先使用当前机器已验证的 claude.exe，再通过注册表解析新版本目录。
+        if (!claudeWindowRunning) {
+          const claudeDesktopExe = resolveClaudeDesktopExe();
+          if (claudeDesktopExe && fs.existsSync(claudeDesktopExe)) {
+            launchGuiViaShell(claudeDesktopExe);
+          }
+        }
+        await launchClaudeDeepLink(target.deepLink);
+      }
       if (target.desktopSessionId && process.platform === 'win32') {
         // UIA 只激活并选择目标 session 一次。冷启动要等 Desktop 窗口出现，
         // 已运行实例则立即执行；Desktop-native 失败时绝不改用 resume。
         if (target.origin === 'desktop') {
-          await new Promise((resolve) => setTimeout(resolve, claudeAlreadyRunning ? 0 : 900));
-          const result = await focusClaudeSessionWithUiAutomation(target);
-          console.log(`[open-claude-session] UIA fallback -> ${result.status}`);
-          if (result.status !== 'ok') {
-            throw new Error('Claude Desktop 未找到对应的 Code session 卡片，请先打开 Code 会话列表后重试');
-          }
+          setTimeout(() => {
+            focusClaudeSessionWithUiAutomation(target).then((result) => {
+              console.log(`[open-claude-session] UIA fallback -> ${result.status}`);
+            }).catch((error) => {
+              console.log(`[open-claude-session] UIA fallback failed -> ${error.message}`);
+            });
+          }, 0);
         } else {
+          // 导入的 CLI session 仍然先打开 Claude Desktop 的 resume 深链，
+          // 再异步用 UIA 定位对应 Code 卡片。session 按钮不能自动改开 CLI；
+          // CLI 恢复只允许用户从“更多”菜单显式选择。
           setTimeout(() => {
             focusClaudeSessionWithUiAutomation(target).then((result) => {
               console.log(`[open-claude-session] UIA fallback -> ${result.status}`);
@@ -913,6 +1438,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ZCode 跳转只负责在已运行的窗口中点击指定 session；找不到就结束本次脚本，
+  // 不启动 ZCode、不切换 workspace，也不做其它兜底动作。
+  if (pathname === '/api/open-zcode-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || '');
+      const session = store.getSession(`zcode:${sessionId}`);
+      if (!session) throw new Error('ZCode session 不存在');
+      const workspace = String(session.project || '').trim();
+      const focus = await focusZCodeSessionWithUiAutomation({ title: session.title, cwd: workspace });
+      const ok = focus.status === 'ok';
+      res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok, sessionId, workspace, status: focus.status,
+        ...(ok ? {} : { error: `ZCode 中未找到指定 session，脚本已结束（${focus.status}）` }),
+      }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '无法打开 ZCode 会话' }));
+    }
+    return;
+  }
+
   // 按 sessionId 打开已安装的 DeepSeek Harness Desktop。优先直接传参给
   // 已安装的 Electron 可执行文件：这样即使协议尚未被旧版本注册，也能
   // 由 Electron 的单实例 second-instance 接收 dshdesktop URI。
@@ -920,19 +1468,22 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const sessionId = String(body.sessionId || '');
-      const deepLink = buildDeepSeekDesktopDeepLink(sessionId);
-      const session = store.getSession(`deepseek:${sessionId}`);
+      const credentialRepair = repairCredentialsFile();
+      if (credentialRepair.error) throw new Error(`DeepSeek Desktop 凭据配置错误：${credentialRepair.error}`);
+      if (credentialRepair.repaired) console.warn(`[deepseek] 已迁移旧凭据格式，备份：${credentialRepair.backupPath}`);
+      const deepLink = sessionId ? buildDeepSeekDesktopDeepLink(sessionId) : '';
+      const session = sessionId ? store.getSession(`deepseek:${sessionId}`) : true;
       if (!session) throw new Error('DeepSeek session 不存在');
       const desktopExe = resolveDeepSeekDesktopExe();
-      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
-        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-      } else if (process.platform === 'darwin') {
-        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      } else {
-        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, sessionId }));
+      if (process.platform === 'win32' && !fs.existsSync(desktopExe)) throw new Error(`未找到 DeepSeek Desktop：${desktopExe}`);
+      const result = await ensureAppThenDeepLink({
+        procName: AGENT_DEFS.deepseek.proc,
+        launchExe: desktopExe,
+        sendDeepLink: sessionId ? () => launchDetachedTargetPromise(desktopExe, [deepLink]) : null,
+      });
+      const ok = result.windowVerified !== false;
+      res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, sessionId, ...result, ...(ok ? {} : { error: 'DeepSeek Desktop 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 DeepSeek Desktop 会话' }));
@@ -952,15 +1503,17 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Pi Agent session 不存在');
       }
       const desktopExe = resolvePiAgentDesktopExe();
-      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
-        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-      } else if (process.platform === 'darwin') {
-        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      } else {
-        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, sessionId }));
+      if (process.platform === 'win32' && !fs.existsSync(desktopExe)) throw new Error(`未找到 Pi Agent Desktop：${desktopExe}`);
+      const result = await ensureAppThenDeepLink({
+        procName: AGENT_DEFS.pi.proc,
+        launchExe: desktopExe,
+        sendDeepLink: () => process.platform === 'win32'
+          ? launchDetachedTargetPromise(desktopExe, [deepLink])
+          : launchSchemeTargetPromise(deepLink),
+      });
+      const ok = result.windowVerified !== false;
+      res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, sessionId, ...result, ...(ok ? {} : { error: 'Pi Agent Desktop 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 Pi Agent Desktop 会话' }));
@@ -978,18 +1531,17 @@ const server = http.createServer(async (req, res) => {
       const deepLink = buildHermesDesktopDeepLink(sessionId);
       if (!store.getSession(`hermes:${sessionId}`)) throw new Error('Hermes session 不存在');
       const desktopExe = resolveHermesDesktopExe();
-      if (process.platform === 'win32' && fs.existsSync(desktopExe)) {
-        spawn(desktopExe, [deepLink], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
-        // 深链会交给已运行的单实例，但 Windows 不保证它自动切到前台。
-        // 延迟激活并重试，兼容冷启动时主窗口句柄尚未创建的短暂阶段。
-        setTimeout(() => focusHermesWindow(), 150);
-      } else if (process.platform === 'darwin') {
-        spawn('open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      } else {
-        spawn('xdg-open', [deepLink], { detached: true, stdio: 'ignore' }).unref();
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, sessionId }));
+      if (process.platform === 'win32' && !fs.existsSync(desktopExe)) throw new Error(`未找到 Hermes Desktop：${desktopExe}`);
+      const result = await ensureAppThenDeepLink({
+        procName: AGENT_DEFS.hermes.proc,
+        launchExe: desktopExe,
+        sendDeepLink: () => process.platform === 'win32'
+          ? launchDetachedTargetPromise(desktopExe, [deepLink])
+          : launchSchemeTargetPromise(deepLink),
+      });
+      const ok = result.windowVerified !== false;
+      res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok, sessionId, ...result, ...(ok ? {} : { error: 'Hermes Desktop 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '无法打开 Hermes Desktop 会话' }));
@@ -1083,6 +1635,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // AI 监督器/自动托管的只读目标解析：只允许唯一、明确可控的主会话进入后续指令链路。
+  // 这里只做定位，不在本阶段发送指令；子代理、未知资格和多主会话都会返回阻断原因。
+  if (pathname === '/api/session-control-target' && req.method === 'GET') {
+    const result = store.resolveSessionControlTarget({
+      agent: url.searchParams.get('agent') || '',
+      project: url.searchParams.get('project') || '',
+      sessionRef: url.searchParams.get('sessionRef') || '',
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+
   // 会话详情
   if (pathname.startsWith('/api/session/')) {
     try {
@@ -1139,8 +1704,9 @@ const server = http.createServer(async (req, res) => {
       groups[id] = store.getSessions({ ...qBase, agent: id });
     }
     // defaultAgentIds：瀑布流默认视图只显示「探测为已安装」或「store 里有历史数据」的 agent 列；
-    // 复用探测缓存（不额外增加真实探测开销），只影响默认视图，不影响用户手动保存过的列设置
-    const probed = await getProbe();
+    // 探测包含多个同步版本命令，首次执行可能跨越数秒；看板首屏不能等待它。
+    // 没有缓存时先按已有数据返回，探测完成后由 SSE 触发一次轻量刷新。
+    const probed = probeCache.data || {};
     const defaultAgentIds = [...agentIds].filter((id) => (probed[id] && probed[id].installed) || agentsWithData.has(id));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     // liveRefs：当前实时活跃的 session ref 集合（getActive 按 10 分钟窗口），供前端渲染状态用
@@ -1149,6 +1715,11 @@ const server = http.createServer(async (req, res) => {
       liveRefs: store.getActive().map((a) => a.sessionRef),
       runtimeStatuses: store.getRuntimeStatuses(),
     }));
+    if (!probeCache.data && !probeInFlight) {
+      setImmediate(() => {
+        getProbe().then(() => sseBroadcast('probe', {})).catch(() => {});
+      });
+    }
     return;
   }
 
@@ -1167,6 +1738,9 @@ const server = http.createServer(async (req, res) => {
       const s = store.getSession(sid);
       if (!s) throw new Error('session 不存在');
       if (project && s.project !== project) throw new Error('project 与 session 不匹配');
+      if (process.platform !== 'win32') {
+        throw new Error('当前版本的 CLI 恢复终端仅支持 Windows；请直接打开对应项目目录和 Agent Desktop');
+      }
       // 构造 resume 命令
       let innerCmd;
       if (agent === 'claude') innerCmd = `claude --resume ${sessionId}`;
@@ -1175,11 +1749,9 @@ const server = http.createServer(async (req, res) => {
       const quotedPath = '"' + project.replace(/"/g, '') + '"';
       // 用 cmd /c start 开新窗口，/K 保持窗口；外层 cmd /c 启动后即退出
       const full = `start "Agent Board" cmd /K "cd /d ${quotedPath} && ${innerCmd}"`;
-      exec(full, { shell: 'cmd.exe', windowsHide: false }, (err) => {
-        if (err) console.error('[open-with] exec 失败:', err.message);
-      });
+      await execCommand(full, { shell: 'cmd.exe', windowsHide: false });
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, command: full }));
+      res.end(JSON.stringify({ ok: true, action: 'terminal-dispatched', command: full }));
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
@@ -1203,7 +1775,7 @@ const server = http.createServer(async (req, res) => {
         // 冷启动：进程不在，用 URL scheme 拉起（慢路径，罕见）
         if (result === 'NOT_RUNNING') {
           const scheme = SCHEME[agent];
-          if (scheme) exec(`start "" "${scheme}"`, { shell: 'cmd.exe', windowsHide: true }, () => {});
+          if (scheme) launchSchemeTarget(scheme, () => {});
         }
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1336,7 +1908,7 @@ const server = http.createServer(async (req, res) => {
         // 非破坏式全量重扫：只清理各数据源的读取偏移，保留旧卡片。
         // Marvis/其他 SQLite 数据源可能在 WAL 切换时暂时不可读，不能因一次重扫失败把看板清空。
         store.clearOffsets();
-        await scanAll();
+        await scanAll({ full: true });
         // 修复 custom-title 先创建导致 first_seen=0 的会话
         store.repairSessionTimestamps();
         store.repairUserQueries();
@@ -1353,12 +1925,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/agents/status') {
     try {
       const probed = await getProbe(url.searchParams.get('force') === '1');
-      const byId = Object.fromEntries(ADAPTERS.map((a) => [a.ID, a]));
+      const byId = Object.fromEntries(PROBE_ADAPTERS.map((a) => [a.ID, a]));
       const agents = {};
       for (const [id, r] of Object.entries(probed)) {
-        const meta = AGENT_DEFS[id] || {};
+        const target = byId[id] || {};
+        const meta = AGENT_DEFS[id] || target.meta || {};
+        const configured = detect.loadUserOverrides()[id] || {};
         // 应用管理只提供官方下载入口，不在 Agent Board 内执行第三方安装命令。
-        const def = (byId[id] && byId[id].detect) || {};
+        const def = target.detect || {};
         let install = null;
         if (def.install) {
           const download = (def.install.methods || []).find((method) => method.kind === 'download');
@@ -1370,6 +1944,15 @@ const server = http.createServer(async (req, res) => {
         agents[id] = {
           ...r,
           name: meta.name || id, icon: meta.icon || '', color: meta.color || '#888',
+          manualOverride: {
+            cli: Array.isArray(configured.cli) && configured.cli.length > 0,
+            desktop: Array.isArray(configured.desktop) && configured.desktop.length > 0,
+          },
+          manualPaths: {
+            cli: Array.isArray(configured.cli) ? configured.cli : [],
+            desktop: Array.isArray(configured.desktop) ? configured.desktop : [],
+          },
+          probeOnly: Boolean(target.probeOnly),
           install,
         };
       }
@@ -1382,10 +1965,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 应用管理：保存/清除某个 agent 的 CLI 或 Desktop 手动探测路径。
+  if (pathname.startsWith('/api/agents/') && pathname.endsWith('/override-path') && req.method === 'POST') {
+    const id = pathname.slice('/api/agents/'.length, -'/override-path'.length);
+    const adapter = PROBE_ADAPTERS.find((a) => a.ID === id);
+    if (!adapter || !adapter.detect) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未知 agent: ' + id }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const kind = body.kind === 'cli' ? 'cli' : 'desktop';
+      const target = typeof body.path === 'string'
+        ? body.path.trim().replace(/^"(.*)"$/, '$1').slice(0, 500)
+        : '';
+      if (target) {
+        if (!path.isAbsolute(target)) throw new Error('请填写绝对路径（例如 D:\\deepseek\\DSH Desktop\\DSH Desktop.exe）');
+        if (!/\.(exe|cmd|bat)$/i.test(target)) throw new Error('仅支持 .exe / .cmd / .bat 可执行文件');
+      }
+      const warning = target && !fs.existsSync(target)
+        ? '文件当前不存在，已保存；文件出现后重新探测才会显示为已安装'
+        : null;
+      const overrides = kind === 'cli'
+        ? detect.saveUserOverride(id, target)
+        : detect.saveDesktopUserOverride(id, target);
+      probeCache = { data: null, ts: 0 };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, agent: id, kind, path: target, warning, overrides }));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || '保存失败' }));
+    }
+    return;
+  }
+
   // 强制重新读取本机路径/卸载注册表，并把真实可执行文件路径保存到用户配置。
   if (pathname.startsWith('/api/agents/') && pathname.endsWith('/discover-path') && req.method === 'POST') {
     const id = pathname.slice('/api/agents/'.length, -'/discover-path'.length);
-    const adapter = ADAPTERS.find((a) => a.ID === id);
+    const adapter = PROBE_ADAPTERS.find((a) => a.ID === id);
     if (!adapter || !adapter.detect) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '未知 agent: ' + id }));
@@ -1393,11 +2011,33 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const probed = detect.probeAgent(adapter, { userOverrides: {} });
-      if (!probed.executablePath) throw new Error(`未找到 ${AGENT_DEFS[id]?.name || id} 的可执行文件，请先完成安装`);
-      const overrides = detect.saveUserOverride(id, probed.executablePath);
-      probeCache = { data: null, ts: 0 };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, agent: id, path: probed.executablePath, overrides }));
+      if (probed.executablePath) {
+        const kind = probed.tier === 'gui' ? 'desktop' : 'cli';
+        const overrides = kind === 'desktop'
+          ? detect.saveDesktopUserOverride(id, probed.executablePath)
+          : detect.saveUserOverride(id, probed.executablePath);
+        probeCache = { data: null, ts: 0 };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true, agent: id, kind, path: probed.executablePath,
+          status: 'auto-path-discovered', overrides,
+        }));
+        return;
+      }
+      if (probed.desktopExecutablePath) {
+        const overrides = launchLib.saveLaunchOverride(id, {
+          enabled: true,
+          target: probed.desktopExecutablePath,
+        });
+        probeCache = { data: null, ts: 0 };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true, agent: id, kind: 'desktop', path: probed.desktopExecutablePath,
+          status: 'auto-path-discovered', overrides,
+        }));
+        return;
+      }
+      throw new Error(`未找到 ${AGENT_DEFS[id]?.name || id} 的 CLI 或 Desktop 可执行文件，请先完成安装`);
     } catch (e) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message || '未找到可执行文件' }));
@@ -1408,7 +2048,7 @@ const server = http.createServer(async (req, res) => {
   // 保留旧 API 路径，但行为改为只返回官方下载链接，不再执行 npm/winget/脚本。
   if (pathname.startsWith('/api/agents/') && pathname.endsWith('/install') && req.method === 'POST') {
     const id = pathname.slice('/api/agents/'.length, -'/install'.length);
-    const adapter = ADAPTERS.find((a) => a.ID === id);
+    const adapter = PROBE_ADAPTERS.find((a) => a.ID === id);
     if (!adapter || !adapter.detect) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '未知 agent: ' + id }));
@@ -1431,28 +2071,40 @@ const server = http.createServer(async (req, res) => {
     serveStatic(req, res, pathname);
     return;
   }
-  res.writeHead(405); res.end();
+  res.writeHead(405, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Method Not Allowed' }));
 });
 
-server.listen(PORT, '127.0.0.1', async () => {
+async function runStartupTasks() {
+  try {
+    await scanAll();
+    // 让首轮扫描完成后的 HTTP 请求先被处理，再执行兼容性维护任务。
+    await new Promise((resolve) => setImmediate(resolve));
+    codex.reconcileRecentCompletions(store);
+    await new Promise((resolve) => setImmediate(resolve));
+    // 兼容旧版本曾把 Codex 误判为进程退出而留下的停止标记；现在 Codex 以日志为准。
+    store.setAgentStopped('codex', false, Date.now());
+    // 修复存量数据里的 futCache：adapter 增/改了 system context 过滤规则后，旧入库的"系统注入"
+    // 消息仍占着 userMsgFlag / futCache 首位，导致 board title 取到错误内容。
+    store.repairUserQueries();
+    // 服务停机期间已停笔的桌面会话：启动即判一次，无需等首个 20s 定时器
+    try {
+      workbuddy.checkDesktopIdle(store);
+      deepseek.checkDesktopIdle(store);
+    } catch { /* ignore */ }
+  } catch (error) {
+    console.error('[startup] 后台初始化失败:', error.message);
+  }
+}
+
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`┌──────────────────────────────────────────────┐`);
   console.log(`│  Agent Board · AI Agent 会话看板             │`);
   console.log(`│  打开: http://127.0.0.1:${PORT}                │`);
   console.log(`└──────────────────────────────────────────────┘`);
   ensureFocusDll().then(() => { initFocusPs(); console.log('[focus] 窗口激活进程就绪'); });
-  await scanAll();
-  codex.reconcileRecentCompletions(store);
-  // 兼容旧版本曾把 Codex 误判为进程退出而留下的停止标记；现在 Codex 以日志为准。
-  store.setAgentStopped('codex', false, Date.now());
-  // 修复存量数据里的 futCache：adapter 增/改了 system context 过滤规则后，旧入库的"系统注入"
-  // 消息仍占着 userMsgFlag / futCache 首位，导致 board title 取到错误内容。重启时显式按
-  // 当前 extractUserQuery 重算每会话首条真实用户输入。
-  store.repairUserQueries();
-  // 服务停机期间已停笔的桌面会话：启动即判一次，无需等首个 20s 定时器
-  try {
-    workbuddy.checkDesktopIdle(store);
-    deepseek.checkDesktopIdle(store);
-  } catch { /* ignore */ }
   startWatchers();
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
+  // 先让后端可用，再后台扫描/维护；前端可以立即加载已有快照。
+  setImmediate(() => { runStartupTasks(); });
 });

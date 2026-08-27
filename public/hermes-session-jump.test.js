@@ -23,7 +23,7 @@ test('后端 Hermes 跳转接口只接受 sessionId 并构造 hermes 深链', ()
 test('Hermes 顶栏启动不依赖未注册的 hermes 协议', () => {
   assert.match(
     server,
-    /if \(agent === 'hermes'\)[\s\S]*?resolveHermesDesktopExe\(\)[\s\S]*?spawn\(desktopExe, \[\],/
+    /if \(agent === 'hermes'\)[\s\S]*?resolveHermesDesktopExe\(\)[\s\S]*?launchGuiViaShell\(desktopExe\)/
   );
 });
 
@@ -34,7 +34,8 @@ test('Hermes 跳转优先使用支持单实例的本地桌面构建', () => {
 });
 
 test('Hermes session 跳转后激活 Hermes 主窗口', () => {
+  assert.match(server, /hermes:[\s\S]*proc: 'Hermes'/, 'Hermes 必须使用实际桌面进程名，而不是 CLI 名');
   assert.match(server, /function focusHermesWindow\(attempt = 0\)/);
   assert.match(server, /function focusHermesWindow\(attempt = 0\)[\s\S]*?focusAppCall\('Hermes'/);
-  assert.match(server, /\/api\/open-hermes-session[\s\S]*?focusHermesWindow\(\)/);
+  assert.match(server, /\/api\/open-hermes-session[\s\S]*?ensureAppThenDeepLink\([\s\S]*?focusAppCall/);
 });

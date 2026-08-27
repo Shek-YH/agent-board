@@ -19,7 +19,9 @@ test('后端 Marvis 跳转接口构造 conversation share 深链并校验存储�
   assert.match(server, /\/api\/open-marvis-session/);
   assert.match(server, /buildMarvisDeepLink\(sessionId\)/);
   assert.match(server, /store\.getSession\(`marvis:\$\{sessionId\}`\)/);
-  assert.match(server, /spawn\(launcher, \[deepLink\]/);
+  assert.match(server, /resolveMarvisMain\(\)/);
+  assert.match(server, /ensureAppThenDeepLink/);
+  assert.match(server, /launchDetachedTargetPromise\(launcher, \[deepLink\]\)/);
 });
 
 test('Marvis session 跳转不再退回通用启动应用分支', () => {

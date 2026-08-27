@@ -7,7 +7,8 @@
     "start": "node server.js",
     "test": "node --test",
     "desktop:dev": "electron .",
-    "desktop:dist": "electron-builder --win nsis",
+    "desktop:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1",
+    "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
     "desktop:verify": "node tools/verify-package.js dist/win-unpacked"
   },
   "license": "UNLICENSED",
@@ -25,6 +26,7 @@
     },
     "files": [
       "desktop/**/*",
+      "lib/runtime-paths.js",
       "package.json",
       "LICENSE"
     ],

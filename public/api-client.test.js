@@ -1,0 +1,35 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { requestJson } = require('./api-client');
+
+function response(status, body, statusText = '') {
+  return { status, statusText, ok: status >= 200 && status < 300, text: async () => typeof body === 'string' ? body : JSON.stringify(body) };
+}
+
+test('requestJson 返回成功 JSON', async () => {
+  const data = await requestJson('/api/state', { fetchImpl: async () => response(200, { ok: true }) });
+  assert.deepEqual(data, { ok: true });
+});
+
+test('requestJson 把非 2xx 的服务端错误传给调用方', async () => {
+  await assert.rejects(
+    requestJson('/api/open-with', { fetchImpl: async () => response(400, { error: 'session 不存在' }) }),
+    /session 不存在/,
+  );
+});
+
+test('requestJson 可保留业务失败响应供调用方执行恢复逻辑', async () => {
+  const data = await requestJson('/api/launch-agent', {
+    allowFailure: true,
+    fetchImpl: async () => response(200, { ok: false, recovery: { autoConfigureAvailable: true } }),
+  });
+  assert.equal(data.ok, false);
+  assert.equal(data.recovery.autoConfigureAvailable, true);
+});
+
+test('requestJson 拒绝空响应和非法 JSON', async () => {
+  await assert.rejects(requestJson('/api/state', { fetchImpl: async () => response(200, '') }), /没有返回 JSON/);
+  await assert.rejects(requestJson('/api/state', { fetchImpl: async () => response(200, 'not-json') }), /不是有效 JSON/);
+});

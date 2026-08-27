@@ -24,6 +24,9 @@
 - **应用管理**：实时探测 Agent 安装状态；每个 Agent 都可以自动配置真实可执行文件路径，未安装时点击“打开下载页”跳转到官方下载入口；内置 Agent Board 安装 Skill，可让 AI 先询问安装范围后协助下载和安装
 - **瀑布流列联动**：首页默认只显示"已安装或有历史会话数据"的 Agent 列，用户手动配置过的列设置不受影响
 - **用户路径覆盖**：`~/.agent-board/tool-paths.json` 可手动指定某个命令行工具的真实安装路径，用于覆盖非标准安装位置探测不到的情况
+- **运行时诊断身份**：`/api/state` 额外返回 server 启动时冻结的 `runtime` 身份（项目根目录、入口、Node、PID、启动时间和 `server.js` SHA-256），用于区分当前源码服务与旧目录常驻进程
+- **健康诊断**：`/api/health` 返回当前运行实例、采集器目录是否存在、最近扫描/监听时间和错误摘要，不返回会话正文
+- **可靠重扫**：顶栏重扫会真正扫描全部历史文件，不受首次启动的 30 天窗口限制；文件监听之外还有定时快照校准，目录晚创建、文件替换、删除和 WAL 重建都能被补偿
 
 ## 快速开始
 
@@ -33,7 +36,9 @@ node server.js
 
 或双击 `start.bat`（Windows）/ 运行 `start.sh`（macOS/Linux）。启动后浏览器打开 `http://127.0.0.1:4876`。
 
-开机自启/常驻后台：`agent-board-watchdog.js`（配合 `agent-board-watchdog.bat`/`.vbs`）每 30 秒检测一次服务是否存活，挂了自动拉起。
+Windows `start.bat` 优先使用项目内置的 `runtime\\node.exe`，仅在该文件不存在时回退到 PATH 中的 Node.js。正式跨电脑使用推荐 Windows 安装包；源码启动只适合开发/诊断场景。
+
+Windows 开机自启/常驻后台可使用 `agent-board-watchdog.js`（配合 `agent-board-watchdog.bat`/`.vbs`）。watchdog 会先读取运行 marker，识别 Electron 当前实际端口；不要同时启动 Electron、`start.bat` 和多个 watchdog 实例。
 
 ## 开发态运行
 
@@ -48,16 +53,14 @@ Electron 会使用内置的本地 Node 进程启动后端，后端只监听 `127
 
 ## 构建 Windows 安装包
 
-在 Windows 开发机上准备固定版本的 Node 运行时和窗口聚焦 DLL，然后构建未签名的单用户 NSIS 安装包：
+在 Windows 开发机或 CI 上构建未签名的单用户 NSIS 安装包。`desktop:dist` 会先校验固定版本的 Node 运行时和构建窗口聚焦 DLL，再执行打包。runtime 优先取项目内的 `runtime\\node.exe`，也可通过 `AGENT_BOARD_NODE_SOURCE` 或 `-Source` 指定，不再依赖某台电脑的 WorkBuddy 私有目录：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1
 npm run desktop:dist
 npm run desktop:verify
 ```
 
-产物位于 `dist/Agent Board Setup 0.2.0.exe`。首版安装包面向 Windows x64 普通用户，不要求管理员权限；当前未启用自动更新，正式公开分发前还需要配置代码签名。
+产物位于 `dist/Agent Board Setup 0.2.0.exe`。首版安装包面向 Windows x64 普通用户，不要求管理员权限；当前未启用自动更新，正式公开分发前还需要配置代码签名。构建完成后必须运行 `npm run desktop:verify`，它会检查资源完整性、runtime 大小和机器绝对路径泄漏。
 
 ## 普通用户安装
 

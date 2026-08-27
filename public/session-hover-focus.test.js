@@ -11,9 +11,11 @@ const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 test('会话卡悬停时聚焦列，列内间隙保持展开，离列后恢复等宽布局', () => {
   assert.match(app, /function setHoveredColumn\(key\)/);
   assert.match(app, /function clearHoveredColumn\(\)/);
-  assert.match(app, /card\.addEventListener\('mouseenter', \(\) => setHoveredColumn\(colKey\)\)/);
+  assert.match(app, /col\.addEventListener\('mouseenter', \(\) => setHoveredColumn\(key\)\)/);
   assert.match(app, /col\.addEventListener\('mouseleave', \(\) => clearHoveredColumn\(\)\);/);
+  assert.doesNotMatch(app, /card\.addEventListener\('mouseenter'/);
   assert.doesNotMatch(app, /card\.addEventListener\('mouseleave'/);
+  assert.match(app, /if \(board\.dataset\.hoveredCol === key\) return;/);
   assert.doesNotMatch(app, /function toggleFocus\(/);
  assert.match(html, /\.board\{[^}]*transition:grid-template-columns \.2s ease[^}]*\}/);
  });

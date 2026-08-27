@@ -20,6 +20,14 @@ test('模型端口设置加载自动目标并提供两个互斥切换按钮', ()
   assert.match(app, /lo-manual-enabled/);
 });
 
+test('模型端口自动识别不会因空响应或非 JSON 响应遮蔽真实错误', () => {
+  assert.match(app, /async function readJsonResponse/);
+  assert.match(app, /response\.text\(\)/);
+  assert.match(app, /readJsonResponse\(r\)/);
+  assert.match(app, /服务端没有返回 JSON/);
+  assert.match(app, /HTTP \$\{response\.status\}/);
+});
+
 test('模型端口设置包含窄屏可滚动卡片样式', () => {
   assert.match(html, /lo-agent-row/);
   assert.match(html, /lo-manual-block/);

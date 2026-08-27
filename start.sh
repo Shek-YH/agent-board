@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-cd "$(dirname "$0")"
+set -e
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 echo "正在启动 Agent Board..."
 echo "启动后请在浏览器打开: http://127.0.0.1:4876"
 echo
-if command -v node >/dev/null 2>&1; then
-  node server.js
+NODE_EXE="$SCRIPT_DIR/runtime/node"
+if [ ! -x "$NODE_EXE" ]; then
+  NODE_EXE="$(command -v node || true)"
+fi
+if [ -n "$NODE_EXE" ]; then
+  exec "$NODE_EXE" "$SCRIPT_DIR/server.js"
 else
-  "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2/node.exe" server.js
+  echo "未找到 Node.js，请先安装 Node.js 22+ 或将 node 加入 PATH。" >&2
+  exit 1
 fi

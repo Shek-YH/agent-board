@@ -50,6 +50,12 @@ function isLocalUrl(url) {
   return Boolean(localUrl) && (url === localUrl || url.startsWith(localUrl + '/'));
 }
 
+function openExternalSafely(url) {
+  Promise.resolve(shell.openExternal(url)).catch((error) => {
+    writeDesktopLog(`外部链接打开失败：${url}：${error.message}`);
+  });
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -66,13 +72,13 @@ function createMainWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isLocalUrl(url)) shell.openExternal(url);
+    if (!isLocalUrl(url)) openExternalSafely(url);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isLocalUrl(url)) {
       event.preventDefault();
-      shell.openExternal(url);
+      openExternalSafely(url);
     }
   });
   mainWindow.once('ready-to-show', () => showMainWindow());
@@ -109,7 +115,16 @@ async function startBackendProcess() {
   backend.child.stdout.on('data', chunk => writeDesktopLog(chunk.toString()));
   backend.child.stderr.on('data', chunk => writeDesktopLog(chunk.toString()));
   backend.child.once('error', error => writeDesktopLog(`后端进程错误：${error.message}`));
-  const ready = await waitForBackend(backendContext.port, { timeoutMs: 20000 });
+  const ready = await waitForBackend(backendContext.port, {
+    timeoutMs: 20000,
+    child: backend.child,
+    expectedRuntime: {
+      serverEntry: path.resolve(backendContext.backendEntry),
+      serverRoot: path.dirname(path.resolve(backendContext.backendEntry)),
+      port: backendContext.port,
+      runtimeMode: 'desktop',
+    },
+  });
   if (!ready) throw new Error(`Agent Board 后端启动超时：${backendContext.backendEntry}`);
 }
 

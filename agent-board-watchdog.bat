@@ -1,4 +1,9 @@
 @echo off
+setlocal
 title Agent Board 守护进程
-cd /d "C:\Users\Administrator\WorkBuddy\2026-08-20-03-52-10\agent-board"
-node agent-board-watchdog.js
+cd /d "%~dp0"
+if exist "%~dp0runtime\node.exe" (
+  "%~dp0runtime\node.exe" "%~dp0agent-board-watchdog.js"
+) else (
+  node "%~dp0agent-board-watchdog.js"
+)

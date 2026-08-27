@@ -1,0 +1,173 @@
+{
+  "skill_name": "agent-board-new-machine-path-setup",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我把 Agent Board 源码复制到一台新 Windows 电脑后，页面打不开。请先不要修改代码，检查项目路径、Node 路径、端口、数据目录和看门狗配置，并输出一份路径校准报告。",
+      "expected_output": "只读审计；识别项目根目录和运行时；检查硬编码旧路径；检查端口、数据目录、日志和看门狗；输出 PASS/PASS_WITH_WARNINGS/BLOCKED 报告。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Agent Board 能打开，但 Codex 和 Pi 明明已安装，应用管理却显示未安装。请确认它们的真实可执行文件和版本，只修正用户路径覆盖，不要修改系统 PATH。",
+      "expected_output": "逐个确认命令、shim、真实文件和版本；修改前征求确认；只更新 tool-paths.json 或 discover-path；重新探测并报告结果。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "请把 B 电脑的 Agent Board 环境和 A 电脑正常环境做对比，找出为什么 B 的看门狗一直拉不起服务。不要上传会话内容或凭据。",
+      "expected_output": "生成脱敏环境差异；重点检查 Node、项目根目录、端口、数据目录、看门狗路径和日志；区分事实、推断和根因。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "B 电脑上 Codex CLI 安装在 %LOCALAPPDATA%\\OpenAI\\Codex\\bin\\d7e8094cfb76a267\\codex.exe，Claude Desktop 和 DSH Desktop 也已安装，但 Agent Board 只探测 CLI。请区分可直接写入 tool-paths.json 的路径、只应报告的变体，以及需要改源码的 portability gap。",
+      "expected_output": "Codex 解析为具体可验证 CLI 路径并在确认后可写 override；Claude Desktop/DSH Desktop 标为 variant-installed-not-supported，不冒充 CLI；启动脚本硬编码路径列为 SOURCE_PORTABILITY_FIX_REQUIRED。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "诊断报告显示服务 /api/state 正常，但 node --test 有 4 个测试因为 DSH Desktop 安装目录和构建 hash 变化而失败，同时数据目录只有元数据没有 user/assistant 消息。请分别判断运行时状态、测试缺陷和数据源状态。",
+      "expected_output": "分开报告 runtime PASS、测试 SOURCE_PORTABILITY_FIX_REQUIRED、数据源 data-source-present-no-messages，不把三者混成一个安装失败。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "B 电脑能用具体绝对路径执行 codex.exe --version，但 Agent Board 的 /api/agents/status?force=1 中 codex.version 为空，source=override 且 installed=true。请判断是否已经验证成功，并给出下一步源码排查方向。",
+      "expected_output": "不能把独立命令成功当成 Agent Board 已验证；应标记 installed-but-version-check-failed，定位到 Windows .exe/.cmd 具体路径版本校验链，并要求同时验证 API 返回的 version 字段。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "B 电脑的 DSH Desktop 同时存在 electron-runtime.js 和旧的 electron-runtime-abc123.js，测试偶发匹配旧文件而失败。请在不硬编码构建 hash 的前提下给出环境测试校准方法。",
+      "expected_output": "只匹配允许的 electron-runtime.js 或 electron-runtime-<hash>.js，按修改时间选择最新文件；不存在时跳过并说明 environment-test-skipped；文件存在但缺少 Agent Board 补丁时标记 installed-but-unpatched 或 environment-test-skipped，不把原版 DSH Desktop 误报为 Agent Board 运行失败。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "B 电脑运行 node --test 全部通过，但审计发现 start.sh fallback 写死了另一台电脑的 C:/Users/.../.workbuddy/.../node.exe。请判断这是不是 Windows 当前故障，并给出源码 portability 修复和验证方式。",
+      "expected_output": "明确这是 SOURCE_PORTABILITY_FIX_REQUIRED；start.sh 应使用 command -v node 或项目自身 POSIX runtime，找不到时提示安装/配置 Node 并退出，不应写死 Windows 用户路径；Windows 运行正常不能掩盖跨平台脚本缺陷。",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "B 电脑的 /api/state 返回 200，但这个 server 进程是在复制最新源码之前启动的，因此 Codex version 仍为空、DeepSeek 仍未探测到。请判断验证是否有效，并给出安全的处理顺序。",
+      "expected_output": "标记 stale-server-process；先记录并确认 PID/命令行/工作目录/runtime，再按 PID 精确重启 Agent Board 自己的旧 server，重启后重新验证 API 和版本字段；不能因为端口正常就跳过重启，也不能 taskkill /IM node.exe。",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "新版 /api/state 返回了 runtime：serverRoot 指向 AgentBoard1.4lite、serverEntrySha256 与当前 server.js 不同、pid 也正好是 4876 监听进程。B 电脑当前源码在 AgentBoard1.5lite。请判断这份 API 是否来自最新源码，并给出 machine-repair 的验证顺序。",
+      "expected_output": "标记 runtime-identity-mismatch 和 stale-server-process；把 runtime 当作启动时快照，先保存 PID/命令行/工作目录/旧日志，再按 PID 精确重启到 1.5lite，重启后确认 runtime.serverRoot、serverEntry、nodeRuntime、pid、hash 和版本 API 全部对应当前源码。",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "A 电脑要把 Agent Board 复制到 B 电脑，git commit 相同，但 A 工作树有 18 个修改文件和 5 个未跟踪文件，B 只拿到了一个旧 zip。请判断能不能据此宣称 A/B 源码一致，并设计最小的 source-manifest 记录内容。",
+      "expected_output": "不能只看 commit；标记 source-snapshot-unreproducible，要求先提交或生成 source-manifest.json，记录 commit、workingTreeModified、tracked diff hash、未跟踪文件及 hash、生成时间和项目根目录；验证结果只能是 PASS_WITH_WARNINGS，直到快照可复现。",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "B 电脑的项目放在 D:\\BaiduNetdiskDownload\\AgentBoard1.5lite\\agent-board，服务和 node --test 都通过。请判断这个结果是否可以直接作为长期稳定安装，并说明是否应该让 Skill 自动搬家。",
+      "expected_output": "标记 unstable-project-root；当前可运行但 overall 至少 PASS_WITH_WARNINGS；不自动移动正在运行的项目，建议迁移到稳定本地目录后用已验证源码快照重新部署，并重新确认启动项、watchdog、PID 和 runtime 身份。",
+      "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "B 电脑刚重装系统，但用户把旧的 %LOCALAPPDATA%\\AgentBoard、%USERPROFILE%\\.agent-board、旧快捷方式和多个 AgentBoard*.zip 一起复制回来了。当前服务和测试都通过。请判断这是不是全新环境验证，并说明报告应记录什么。",
+      "expected_output": "标记 contaminated-test-environment；不能称为全新环境通过；记录 freshOsOrUserProfile、旧 data/config、旧启动项、旧项目目录、sourceTransferMode 和 contaminationStatus，并区分当前可运行与干净环境未完成；不删除用户数据。",
+      "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "重装后的 B 电脑没有安装 Node.js，项目目录里有 runtime\\node.exe。双击 start.bat 后必须能启动 Agent Board；如果 runtime 缺失才允许回退 PATH，并在两者都没有时给出明确错误。请检查启动脚本和验证方法。",
+      "expected_output": "start.bat 使用 %~dp0runtime\\node.exe 优先，缺失时检查 where node，两个都不存在时输出可读错误并退出；不能硬编码 A 电脑路径；验证 start.bat 文本、server runtime.nodeRuntime 和 /api/state。",
+      "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "用户点击 Agent Board 空列里的“打开 Agent”按钮，页面提示已启动，但目标 Agent 实际没有窗口。请诊断启动链，确认是否只是 spawn 成功，并在发现真实 executablePath 时给出自动配置路径和最多一次重试方案。",
+      "expected_output": "报告必须区分启动请求发送与真实窗口/进程验证；失败时返回 launch-not-verified、真实路径/变体信息和应用管理修复指引，不能伪报成功。",
+      "files": []
+    },
+    {
+      "id": 16,
+      "prompt": "B 电脑安装了 Claude Desktop，但没有 Claude Code CLI；用户点击 Claude 启动按钮没有打开。请判断 CLI/Desktop 变体并给出不混淆变体的修复建议。",
+      "expected_output": "报告 variant-installed-not-supported 或对应变体状态，说明 CLI 与 Desktop 的差异，并建议应用管理路径配置或安装正确变体。",
+      "files": []
+    },
+    {
+      "id": 17,
+      "prompt": "B 电脑上 WorkBuddy 和 Marvis 已安装，但点击 session 卡片的跳转按钮时，应用没启动或只启动了后台服务。请直接按当前电脑真实安装路径修复：未启动先打开主窗口，窗口确认后再发 session 深链；已启动则直接跳转。不要把 MarvisLauncher.exe 当成主程序，也不要要求我逐条确认普通用户级配置。",
+      "expected_output": "自动进入 machine-repair；探测真实 exe 和主窗口；Marvis 使用 Marvis.exe 启动、MarvisLauncher.exe 只发送深链；清理 Electron 宿主环境变量；返回 running/launched/windowVerified 和脱敏报告；对未安装 Agent 标记 environment-test-skipped。",
+      "files": []
+    },
+    {
+      "id": 18,
+      "prompt": "ZCode 安装在 D:\\Program Files\\zcode\\ZCode.exe，应用管理显示已安装但 executablePath 为空；Marvis 安装在非系统盘，启动器无参数只留下 MarvisSvr。请修复 adapter、启动脚本和 session 跳转链，并用测试和真实 API 验证。",
+      "expected_output": "使用当前电脑实际路径解析，不只依赖 C 盘；ZCode 的探测和启动脚本能命中 D 盘；Marvis 解析并启动主程序；session 路由先确认窗口再深链；node --test 与 API 验证通过。",
+      "files": []
+    },
+    {
+      "id": 19,
+      "prompt": "这台 macOS 电脑以前用过 Agent Board，~/Library/Application Support/AgentBoard 里有旧数据，~/Library/LaunchAgents 里还有指向旧项目的 watchdog。现在我复制了最新源码，要求初始化后正常使用，但不要删除历史数据或擅自改 LaunchAgent。请完成非干净环境校准。",
+      "expected_output": "识别 darwin；备份并复用/迁移有效配置；区分旧数据、旧 LaunchAgent 和当前 server；不执行 Windows 命令；只做用户级配置修复；报告 contaminationStatus、stale-server-process 和 LaunchAgent 风险。",
+      "files": []
+    },
+    {
+      "id": 20,
+      "prompt": "macOS 上 Claude Desktop、WorkBuddy 和 ZCode 已安装，但它们分别位于 /Applications、~/Applications 和 Homebrew/用户目录。点击 session 卡片时软件有时启动但窗口没有被激活。请根据实际安装位置修复并验证 open、osascript、主窗口和深链，不要使用 PowerShell 或注册表。",
+      "expected_output": "使用 macOS 应用包和 CLI 探测；启动使用 open；窗口使用 osascript/System Events；先确认主窗口再发深链；辅助功能权限不足时标记 window-focus-permission-required，不伪报成功。",
+      "files": []
+    },
+    {
+      "id": 21,
+      "prompt": "同一份 Agent Board 源码要同时支持 Windows 和 macOS。请检查是否存在 C:\\Users、AppData、cmd.exe、.bat、注册表或 Win32 聚焦逻辑污染 macOS，并给出最小源码和 Skill 适配方案。",
+      "expected_output": "按 process.platform 分流；通用规则与 Windows/macOS 专项规则分离；macOS 使用 Library/Application Support、.app、open、osascript、LaunchAgent；Windows 保留 PowerShell/注册表/.exe；不把一套平台路径复制到另一平台。",
+      "files": []
+    },
+    {
+      "id": 22,
+      "prompt": "macOS 没有安装 Marvis，但其他 Agent Board 功能可用。请初始化所有已安装 Agent，并说明 Marvis 为什么不能被自动配置，不能为了让结果全绿而使用 Windows Marvis 路径。",
+      "expected_output": "已安装 Agent 继续探测、配置和验证；Marvis 标记 unsupported-platform 或 not-installed；不写 Windows 路径；整体根据实际验证结果返回 PASS_WITH_WARNINGS，而不是伪造 PASS。",
+      "files": []
+    },
+    {
+      "id": 23,
+      "prompt": "Windows 上用户提供了一个 session 卡片绝对 XPath，点击后没有切到 Agent 前台。请检查这个 XPath 是否因为“已读”按钮动态插入而指向了错误按钮，并用真实页面点击、接口响应、前台窗口进程和目标 session ID 完成验证。",
+      "expected_output": "先定位 XPath 实际命中的 class/data-action 和 Agent/session；普通 session 卡片第一个 button 为更多、第二个为跳转；已完成/刚完成卡片则是更多、已读、跳转，第三个 button 才是跳转；点击必须验证 API、目标进程 MainWindowHandle 和 GetForegroundWindow，不能只看 HTTP 200。",
+      "files": []
+    },
+    {
+      "id": 24,
+      "prompt": "Windows 上点击 Pi 列 session 卡片的第二个 button 后，Pi Desktop 已经启动但没有切到前台，接口返回 windowVerified=false。Get-Process 发现实际进程是 pi-agent-desktop.exe，而源码或配置使用了 pi。请定位并修复进程名映射，再验证对应 session 的深链、窗口句柄和前台进程。",
+      "expected_output": "区分 Pi CLI 命令 pi 与 Pi Desktop 实际进程 pi-agent-desktop；修复 Windows Agent 定义的前台进程名；验证 session 卡片第二个 button 仍是跳转按钮、接口 sessionId 正确、windowVerified=true 且 GetForegroundWindow 属于 pi-agent-desktop；不得把启动请求成功当成前台成功。",
+      "files": []
+    },
+    {
+      "id": 25,
+      "prompt": "Windows 上 Hermes.exe 已经有可见窗口，但点击 Hermes session 卡片后接口等待很久并返回 windowVerified=false；源码使用了 hermes-agent 作为进程名。请区分 CLI/安装目录名和真实桌面进程名，修复后验证深链、窗口句柄、GetForegroundWindow 和接口耗时。",
+      "expected_output": "将 Hermes Desktop 前台检测改为实际 ProcessName Hermes，而不是 hermes-agent；已运行时不走错误冷启动等待，session 深链仍只发送一次；验证 windowVerified=true、前台进程为 Hermes、窗口标题正确，并记录旧进程名配置是根因。",
+      "files": []
+    },
+    {
+      "id": 26,
+      "prompt": "Windows 上 Codex session 点击跳转要等待约 11 秒并返回 502，因为源码先按 Codex 进程名等待可见窗口。请修复协议原生跳转链，不要把不存在或不稳定的主窗口进程名当成失败证据。",
+      "expected_output": "恢复 Codex 固定 threadId 深链的快速协议投递；删除 isAppWindowVisible/waitForAppWindow/额外 2 秒等待；接口返回 action=protocol-dispatched、windowVerified=null，并用测试确认耗时不再被错误窗口探测拖慢。",
+      "files": []
+    },
+    {
+      "id": 27,
+      "prompt": "Windows 上 Claude Code session 接口返回 200，但后台 UIA 最终 not_found，Claude.exe 只有后台进程没有可见主窗口。请修复为可诊断且可恢复的行为，同时避免 resume 深链附带 cwd 导致部分版本拒绝。",
+      "expected_output": "Claude resume 深链只保留经过编码的 session 参数；session 按钮必须打开 Claude Desktop 并异步尝试 UIA 定位目标 Code 会话；UIA not_found 只能记录并提示 Desktop 未定位，不能自动调用 claude --resume。CLI 恢复只允许用户从更多菜单显式选择。",
+      "files": []
+    },
+    {
+      "id": 28,
+      "prompt": "Windows 上 ZCode session 卡片的跳转按钮请求只启动了 ZCode，但没有切到对应任务；ZCode Desktop 支持 --open-workspace，却没有 session 深链，部分 session 只存在 CLI 数据库中。请按实际安装能力修复并验证。",
+      "expected_output": "前端 zcode session 跳转必须调用专用 API 并携带 sessionId；后端按 session 的项目路径先启动/投递 ZCode workspace，再用 UI Automation 按任务标题定位并真实点击唯一任务项；不能把 ZCode.exe --resume 当作 Desktop 跳转；任务不存在或同名多项必须返回可诊断失败；同时验证真实 ZCode 主窗口、接口响应和目标任务标题。",
+      "files": []
+    }
+  ]
+}

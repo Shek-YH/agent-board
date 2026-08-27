@@ -1,14 +1,14 @@
 'use strict';
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
-const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand';
+const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand-v2';
 
 function loadAutoExpand() {
   try {
     const value = localStorage.getItem(AUTO_EXPAND_STORAGE_KEY);
-    return value === null ? true : value === '1';
+    return value === null ? false : value === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -64,6 +64,24 @@ function effectiveCols() {
 }
 
 const $ = (id) => document.getElementById(id);
+const requestJson = window.AgentBoardApi.requestJson;
+
+// 兼容少数允许空 204/200 响应的旧接口；新接口统一走 requestJson。
+async function readJsonResponse(response) {
+  const raw = await response.text();
+  if (!raw.trim()) throw new Error(`HTTP ${response.status}：服务端没有返回 JSON`);
+  try { return JSON.parse(raw); } catch { throw new Error(`HTTP ${response.status}：服务端返回的不是有效 JSON`); }
+}
+async function readApiResponse(response) {
+  const body = await response.text();
+  if (!body.trim()) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return null;
+  }
+  const data = await readJsonResponse(new Response(body, { status: response.status, statusText: response.statusText }));
+  if (!response.ok || data.error) throw new Error(data.error || ('HTTP ' + response.status));
+  return data;
+}
 // HTML 转义：卡片/标题/消息文本含引号、尖括号时防止破坏 DOM 结构（Marvis 定时任务标题等）
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;')
@@ -71,6 +89,7 @@ const esc = (s) => String(s == null ? '' : s)
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
+
 // 精简标题：取文本清理后的前 N 字（抽屉锚点用）
 function smartTitle(text, max = 40) {
   const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
@@ -124,15 +143,39 @@ function fmtDayFull(ts) {
 }
 
 /* ---------- 数据加载 ---------- */
+function setRuntimeHealth(text, state = '') {
+  const el = $('runtime-health');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `runtime-health ${state}`.trim();
+}
+
+async function loadHealth() {
+  try {
+    const data = await requestJson('/api/health');
+    const collectors = Object.values(data.collectors || {});
+    const errors = collectors.filter((item) => item.lastError);
+    const available = collectors.filter((item) => item.rootExists).length;
+    if (errors.length) {
+      setRuntimeHealth(`后端已连接 · ${errors.length} 个采集器异常`, 'warning');
+      return;
+    }
+    setRuntimeHealth(`后端正常 · ${available} 个数据源${data.scanning ? ' · 后台扫描中' : ''}`, 'ok');
+  } catch (error) {
+    setRuntimeHealth(`后端连接失败 · ${error.message || '请检查服务'}`, 'error');
+  }
+}
+
 async function loadState() {
   try {
-    const r = await fetch('/api/state?range=' + state.activeRange);
-    const d = await r.json();
+    const d = await requestJson('/api/state?range=' + state.activeRange);
     state.agents = d.agents; state.projects = d.projects; state.active = d.active;
     state.agentsDef = d.agentsDef || {};
     state.stats = d.stats;
     renderChips(); renderProjects(); renderStats(); renderQuickAgents(); renderActive();
-  } catch { /* 服务未启动 */ }
+  } catch (error) {
+    setRuntimeHealth(`看板读取失败 · ${error.message || '请检查服务'}`, 'error');
+  }
 }
 
 async function loadBoard() {
@@ -144,8 +187,7 @@ async function loadBoard() {
     if (state.q) params.set('q', state.q);
     if (state.range) params.set('range', String(state.range));
     if (state.onlyUser) params.set('onlyUser', '1');
-    const r = await fetch('/api/board?' + params);
-    const d = await r.json();
+    const d = await requestJson('/api/board?' + params);
     state.board = d.groups || state.board;
     state.agentIds = d.agentIds || [];
     // defaultAgentIds：探测为已安装 或 有历史数据的 agent 子集，只用来算「默认列」，
@@ -162,7 +204,9 @@ async function loadBoard() {
     // 首次加载：把当前配置的列存好（默认 = all + 探测/历史数据过滤后的 agent）
     if (!state.colOrder) state.colOrder = loadColOrder() || ['all', ...state.defaultAgentIds];
     renderBoard();
-  } catch { /* 网络错误忽略 */ }
+  } catch (error) {
+    setRuntimeHealth(`会话读取失败 · ${error.message || '请检查服务'}`, 'error');
+  }
   finally { state.loading = false; }
 }
 
@@ -179,17 +223,15 @@ const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维�
 
 async function loadOrchestration() {
   try {
-    const response = await fetch('/api/orchestration/state');
-    if (!response.ok) throw new Error('orchestration state unavailable');
-    const data = await response.json();
+    const data = await requestJson('/api/orchestration/state');
     state.orchestration = {
       workflows: Array.isArray(data.workflows) ? data.workflows : [],
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
       headlessEnabled: data.headlessEnabled === true,
     };
     renderAIMonitor();
-  } catch {
-    $('ai-readiness').textContent = 'AI 监控服务未连接';
+  } catch (error) {
+    $('ai-readiness').textContent = `AI 监控服务未连接：${error.message || '请求失败'}`;
   }
 }
 
@@ -238,11 +280,9 @@ function setMonitorMode(mode) {
 async function runOrchestrationAction(action, id) {
   const endpoint = action === 'takeover' ? 'takeover' : 'run';
   try {
-    const response = await fetch(`/api/orchestration/workflows/${encodeURIComponent(id)}/${endpoint}`, {
+    await requestJson(`/api/orchestration/workflows/${encodeURIComponent(id)}/${endpoint}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '操作失败');
     toast(action === 'takeover' ? '已人工接管，AI 工作流已暂停' : 'AI 工作流已进入执行队列');
     await loadOrchestration();
   } catch (error) { toast(error.message || 'AI 工作流操作失败'); }
@@ -256,9 +296,7 @@ $('ai-create-form').addEventListener('submit', async (event) => {
     agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human',
   };
   try {
-    const response = await fetch('/api/orchestration/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '创建失败');
+    const data = await requestJson('/api/orchestration/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     toast(`已创建${ORCHESTRATION_KIND_LABELS[data.classification.kind] || ''} AI 工作流`);
     $('ai-goal').value = '';
     await loadOrchestration();
@@ -270,6 +308,12 @@ $('ai-workflow-list').addEventListener('click', (event) => {
 });
 
 /* ---------- 顶栏 AI Agent 快捷图标 ---------- */
+function agentIconMarkup(def, className = '') {
+  const iconClass = className ? ` class="${esc(className)}"` : '';
+  if (def && def.icon) return `<img src="/icons/${esc(def.icon)}" alt=""${iconClass}>`;
+  const letter = (def?.name || def?.id || '?').replace(/[^A-Za-z\u4e00-\u9fff]/g, '').slice(0, 1) || '?';
+  return `<span class="qb" style="background:${esc(def?.color || '#888')}">${esc(letter)}</span>`;
+}
 function renderQuickAgents() {
   const box = $('quick-agents'); box.innerHTML = '';
   const defs = state.agentsDef || {};
@@ -278,33 +322,58 @@ function renderQuickAgents() {
     const btn = document.createElement('button');
     btn.className = 'qa-btn';
     btn.title = def.name + '（点击：未运行则启动，已运行则跳转）';
-    const letter = def.name.replace(/[^A-Za-z\u4e00-\u9fff]/g, '').slice(0, 1) || '?';
-    if (def.icon) {
-      btn.innerHTML = `<img src="/icons/${esc(def.icon)}" alt="">`;
-    } else {
-      btn.innerHTML = `<span class="qb" style="background:${def.color}">${esc(letter)}</span>`;
-    }
+    btn.innerHTML = agentIconMarkup(def);
     btn.onclick = () => launchAgent(id);
     box.appendChild(btn);
   }
 }
 
-async function launchAgent(agent, target = '') {
+async function configureAgentPath(agent) {
+  return requestJson(`/api/agents/${encodeURIComponent(agent)}/discover-path`, { method: 'POST' });
+}
+
+function launchFailureText(name, data) {
+  const recovery = data?.recovery || {};
+  if (recovery.detectedPath) {
+    return `${name}：未确认成功打开，已找到真实路径，请在应用管理点击“自动配置路径”后重试`;
+  }
+  const hint = Array.isArray(recovery.suggestions) && recovery.suggestions[0]
+    ? `；建议：${recovery.suggestions[0]}`
+    : '';
+  return `${name}：${data?.error || '未成功打开'}${hint}`;
+}
+
+async function launchAgent(agent, target = '', options = {}) {
   const def = state.agentsDef[agent];
   const name = def ? def.name : agent;
   const targetLabel = target === 'cli' ? ' CLI' : target === 'desktop' ? ' 桌面端' : '';
   toast(`正在处理 ${name}${targetLabel}…`);
   try {
-    const res = await fetch('/api/launch-agent', {
+    const d = await requestJson('/api/launch-agent', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(target ? { agent, target } : { agent }),
+      allowFailure: true,
     });
-    const d = await res.json();
     if (d.ok) {
-      toast(targetLabel ? `${name}${targetLabel}：已启动` : `${name}：已运行则跳转，未运行已启动`);
+      const pending = d.verified === null || d.verification === 'pending';
+      toast(pending
+        ? `${name}${targetLabel}：已投递启动请求，正在确认窗口`
+        : (targetLabel ? `${name}${targetLabel}：已启动` : `${name}：已运行则跳转，未运行已启动`));
+    } else if (!options.retried && target !== 'desktop' && d.recovery?.autoConfigureAvailable) {
+      try {
+        const configured = await configureAgentPath(agent);
+        toast(`${name}：未确认打开，已找到并配置路径，正在重试…`);
+        return launchAgent(agent, target, { retried: true, configuredPath: configured.path });
+      } catch { /* 自动配置失败时继续显示完整恢复指引 */ }
+      toast(launchFailureText(name, d));
+      setTimeout(() => openAgentManager(true, agent), 0);
+    } else {
+      toast(launchFailureText(name, d));
+      setTimeout(() => openAgentManager(true, agent), 0);
     }
-    else toast(`${name}：${d.error || '操作失败'}`);
-  } catch { toast('请求失败'); }
+  } catch (error) {
+    toast(`${name}：${error.message || '请求失败'}`);
+  }
   // 延迟刷新运行状态标记
   setTimeout(refreshRunStatus, 1200);
 }
@@ -320,14 +389,12 @@ async function openCodexThread(sessionId) {
   }
   toast('正在打开 Codex 会话…');
   try {
-    const res = await fetch('/api/open-codex-thread', {
+    const d = await requestJson('/api/open-codex-thread', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ threadId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('Codex：已打开指定会话');
-    else toast(`Codex：${d.error || '操作失败'}`);
-  } catch { toast('Codex：请求失败'); }
+    toast(d.action === 'protocol-dispatched' ? 'Codex：已投递会话协议' : 'Codex：已打开指定会话');
+  } catch (error) { toast(`Codex：${error.message || '请求失败'}`); }
 }
 async function openWorkBuddySession(sessionId) {
   if (!sessionId) {
@@ -336,14 +403,12 @@ async function openWorkBuddySession(sessionId) {
   }
   toast('正在打开 WorkBuddy 会话…');
   try {
-    const res = await fetch('/api/open-workbuddy-session', {
+    const d = await requestJson('/api/open-workbuddy-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('WorkBuddy：已打开指定会话');
-    else toast(`WorkBuddy：${d.error || '操作失败'}`);
-  } catch { toast('WorkBuddy：请求失败'); }
+    toast(d.windowVerified === false ? 'WorkBuddy：已发送启动请求，但未确认窗口' : 'WorkBuddy：已打开指定会话');
+  } catch (error) { toast(`WorkBuddy：${error.message || '请求失败'}`); }
 }
 async function openMarvisSession(sessionId) {
   if (!sessionId) {
@@ -352,14 +417,12 @@ async function openMarvisSession(sessionId) {
   }
   toast('正在打开 Marvis 会话…');
   try {
-    const res = await fetch('/api/open-marvis-session', {
+    await requestJson('/api/open-marvis-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('Marvis：已打开指定会话');
-    else toast(`Marvis：${d.error || '操作失败'}`);
-  } catch { toast('Marvis：请求失败'); }
+    toast('Marvis：已打开指定会话');
+  } catch (error) { toast(`Marvis：${error.message || '请求失败'}`); }
 }
 async function openClaudeSession(sessionId) {
   if (!sessionId) {
@@ -368,14 +431,26 @@ async function openClaudeSession(sessionId) {
   }
   toast('正在打开 Claude Desktop 会话…');
   try {
-    const res = await fetch('/api/open-claude-session', {
+    const d = await requestJson('/api/open-claude-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('Claude Code：已打开指定 Desktop 会话');
-    else toast(`Claude Code：${d.error || '操作失败'}`);
-  } catch { toast('Claude Code：请求失败'); }
+    toast(d.windowVerified === false ? 'Claude Code：已发送请求，但未确认窗口' : 'Claude Code：已打开指定 Desktop 会话');
+  } catch (error) { toast(`Claude Code：${error.message || '请求失败'}`); }
+}
+async function openZCodeSession(sessionId) {
+  if (!sessionId) {
+    toast('ZCode：无效的会话 ID');
+    return;
+  }
+  toast('正在打开 ZCode 会话…');
+  try {
+    await requestJson('/api/open-zcode-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    toast('ZCode：已打开指定会话');
+  } catch (error) { toast(`ZCode：${error.message || '请求失败'}`); }
 }
 async function openDeepSeekSession(sessionId) {
   if (!sessionId) {
@@ -384,14 +459,12 @@ async function openDeepSeekSession(sessionId) {
   }
   toast('正在打开 DeepSeek Harness 桌面端会话…');
   try {
-    const res = await fetch('/api/open-deepseek-session', {
+    const d = await requestJson('/api/open-deepseek-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('DeepSeek Harness：已打开指定桌面端会话');
-    else toast(`DeepSeek Harness：${d.error || '操作失败'}`);
-  } catch { toast('DeepSeek Harness：请求失败'); }
+    toast(d.windowVerified === false ? 'DeepSeek Harness：已发送请求，但未确认窗口' : 'DeepSeek Harness：已打开指定桌面端会话');
+  } catch (error) { toast(`DeepSeek Harness：${error.message || '请求失败'}`); }
 }
 async function openPiAgentSession(sessionId) {
   if (!sessionId) {
@@ -400,14 +473,12 @@ async function openPiAgentSession(sessionId) {
   }
   toast('正在打开 Pi Agent Desktop 会话…');
   try {
-    const res = await fetch('/api/open-pi-agent-session', {
+    await requestJson('/api/open-pi-agent-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('Pi Agent：已打开指定桌面端会话');
-    else toast(`Pi Agent：${d.error || '操作失败'}`);
-  } catch { toast('Pi Agent：请求失败'); }
+    toast('Pi Agent：已打开指定桌面端会话');
+  } catch (error) { toast(`Pi Agent：${error.message || '请求失败'}`); }
 }
 async function openHermesSession(sessionId) {
   if (!sessionId) {
@@ -416,14 +487,12 @@ async function openHermesSession(sessionId) {
   }
   toast('正在打开 Hermes Desktop 会话…');
   try {
-    const res = await fetch('/api/open-hermes-session', {
+    await requestJson('/api/open-hermes-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const d = await res.json();
-    if (d.ok) toast('Hermes Agent：已打开指定桌面端会话');
-    else toast(`Hermes Agent：${d.error || '操作失败'}`);
-  } catch { toast('Hermes Agent：请求失败'); }
+    toast('Hermes Agent：已打开指定 Desktop 会话');
+  } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); }
 }
 function jumpToAgentSession(s) {
   if (s.agent === 'claude') return openClaudeSession(s.session_id);
@@ -431,14 +500,14 @@ function jumpToAgentSession(s) {
   if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
   if (s.agent === 'marvis') return openMarvisSession(s.session_id);
   if (s.agent === 'deepseek') return openDeepSeekSession(s.session_id);
+  if (s.agent === 'zcode') return openZCodeSession(s.session_id);
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);
   return launchAgent(s.agent);
 }
 async function refreshRunStatus() {
   try {
-    const r = await fetch('/api/state?range=' + state.activeRange);
-    const d = await r.json();
+    const d = await requestJson('/api/state?range=' + state.activeRange);
     state.stats = d.stats;
     renderStats();
   } catch { /* ignore */ }
@@ -553,7 +622,28 @@ function renderActive() {
 
 /* ---------- 渲染：按 session 卡片 ---------- */
 function agentMeta(id) { const d = state.agentsDef[id] || {}; return { name: d.name || id, color: d.color || '#888780' }; }
-function shortProj(p) { if (!p) return ''; return p.length > 60 ? '…' + p.slice(-58) : p; }
+function shortProj(p) {
+  const raw = String(p || '').trim();
+  if (!raw) return '';
+  // 卡片只显示项目路径最后一级；完整路径仍放在 title 中，鼠标悬停可查看。
+  if (/^[A-Za-z]:[\\/]?$/.test(raw) || /^[/\\]+$/.test(raw)) return raw;
+  const trimmed = raw.replace(/[\\/]+$/, '');
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || raw;
+}
+function topologyRoleMarkup(s) {
+  const role = ['main', 'child', 'unknown'].includes(s.session_role) ? s.session_role : 'unknown';
+  const labels = { main: '◎ 主会话', child: '↳ 子代理', unknown: '? 未确认' };
+  const hint = s.child_detection === 'unsupported' ? '当前 agent 尚未验证子代理结构，自动控制需人工确认' : '';
+  const badge = `<span class="s-topology-badge ${role}" title="${esc(hint || labels[role])}">${labels[role]}</span>`;
+  let relation = '';
+  if (role === 'child' && s.parent_session_ref) {
+    relation = `<span class="s-topology-relation" title="${esc(s.parent_session_ref)}">父会话 ${esc(displaySessionId(s.parent_session_ref))}</span>`;
+  } else if (role === 'main' && Number(s.child_count || 0) > 0) {
+    relation = `<span class="s-topology-relation" title="${Number(s.active_child_count || 0)} 个子代理最近 10 分钟有活动">子代理 ${Number(s.child_count || 0)}${Number(s.active_child_count || 0) ? ` · ${Number(s.active_child_count)} 活跃` : ''}</span>`;
+  }
+  return badge + relation;
+}
 function resumeCommand(agent, sid) {
   if (agent === 'claude') return `claude --resume ${sid}`;
   if (agent === 'codex') return `codex resume ${sid}`;
@@ -651,7 +741,9 @@ function applyFlowDecor(el, ref, nowLive) {
       toast('已恢复普通已完成样式');
     });
     const jump = el.querySelector('.s-jump');
-    if (jump) jump.parentElement.insertBefore(btn, jump);
+    // 已完成卡的操作顺序固定为：“更多” → “已读” → “跳转”。
+    // 这样外部自动化使用 button[3] 时会命中跳转按钮。
+    if (jump) jump.insertAdjacentElement('beforebegin', btn);
     else el.appendChild(btn);
   } else if (!recent && btn) {
     btn.remove();
@@ -703,6 +795,7 @@ function renderBoard() {
     col.appendChild(cardsBox);
     board.appendChild(col);
     // 焦点属于整列，而不是单张卡：在同列卡片间的间隙移动时保持展开。
+    col.addEventListener('mouseenter', () => setHoveredColumn(key));
     col.addEventListener('mouseleave', () => clearHoveredColumn());
     const list = state.board[key] || [];
     if (!list.length) {
@@ -713,8 +806,8 @@ function renderBoard() {
         const quickOpen = document.createElement('button');
         quickOpen.type = 'button';
         quickOpen.className = 'col-empty-action';
-        quickOpen.textContent = `打开 ${meta.name}`;
-        quickOpen.title = `快速打开 ${meta.name}`;
+        quickOpen.textContent = `启动 ${meta.name}`;
+        quickOpen.title = `启动 ${meta.name}；如果没有窗口会自动显示恢复指引`;
         quickOpen.addEventListener('click', (e) => {
           e.stopPropagation();
           launchAgent(key);
@@ -761,6 +854,7 @@ function clearColumnFocus(board, cols = effectiveCols()) {
 function setHoveredColumn(key) {
   const board = $('board');
   if (!state.autoExpandOnHover || board.dataset.focusMode === 'manual') return;
+  if (board.dataset.hoveredCol === key) return;
   const cols = effectiveCols();
   board.dataset.hoveredCol = key;
   board.dataset.focusedCol = key;
@@ -853,14 +947,15 @@ function buildCard(s, colKey) {
   const status = runtimeStatusFor(s, live);
   const recent = status === 'completed' && !live && isRecentCompleted(s.id);
   const card = document.createElement('div');
-  card.className = 's-card ' + statusClass(status) + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
+  const topologyRole = ['main', 'child', 'unknown'].includes(s.session_role) ? s.session_role : 'unknown';
+  card.className = 's-card ' + statusClass(status) + ` topology-${topologyRole}` + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
   card.dataset.runtimeStatus = status;
+  card.dataset.topologyRole = topologyRole;
   const rawSessionId = String(s.session_id || '');
   const sessionId = s.agent === 'codex' ? extractCodexThreadId(rawSessionId) : rawSessionId;
   card.dataset.sessionId = sessionId || rawSessionId;
   card.dataset.boardSessionId = rawSessionId;
-  card.addEventListener('mouseenter', () => setHoveredColumn(colKey));
   const isAll = colKey === 'all';
   const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
   const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || rawSessionId.slice(0, 12))}</span>`;
@@ -878,19 +973,22 @@ function buildCard(s, colKey) {
     : `<span style="font-size:12px;font-weight:700;color:${meta.color}">${esc((meta.name||'?').charAt(0))}</span>`;
   card.innerHTML = `
     <div class="s-row1">
-      <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
       ${agentTag}
+      ${topologyRoleMarkup(s)}
+    </div>
+    <div class="s-title-row">
       ${titleHtml}
-      ${sessionIdHtml}
       ${statusHtml}
     </div>
     <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
     <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
     <div class="s-row2">
       <span class="s-msg">${s.msg_count} 条</span>
-      <button class="s-more" data-ref="${esc(s.id)}" title="更多操作">···</button>
+      <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
+      ${sessionIdHtml}
+      <button class="s-more" data-action="session-menu" data-ref="${esc(s.id)}" title="更多操作">···</button>
       ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
-      <button class="s-jump" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
+      <button type="button" class="s-jump" data-action="jump-session" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" aria-label="跳转到 ${esc(meta.name||s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
         ${iconHtml}
       </button>
     </div>`;
@@ -972,37 +1070,33 @@ function openPopover(s, anchorEl) {
     if (act === 'copy-cmd') { await clip(cmd); toast('已复制：' + cmd); closePopover(); }
     else if (act === 'open-term') {
       try {
-        const res = await fetch('/api/open-with', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await requestJson('/api/open-with', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agent: s.agent, sessionId: s.session_id, project: s.project }) });
-        const d = await res.json();
-        toast(d.ok ? '已开新终端并执行恢复命令' : '打开失败：' + d.error);
-      } catch { toast('请求失败'); }
+        toast('已开新终端并执行恢复命令');
+      } catch (error) { toast(`打开失败：${error.message || '请求失败'}`); }
       closePopover();
     }
     else if (act === 'copy-path') { await clip(s.project); toast('已复制：' + s.project); closePopover(); }
     else if (act === 'set-status') {
       const target = s.manual_done ? 'auto' : 'done';
       try {
-        const res = await fetch('/api/set-status', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await requestJson('/api/set-status', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agent: s.agent, sessionId: s.session_id, status: target }) });
-        const d = await res.json();
-        if (d.ok) {
-          toast(target === 'done' ? '已标记为已完成，心跳已关闭' : '已恢复自动判定');
-          closePopover();
-          loadBoard();
-          loadState();
-        } else { toast('操作失败：' + (d.error || '')); closePopover(); }
-      } catch { toast('请求失败'); closePopover(); }
+        toast(target === 'done' ? '已标记为已完成，心跳已关闭' : '已恢复自动判定');
+        closePopover();
+        loadBoard();
+        loadState();
+      } catch (error) { toast(`操作失败：${error.message || '请求失败'}`); closePopover(); }
     }
     else if (act === 'hide') {
       try {
-        await fetch('/api/hide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await requestJson('/api/hide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agent: s.agent, sessionId: s.session_id }) });
         state.board = removeFromBoard(state.board, s.agent, s.session_id);
         renderBoard();
         renderChips();
         toast('已隐藏，可在顶栏「隐藏」图标恢复');
-      } catch { toast('操作失败'); }
+      } catch (error) { toast(`操作失败：${error.message || '请求失败'}`); }
       closePopover();
     }
   });
@@ -1021,15 +1115,14 @@ let drawerState = { rounds: [], mode: 'all', order: 'desc', term: '', anchorsVis
 async function openSession(ref) {
   if (!ref) { toast('无效的会话引用'); return; }
   try {
-    const r = await fetch('/api/session/' + encodeURIComponent(ref));
-    if (!r.ok) { toast('会话不存在或已删除（HTTP ' + r.status + '）'); return; }
-    const s = await r.json();
+    const s = await requestJson('/api/session/' + encodeURIComponent(ref));
     if (!s || s.error || !s.messages) { toast(s.error || '会话数据无效'); return; }
     const meta = agentMeta(s.agent);
     // Header：保留
     $('drawer-head').innerHTML = `
       <div class="row">
         <span class="agent-tag" style="background:${meta.color}">${esc(meta.name)}</span>
+        ${topologyRoleMarkup(s)}
         <span style="font-size:12px;color:var(--text2)">${s.msg_count} 条消息 · ${roundCount(s.messages)} 回合</span>
         <span style="font-size:12px;color:var(--text3);margin-left:auto">${esc(s.first_seen ? fmtDayFull(s.first_seen).slice(0,16) : '')}</span>
         <button class="icon-btn" id="d-close" style="width:32px;height:32px" title="关闭">
@@ -1039,6 +1132,7 @@ async function openSession(ref) {
       <h2>${esc(s.title || s.session_id || '未命名会话')}</h2>
       <div style="font-size:12px;color:var(--text3);word-break:break-all">
         ${esc(s.project || '')} · ${esc(meta.name)} · ${esc(s.session_id.slice(0,12))}
+        ${s.parent_session_ref ? ` · 父会话 ${esc(displaySessionId(s.parent_session_ref))}` : ''}
       </div>`;
     // Body：工具栏 + 主区（锚点 + 回合流）
     const body = $('drawer-body'); body.innerHTML = '';
@@ -1266,7 +1360,7 @@ $('imp-submit').onclick = async () => {
     if (!Array.isArray(messages)) throw new Error('必须是数组');
   } catch { toast('JSON 格式错误，请检查'); return; }
   try {
-    const r = await fetch('/api/import', {
+    const d = await requestJson('/api/import', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agent: $('imp-agent').value.trim() || 'other',
@@ -1275,10 +1369,9 @@ $('imp-submit').onclick = async () => {
         messages,
       }),
     });
-    const d = await r.json();
     toast(`已导入 ${d.imported} 条消息`);
     if (d.imported > 0) { toggleImport(); $('imp-json').value = ''; loadState(); loadBoard(); }
-  } catch { toast('导入失败'); }
+  } catch (error) { toast(`导入失败：${error.message || '请求失败'}`); }
 };
 
 /* ---------- 过滤交互 ---------- */
@@ -1301,12 +1394,10 @@ $('active-range').addEventListener('change', (e) => {
 $('btn-rescan').onclick = async () => {
   toast('开始重新扫描数据源，完成后自动刷新…');
   try {
-    const r = await fetch('/api/rescan', { method: 'POST' });
-    const d = await r.json();
-    if (r.status === 409) { toast(d.error || '当前正在扫描，请稍后再试'); return; }
+    await requestJson('/api/rescan', { method: 'POST' });
     // 后端已异步后台扫描：响应立即返回，board 由 SSE 'scan' finished 事件自动刷新
     toast('扫描已在后台进行…');
-  } catch { toast('扫描请求失败'); }
+  } catch (error) { toast(`扫描请求失败：${error.message || '请检查服务'}`); }
 };
 $('mask').onclick = closeDrawer;
 
@@ -1325,7 +1416,7 @@ async function openHiddenManager() {
   pop.style.overflowY = 'auto';
   document.body.appendChild(pop);
   try {
-    const r = await fetch('/api/hidden'); const d = await r.json();
+    const d = await requestJson('/api/hidden');
     let html = `<div class="pop-head">已隐藏的会话 <span style="opacity:.5;font-weight:400">（点恢复即重新显示）</span></div>`;
     if (!d.items.length) html += `<div style="padding:12px 14px;color:var(--text3);font-size:13px">暂无隐藏的会话</div>`;
     for (const h of d.items) {
@@ -1341,14 +1432,14 @@ async function openHiddenManager() {
       e.stopPropagation();
       const agent = b.dataset.agent, sid = b.dataset.sid;
       try {
-        await fetch('/api/unhide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await requestJson('/api/unhide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agent, sessionId: sid }) });
         const item = b.closest('.hidden-item'); if (item) item.remove();
         toast('已恢复，看板将重新显示该会话');
         loadBoard();
-      } catch { toast('恢复失败'); }
+      } catch (error) { toast(`恢复失败：${error.message || '请求失败'}`); }
     }));
-  } catch { pop.innerHTML = '<div style="padding:12px;color:var(--text3)">加载失败</div>'; }
+  } catch (error) { pop.innerHTML = `<div style="padding:12px;color:var(--text3)">加载失败：${esc(error.message || '请求失败')}</div>`; }
 }
 $('btn-hidden').onclick = openHiddenManager;
 
@@ -1420,9 +1511,15 @@ function renderAccountSettings(pop, status) {
   logoutButton.onclick = async () => {
     logoutButton.disabled = true;
     try {
-      const response = await fetch('/api/account/logout', { method: 'POST' });
-      const next = await response.json();
-      if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
+      const api = typeof requestJson === 'function'
+        ? requestJson
+        : async (url, options) => {
+          const response = await fetch(url, options);
+          const next = await response.json();
+          if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
+          return next;
+        };
+      const next = await api('/api/account/logout', { method: 'POST' });
       renderAccountSettings(pop, next);
       toast('已清除本地登录缓存');
     } catch (error) {
@@ -1446,12 +1543,18 @@ async function openAccountSettings() {
   pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
 
   try {
-    const response = await fetch('/api/account/status');
-    const status = await response.json();
-    if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
+    const api = typeof requestJson === 'function'
+      ? requestJson
+      : async (url, options) => {
+        const response = await fetch(url, options);
+        const status = await response.json();
+        if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
+        return status;
+      };
+    const status = await api('/api/account/status');
     renderAccountSettings(pop, status);
-  } catch {
-    pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败，请稍后重试</div>';
+  } catch (error) {
+    pop.innerHTML = `<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败：${esc(error.message || '请求失败')}</div>`;
   }
 }
 
@@ -1471,18 +1574,6 @@ function readFileAsDataUrl(file) {
 function playSoundPreview(url) {
   const audio = new Audio(url);
   audio.play().catch(() => toast('浏览器阻止了播放，请再次点击试听'));
-}
-
-async function readApiResponse(response) {
-  const body = await response.text();
-  if (!body.trim()) {
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    return null;
-  }
-  let data;
-  try { data = JSON.parse(body); } catch { throw new Error('HTTP ' + response.status); }
-  if (!response.ok || data.error) throw new Error(data.error || ('HTTP ' + response.status));
-  return data;
 }
 
 function renderSoundSettings(pop, selectedAgent) {
@@ -1513,9 +1604,7 @@ function renderSoundSettings(pop, selectedAgent) {
     input.onchange = async (event) => {
       event.stopPropagation();
       try {
-        const response = await fetch('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: input.value }) });
-        const next = await response.json();
-        if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
+        const next = await requestJson('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: input.value }) });
         state.completionSounds = next;
         renderSoundSettings(pop, selectedAgent);
         toast(input.value ? '已设置完成提示音' : '已关闭完成提示音');
@@ -1548,9 +1637,7 @@ function renderSoundSettings(pop, selectedAgent) {
     if (file.size > 8 * 1024 * 1024) { toast('音频不能超过 8 MB'); return; }
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const response = await fetch('/api/sounds/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, name: file.name }) });
-      const result = await response.json();
-      if (!response.ok || result.error) throw new Error(result.error || ('HTTP ' + response.status));
+      const result = await requestJson('/api/sounds/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, name: file.name }) });
       state.completionSounds = result.settings;
       renderSoundSettings(pop, selectedAgent);
       toast('提示音已上传到项目');
@@ -1560,10 +1647,7 @@ function renderSoundSettings(pop, selectedAgent) {
 
 async function loadCompletionSounds() {
   try {
-    const response = await fetch('/api/sounds');
-    const settings = await response.json();
-    if (!response.ok || settings.error) throw new Error(settings.error || ('HTTP ' + response.status));
-    state.completionSounds = settings;
+    state.completionSounds = await requestJson('/api/sounds');
   } catch { state.completionSounds = { assignments: {}, sounds: [] }; }
 }
 
@@ -1598,13 +1682,10 @@ function updateLaunchRowState(row) {
 }
 
 async function saveLaunchOverrideSetting(agent, enabled, target) {
-  const response = await fetch('/api/launch-overrides', {
+  return requestJson('/api/launch-overrides', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ agent, enabled, target }),
   });
-  const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error || ('HTTP ' + response.status));
-  return data;
 }
 
 /* ---------- 模型端口设置（自动识别 + 手动指定桌面端） ---------- */
@@ -1625,17 +1706,18 @@ async function openLaunchOverridesManager() {
   let targets;
   try {
     const r = await fetch('/api/launch-targets');
-    const d = await r.json();
+    const d = await readJsonResponse(r);
     if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
     targets = d.targets || {};
-  } catch {
+  } catch (e) {
     // 拿不到真实数据就明确报错，不渲染空表，避免用户误以为自动目标都不存在。
-    pop.innerHTML = '<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">自动识别失败，请稍后重试</div>';
+    const detail = e && e.message ? `（${esc(e.message)}）` : '';
+    pop.innerHTML = `<div class="pop-head">模型端口设置</div><div style="padding:16px;color:var(--text3);font-size:13px">自动识别失败${detail}</div>`;
     return;
   }
 
   const defs = state.agentsDef || {};
-  let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（先用自动识别，手动方式可覆盖）</span></div>
+  let html = `<div class="pop-head">模型端口设置 <span style="opacity:.5;font-weight:400">（自动识别 CLI/Desktop；手动路径只用于启动桌面端）</span></div>
     <div class="lo-list">`;
   for (const id of Object.keys(defs)) {
     const meta = defs[id];
@@ -1827,9 +1909,7 @@ async function discoverAgentPath(agent, button) {
   button.disabled = true;
   button.textContent = '探测中…';
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(agent)}/discover-path`, { method: 'POST' });
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+    const d = await configureAgentPath(agent);
     toast(`${dataName(agent)}：已配置路径 ${d.path}`);
     await openAgentManager(true);
   } catch (e) {
@@ -1855,7 +1935,52 @@ async function copyAgentInstallPrompt(button) {
   }
 }
 
-async function openAgentManager(force) {
+function manualPathForAgent(agent, kind) {
+  const paths = agent.manualPaths && Array.isArray(agent.manualPaths[kind]) ? agent.manualPaths[kind] : [];
+  return paths[0] || '';
+}
+
+function manualPathEditorMarkup(agent) {
+  const defaultKind = agent.tier === 'cli' ? 'cli' : 'desktop';
+  return `<div class="ab-manual-editor" hidden>
+      <div class="ab-manual-variants">
+        <label><input type="radio" name="manual-kind-${esc(agent.id)}" value="cli" ${defaultKind === 'cli' ? 'checked' : ''}> CLI</label>
+        <label><input type="radio" name="manual-kind-${esc(agent.id)}" value="desktop" ${defaultKind === 'desktop' ? 'checked' : ''}> 桌面端</label>
+      </div>
+      <input class="ab-manual-input" type="text" placeholder="绝对路径，例如 D:\\deepseek\\DSH Desktop\\DSH Desktop.exe" value="${esc(manualPathForAgent(agent, defaultKind))}">
+      <label class="ab-manual-sync"><input type="checkbox" class="ab-manual-sync-checkbox"> 桌面端同时设为启动路径</label>
+      <div class="ab-manual-help">支持绝对路径 .exe / .cmd / .bat；手动配置优先于自动探测，保存后立即重新探测。</div>
+      <div class="ab-manual-actions"><button class="btn primary ab-manual-save" type="button">校验并保存</button><button class="btn ab-manual-clear" type="button">清除当前变体</button></div>
+    </div>`;
+}
+
+async function saveManualAgentPath(card, agent, clear = false) {
+  const kind = card.querySelector('input[name="manual-kind-' + agent.id + '"]:checked')?.value || 'desktop';
+  const input = card.querySelector('.ab-manual-input');
+  const target = clear ? '' : (input?.value || '').trim();
+  const saveButton = card.querySelector('.ab-manual-save');
+  const clearButton = card.querySelector('.ab-manual-clear');
+  saveButton.disabled = true;
+  clearButton.disabled = true;
+  try {
+    const result = await requestJson('/api/agents/' + encodeURIComponent(agent.id) + '/override-path', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, path: target }),
+    });
+    if (kind === 'desktop' && card.querySelector('.ab-manual-sync-checkbox')?.checked) {
+      await saveLaunchOverrideSetting(agent.id, Boolean(target), target);
+    }
+    await openAgentManager(true, agent.id);
+    toast(result.warning || (clear ? '已清除手动配置，恢复自动探测' : '手动路径已保存，正在重新探测'));
+  } catch (error) {
+    toast(error.message || '保存手动路径失败');
+  } finally {
+    if (saveButton.isConnected) saveButton.disabled = false;
+    if (clearButton.isConnected) clearButton.disabled = false;
+  }
+}
+
+async function openAgentManager(force, focusAgent = '') {
   closePopover();
   state.popoverFor = 'agents';
   const pop = document.createElement('div');
@@ -1869,45 +1994,65 @@ async function openAgentManager(force) {
 
   let data;
   try {
-    const r = await fetch('/api/agents/status' + (force ? '?force=1' : ''));
-    data = await r.json();
-    if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
-  } catch {
-    pop.innerHTML = '<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败，请稍后重试</div>';
+    data = await requestJson('/api/agents/status' + (force ? '?force=1' : ''));
+  } catch (error) {
+    pop.innerHTML = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div></div><div style="padding:16px;color:var(--text3);font-size:13px">检测失败：${esc(error.message || '请求失败')}</div>`;
     return;
   }
 
   const agents = Object.values(data.agents || {});
   // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
-  let html = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、下载入口和启动路径</div></div>
+  let html = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、真实图标、安装变体和启动路径</div></div>
     <button class="btn ab-rescan-probe" type="button">重新探测</button>
   </div>${agentManagerGuideMarkup()}<div class="ab-agent-grid">`;
   for (const a of agents) {
+    const variantLabel = a.variant === 'desktop' ? ' Desktop' : a.variant === 'cli+desktop' ? ' CLI + Desktop' : '';
     const badge = a.installed
-      ? `<span class="ab-status-badge installed">已安装${a.version ? ' ' + esc(a.version) : ''}</span>`
+      ? `<span class="ab-status-badge installed">已安装${variantLabel}${a.version ? ' ' + esc(a.version) : ''}</span>`
       : `<span class="ab-status-badge missing">未检测到</span>`;
     const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui')
       && a.install && /^https?:\/\//i.test(a.install.downloadUrl || '');
     const btn = canInstall
       ? `<button class="btn ab-install" type="button" data-id="${esc(a.id)}" data-url="${esc(a.install.downloadUrl)}">打开下载页</button>`
       : '';
-    const shownPath = a.executablePath || a.path;
-    const pathLabel = a.executablePath ? '启动路径' : (a.path ? '数据路径' : '');
+    const manualKind = a.tier === 'cli' ? 'cli' : 'desktop';
+    const manualPath = manualPathForAgent(a, manualKind);
+    const shownPath = a.executablePath || a.desktopExecutablePath || a.path || manualPath;
+    const pathLabel = a.source === 'override' || a.desktopSource === 'override'
+      ? '手动配置路径'
+      : a.executablePath ? (a.tier === 'gui' ? 'Desktop 路径' : 'CLI 路径')
+        : (a.desktopExecutablePath ? 'Desktop 路径' : (a.path ? '数据路径' : (manualPath ? '手动配置路径' : '')));
     const pathMarkup = shownPath
       ? `<div class="ab-card-path" title="${esc(shownPath)}">${pathLabel}：${esc(shownPath)}</div>`
       : '<div class="ab-card-path empty">未配置启动路径</div>';
+    const manualBadge = a.manualOverride?.cli || a.manualOverride?.desktop
+      ? '<span class="ab-status-badge manual">手动配置</span>' : '';
+    const probeOnlyBadge = a.probeOnly ? '<span class="ab-status-badge">仅探测</span>' : '';
+    const discoverButton = a.probeOnly
+      ? ''
+      : `<button class="btn ab-discover-path" type="button" data-id="${esc(a.id)}">自动配置路径</button>`;
     html += `<div class="ab-card" data-id="${esc(a.id)}">
-      <div class="ab-card-icon" style="background:${esc(a.color || '#888')}">${esc((a.name || a.id || '?').slice(0, 1))}</div>
+      <div class="ab-card-icon" style="background:${esc(a.color || '#888')}" title="${esc(a.name || a.id)}">${agentIconMarkup(a, 'ab-agent-icon')}</div>
       <div class="ab-card-main">
-        <div class="ab-card-title-row"><div class="ab-card-title" title="${esc(a.name || a.id)}">${esc(a.name || a.id)}</div>${badge}</div>
+        <div class="ab-card-title-row"><div class="ab-card-title" title="${esc(a.name || a.id)}">${esc(a.name || a.id)}</div>${badge}${manualBadge}${probeOnlyBadge}</div>
         ${pathMarkup}
+        ${manualPathEditorMarkup(a)}
         <div class="ab-progress" role="status" aria-live="polite"></div>
       </div>
-      <div class="ab-card-actions"><button class="btn ab-discover-path" type="button" data-id="${esc(a.id)}">自动配置路径</button>${btn}</div>
+      <div class="ab-card-actions"><button class="btn ab-manual-path" type="button">手动配置路径</button>${discoverButton}${btn}</div>
     </div>`;
   }
   html += '</div>';
   pop.innerHTML = html;
+
+  if (focusAgent) {
+    const card = [...pop.querySelectorAll('.ab-card')].find((item) => item.dataset.id === focusAgent);
+    if (card) {
+      card.scrollIntoView({ block: 'nearest' });
+      card.style.outline = '2px solid var(--accent)';
+      setTimeout(() => { if (card.isConnected) card.style.outline = ''; }, 2200);
+    }
+  }
 
   const rescanBtn = pop.querySelector('.ab-rescan-probe');
   if (rescanBtn) rescanBtn.onclick = () => openAgentManager(true);
@@ -1917,6 +2062,23 @@ async function openAgentManager(force) {
 
   pop.querySelectorAll('.ab-discover-path').forEach((b) => {
     b.onclick = () => discoverAgentPath(b.dataset.id, b);
+  });
+
+  pop.querySelectorAll('.ab-card').forEach((card) => {
+    const agent = agents.find((item) => item.id === card.dataset.id);
+    if (!agent) return;
+    const editor = card.querySelector('.ab-manual-editor');
+    const toggle = card.querySelector('.ab-manual-path');
+    const input = card.querySelector('.ab-manual-input');
+    toggle.onclick = () => {
+      editor.hidden = !editor.hidden;
+      toggle.textContent = editor.hidden ? '手动配置路径' : '收起手动配置';
+    };
+    card.querySelectorAll('input[name="manual-kind-' + agent.id + '"]').forEach((radio) => {
+      radio.onchange = () => { input.value = manualPathForAgent(agent, radio.value); };
+    });
+    card.querySelector('.ab-manual-save').onclick = () => saveManualAgentPath(card, agent, false);
+    card.querySelector('.ab-manual-clear').onclick = () => saveManualAgentPath(card, agent, true);
   });
 
   // 所有安装动作统一跳转官方下载页，不在看板内执行 npm/winget/脚本。
@@ -2019,7 +2181,9 @@ function connectSSE() {
   });
   es.addEventListener('unhide', () => { loadBoard(); });
   es.addEventListener('orchestration', () => { loadOrchestration(); });
-  es.onerror = () => { /* 断线自动重连 */ };
+  es.onerror = () => {
+    setRuntimeHealth('实时连接中断 · 正在自动重连', 'warning');
+  };
 }
 
 /* ---------- Toast ---------- */
@@ -2036,6 +2200,8 @@ function toast(msg) {
   await loadState();
   await loadBoard();
   await loadOrchestration();
+  await loadHealth();
   await loadCompletionSounds();
   connectSSE();
+  setInterval(loadHealth, 10000);
 })();
