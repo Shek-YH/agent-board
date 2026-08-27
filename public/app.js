@@ -744,20 +744,48 @@ function syncFlowDecor(ref) {
 function renderBoard() {
   const board = $('board');
   const cols = effectiveCols();
-  const visibleAgents = new Set(cols.filter((key) => key !== 'all'));
-  const source = Array.isArray(state.board.all)
-    ? state.board.all
-    : cols.flatMap((key) => state.board[key] || []);
-  const list = source.filter((session) => !visibleAgents.size || visibleAgents.has(session.agent));
   board.innerHTML = '';
-  if (!list.length) {
-    const empty = document.createElement('div');
-    empty.className = 'col-empty';
-    empty.textContent = '暂无会话';
-    board.appendChild(empty);
-    return;
+  for (const key of cols) {
+    const col = document.createElement('div');
+    col.className = 'agent-col';
+    col.dataset.col = key;
+    const meta = key === 'all'
+      ? { name: '全部', color: '#888780', icon: null }
+      : (state.agentsDef[key] || { name: key, color: '#888780', icon: null });
+
+    const head = document.createElement('div');
+    head.className = 'col-head';
+    head.style.setProperty('--colc', meta.color);
+    head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>`;
+
+    const cardsBox = document.createElement('div');
+    cardsBox.className = 'col-cards';
+    col.appendChild(head);
+    col.appendChild(cardsBox);
+    board.appendChild(col);
+
+    const list = state.board[key] || [];
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'col-empty';
+      empty.textContent = key === 'all' ? '暂无会话' : '暂无该 agent 的会话';
+      if (key !== 'all' && state.agentsDef[key]) {
+        const quickOpen = document.createElement('button');
+        quickOpen.type = 'button';
+        quickOpen.className = 'col-empty-action';
+        quickOpen.textContent = `启动 ${meta.name}`;
+        quickOpen.title = `启动 ${meta.name}；如果没有窗口会自动显示恢复指引`;
+        quickOpen.addEventListener('click', (e) => {
+          e.stopPropagation();
+          launchAgent(key);
+        });
+        empty.appendChild(quickOpen);
+      }
+      cardsBox.appendChild(empty);
+      continue;
+    }
+    for (const s of list) cardsBox.appendChild(buildCard(s, key));
   }
-  for (const session of list) board.appendChild(buildCard(session, 'all'));
 }
 
 // 隐藏一个 Agent（从显示配置里移除；全部视图不可隐藏）
@@ -848,11 +876,13 @@ function buildCard(s, colKey) {
     : `<span style="font-size:12px;font-weight:700;color:${meta.color}">${esc((meta.name||'?').charAt(0))}</span>`;
   card.innerHTML = `
     <div class="s-row1">
-      ${agentTag}
       ${topologyRoleMarkup(s)}
     </div>
     <div class="s-title-row">
-      ${titleHtml}
+      <div class="s-title-leading">
+        ${agentTag}
+        ${titleHtml}
+      </div>
       ${statusHtml}
     </div>
     <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
@@ -1749,7 +1779,11 @@ $('btn-settings-hub').onclick = openSettingsHub;
 const AGENT_INSTALL_SKILL_URL = '/downloads/agent-board-install-agents.skill';
 const AGENT_INSTALL_SKILL_PROMPT = '请调用 Agent Board Agent Installer skill，先询问我安装全部 Agent 还是选择指定 Agent，得到我的选择后再执行安装。';
 
-function agentManagerGuideMarkup() {
+function agentManagerGuideMarkup(agents = []) {
+  const missing = agents.filter((agent) => !agent.installed && agent.aiInstallable && agent.install && agent.install.downloadUrl);
+  const targetOptions = missing.length
+    ? missing.map((agent) => `<option value="${esc(agent.id)}">${esc(agent.name || agent.id)}</option>`).join('')
+    : '<option value="">没有待安装的 Agent</option>';
   return `<section class="ab-install-guide" aria-label="AI 安装指引">
     <div class="ab-guide-heading"><span class="ab-guide-kicker">快捷安装</span><span>让 AI 帮你安装 Agent</span></div>
     <div class="ab-guide-copy">先安装 Agent Board 安装 Skill。调用后，AI 会先询问安装全部还是选择几个，再按你的选择处理。</div>
@@ -1763,6 +1797,18 @@ function agentManagerGuideMarkup() {
       <button class="btn ab-copy-skill-prompt" type="button">复制调用指令</button>
     </div>
     <div class="ab-guide-prompt" title="${esc(AGENT_INSTALL_SKILL_PROMPT)}">${esc(AGENT_INSTALL_SKILL_PROMPT)}</div>
+    <form class="ab-ai-install-panel" id="ab-ai-install-form">
+      <div class="ab-ai-install-title">AI 自动安装（仅执行固定官方安装定义）</div>
+      <div class="ab-ai-install-grid">
+        <label class="ab-ai-field" for="ab-ai-agent"><span>安装目标</span><select id="ab-ai-agent" name="agentId" ${missing.length ? '' : 'disabled'}>${targetOptions}</select></label>
+        <label class="ab-ai-field" for="ab-ai-provider"><span>AI 服务商</span><select id="ab-ai-provider" name="provider"><option value="openai">OpenAI 兼容接口</option><option value="anthropic">Anthropic</option></select></label>
+        <label class="ab-ai-field" for="ab-ai-model"><span>模型</span><input id="ab-ai-model" name="model" type="text" value="gpt-4o-mini" autocomplete="off"></label>
+        <label class="ab-ai-field" for="ab-ai-base-url"><span>接口地址（可选）</span><input id="ab-ai-base-url" name="baseUrl" type="url" placeholder="默认使用服务商官方地址" autocomplete="url"></label>
+        <label class="ab-ai-field ab-ai-key-field" for="ab-ai-api-key"><span>AI 安装 API Key</span><input id="ab-ai-api-key" name="apiKey" type="password" autocomplete="off" required placeholder="仅本次安装使用，不写入配置"></label>
+      </div>
+      <div class="ab-ai-install-foot"><span class="ab-ai-help">AI 只生成安装动作；命令来自 Agent Board 固定白名单。桌面端会打开官方下载页，由你完成安装向导。</span><button class="btn primary ab-ai-install-submit" type="submit" ${missing.length ? '' : 'disabled'}>AI 自动安装</button></div>
+      <div class="ab-ai-install-status" role="status" aria-live="polite"></div>
+    </form>
   </section>`;
 }
 
@@ -1802,6 +1848,44 @@ async function copyAgentInstallPrompt(button) {
     setTimeout(() => { if (button.isConnected) button.textContent = original; }, 1400);
   } catch {
     toast('复制失败，请手动复制指引文字');
+  }
+}
+
+async function runAiAgentInstall(agentId, button, form) {
+  const keyInput = form.querySelector('#ab-ai-api-key');
+  const target = form.querySelector('#ab-ai-agent');
+  const apiKey = keyInput?.value.trim() || '';
+  if (!agentId || !apiKey) {
+    toast('请选择 Agent 并输入 AI 安装 API Key');
+    keyInput?.focus();
+    return;
+  }
+  const status = form.querySelector('.ab-ai-install-status');
+  const controls = [...form.querySelectorAll('input, select, button')];
+  controls.forEach((control) => { control.disabled = true; });
+  if (status) status.textContent = 'AI 正在生成受控安装方案…';
+  try {
+    const result = await requestJson('/api/agent-installer/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId, provider: form.querySelector('#ab-ai-provider')?.value || 'openai',
+        model: form.querySelector('#ab-ai-model')?.value.trim() || '',
+        baseUrl: form.querySelector('#ab-ai-base-url')?.value.trim() || '', apiKey,
+      }),
+    });
+    if (result.action === 'open_download' && /^https?:\/\//i.test(result.downloadUrl || '')) {
+      window.open(result.downloadUrl, '_blank', 'noopener,noreferrer');
+      toast(`${dataName(agentId)}：已打开官方下载页，请完成安装向导`);
+    } else {
+      toast(`${dataName(agentId)}：AI 安装已完成，正在重新探测`);
+    }
+    await openAgentManager(true, agentId);
+  } catch (error) {
+    if (status) status.textContent = error.message || 'AI 安装失败';
+    toast(error.message || 'AI 安装失败');
+    controls.forEach((control) => { if (control.isConnected) control.disabled = false; });
+    if (target && target.isConnected) target.value = agentId;
+    if (button?.isConnected) button.disabled = false;
   }
 }
 
@@ -1874,7 +1958,7 @@ async function openAgentManager(force, focusAgent = '') {
   // 探测结果服务端有 5 分钟缓存，这里加个「重新探测」按钮手动跳过缓存（force=1）
   let html = `<div class="pop-head ab-manager-head"><div class="ab-manager-heading"><div class="ab-manager-title">应用管理</div><div class="ab-manager-subtitle">检测 Agent 状态、真实图标、安装变体和启动路径</div></div>
     <button class="btn ab-rescan-probe" type="button">重新探测</button>
-  </div>${agentManagerGuideMarkup()}<div class="ab-agent-grid">`;
+  </div>${agentManagerGuideMarkup(agents)}<div class="ab-agent-grid">`;
   for (const a of agents) {
     const variantLabel = a.variant === 'desktop' ? ' Desktop' : a.variant === 'cli+desktop' ? ' CLI + Desktop' : '';
     const badge = a.installed
@@ -1882,8 +1966,12 @@ async function openAgentManager(force, focusAgent = '') {
       : `<span class="ab-status-badge missing">未检测到</span>`;
     const canInstall = !a.installed && (a.tier === 'cli' || a.tier === 'gui')
       && a.install && /^https?:\/\//i.test(a.install.downloadUrl || '');
+    const canAiInstall = canInstall && a.aiInstallable;
     const btn = canInstall
       ? `<button class="btn ab-install" type="button" data-id="${esc(a.id)}" data-url="${esc(a.install.downloadUrl)}">打开下载页</button>`
+      : '';
+    const aiButton = canAiInstall
+      ? `<button class="btn primary ab-ai-install" type="button" data-id="${esc(a.id)}">AI 自动安装</button>`
       : '';
     const manualKind = a.tier === 'cli' ? 'cli' : 'desktop';
     const manualPath = manualPathForAgent(a, manualKind);
@@ -1909,7 +1997,7 @@ async function openAgentManager(force, focusAgent = '') {
         ${manualPathEditorMarkup(a)}
         <div class="ab-progress" role="status" aria-live="polite"></div>
       </div>
-      <div class="ab-card-actions"><button class="btn ab-manual-path" type="button">手动配置路径</button>${discoverButton}${btn}</div>
+      <div class="ab-card-actions"><button class="btn ab-manual-path" type="button">手动配置路径</button>${discoverButton}${aiButton}${btn}</div>
     </div>`;
   }
   html += '</div>';
@@ -1929,6 +2017,23 @@ async function openAgentManager(force, focusAgent = '') {
 
   const copyPromptBtn = pop.querySelector('.ab-copy-skill-prompt');
   if (copyPromptBtn) copyPromptBtn.onclick = () => copyAgentInstallPrompt(copyPromptBtn);
+
+  const aiForm = pop.querySelector('#ab-ai-install-form');
+  if (aiForm) {
+    aiForm.onsubmit = (event) => {
+      event.preventDefault();
+      const agentId = aiForm.querySelector('#ab-ai-agent')?.value || '';
+      void runAiAgentInstall(agentId, event.submitter, aiForm);
+    };
+    pop.querySelectorAll('.ab-ai-install[data-id]').forEach((button) => {
+      button.onclick = () => {
+        const target = aiForm.querySelector('#ab-ai-agent');
+        if (target) target.value = button.dataset.id || '';
+        aiForm.querySelector('#ab-ai-api-key')?.focus();
+        aiForm.requestSubmit();
+      };
+    });
+  }
 
   pop.querySelectorAll('.ab-discover-path').forEach((b) => {
     b.onclick = () => discoverAgentPath(b.dataset.id, b);

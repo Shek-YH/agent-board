@@ -29,8 +29,18 @@ test('session 卡将时间和 session ID 放在底部，并为标题保留多行
   assert.match(html, /\.s-title\{[^}]*white-space:normal[^}]*-webkit-line-clamp:2/);
   assert.match(html, /\.app\{[^}]*width:100%[^}]*max-width:none[^}]*margin:0/);
   assert.match(html, /\.board-layout\{[^}]*grid-template-columns:166px minmax\(0,1fr\)[^}]*gap:10px/);
-  assert.match(html, /\.board\{[^}]*grid-template-columns:repeat\(auto-fit,minmax\(240px,1fr\)\)/);
+  assert.match(html, /\.board\{[^}]*display:grid[^}]*grid-auto-flow:column[^}]*grid-auto-columns:max\(180px,calc\(\(100% - 50px\)\/6\)\)[^}]*overflow-x:auto/);
+  assert.doesNotMatch(html, /grid-template-columns:repeat\(auto-fit/);
   assert.match(html, /\.s-card\{[^}]*height:196px[^}]*min-height:196px/);
   assert.match(html, /\.s-actions\{[^}]*position:absolute[^}]*right:12px[^}]*bottom:12px/);
-  assert.doesNotMatch(html, /\.board\.has-focus \.agent-col\.focused \.s-card\{[^}]*min-height/);
+});
+
+test('流光状态不会将 session 操作区挤回内容流', () => {
+  assert.match(html, /\.s-card\.flow-red>:not\(\.s-actions\),\.s-card\.flow-green>:not\(\.s-actions\)\{[^}]*position:relative[^}]*z-index:1/);
+  assert.match(html, /\.s-actions\{[^}]*position:absolute[^}]*right:12px[^}]*bottom:12px[^}]*z-index:3/);
+});
+
+test('session 看板按 Agent 分列渲染，未来新增列不会和现有 session 混成全局矩阵', () => {
+  assert.match(app, /for \(const key of cols\) \{[\s\S]*?col\.className = 'agent-col'[\s\S]*?const list = state\.board\[key\] \|\| \[\][\s\S]*?buildCard\(s, key\)/);
+  assert.match(html, /\.board\{[^}]*grid-auto-flow:column[^}]*grid-template-rows:auto/);
 });

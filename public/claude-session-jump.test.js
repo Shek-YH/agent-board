@@ -43,7 +43,7 @@ test('后端 Claude 跳转接口解析 Desktop descriptor 并调用 Claude launc
   assert.match(server, /resolveClaudeSessionTarget\(/);
   assert.match(server, /target\.title\s*\|\|=\s*session\.title/);
   assert.match(server, /resolveClaudeDesktopExe\(\)/);
-  assert.match(server, /launchGuiViaShell\(claudeDesktopExe\)/);
+  assert.doesNotMatch(server, /launchGuiViaShell\(claudeDesktopExe\)/);
   assert.match(server, /launchClaudeDeepLink\(target\.deepLink\)/);
   assert.doesNotMatch(server, /body\.url/);
 });

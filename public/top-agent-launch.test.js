@@ -39,8 +39,14 @@ test('Hermes 顶部快捷入口仍启动桌面端', () => {
   );
 });
 
-test('Claude 顶部快捷入口使用真实 Desktop exe，不把 claude:// 当作冷启动目标', () => {
+test('Claude 顶部快捷入口通过 Deep Link 启动，避免直接打开受保护的 WindowsApps exe', () => {
   assert.match(server, /resolveClaudeDesktopExe\(\)/);
   assert.match(server, /claude:\s*file\(resolveClaudeDesktopExe\(\), 'Claude Desktop'\)/);
-  assert.match(server, /if \(agent === 'claude'\) launchGuiViaShell\(configuredExecutable\)/);
+  assert.match(server, /function launchClaudeDesktop\(cb\)[\s\S]*?launchClaudeDeepLink\('claude:\/\/'\)/);
+  assert.doesNotMatch(server, /if \(agent === 'claude'\) launchGuiViaShell\(configuredExecutable\)/);
+});
+
+test('ZCode 顶部快捷入口优先启动已探测到的 Desktop exe，不再优先执行旧 bat', () => {
+  assert.match(server, /function launchZCodeDesktop\(cb\)[\s\S]*?resolveAgentGuiExecutable\('zcode'\)[\s\S]*?launchDetachedTarget/);
+  assert.match(server, /if \(agent === 'zcode'\) \{[\s\S]*?launchZCodeDesktop\(cb\)/);
 });

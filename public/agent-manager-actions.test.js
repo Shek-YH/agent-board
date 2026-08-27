@@ -24,10 +24,11 @@ test('应用管理卡片复用顶栏 Agent 的真实图标文件', () => {
   assert.match(app, /src="\/icons\/\$\{esc\(def\.icon\)\}"/);
 });
 
-test('应用管理安装动作只打开官方下载链接，不执行后端安装命令', () => {
+test('应用管理保留官方下载入口，并把 AI 安装走到受控接口', () => {
   assert.match(app, /downloadUrl/);
   assert.match(app, /window\.open\(downloadUrl/);
-  assert.doesNotMatch(app, /fetch\(`\/api\/agents\/\$\{encodeURIComponent\(id\)\}\/install`/);
+  assert.match(app, /ab-ai-install/);
+  assert.match(app, /\/api\/agent-installer\/run/);
 });
 
 test('应用管理对预置探测 Agent 标记仅探测并隐藏自动配置按钮', () => {
@@ -55,13 +56,21 @@ test('应用管理支持 CLI/Desktop 手动路径、清除和探测缓存失效'
   assert.match(server, /probeCache = \{ data: null, ts: 0 \}/);
 });
 
-test('Agent 卡片不按网格行拉伸，并保持统一的固定高度', () => {
+test('Agent 卡片使用稳定的上下两行布局，操作区不再挤压卡片内容', () => {
   assert.match(index, /\.ab-agent-grid\{[^}]*align-items:start/);
   assert.match(index, /\.ab-card\{[^}]*align-self:start/);
-  assert.match(index, /\.ab-card\{[^}]*height:82px/);
+  assert.match(index, /\.ab-card\{[^}]*min-height:124px/);
   assert.match(index, /\.ab-card\{[^}]*overflow:hidden/);
-  assert.match(index, /\.ab-card\{[^}]*display:flex/);
+  assert.match(index, /\.ab-card\{[^}]*display:grid/);
+  assert.match(index, /\.ab-card-actions\{[^}]*grid-column:1\/-1/);
   assert.match(index, /\.ab-card-main\{[^}]*min-height:0[^}]*overflow:hidden/);
+});
+
+test('应用管理提供有明确标签的 AI API Key 输入', () => {
+  assert.match(app, /ab-ai-api-key/);
+  assert.match(app, /type="password"/);
+  assert.match(app, /for="ab-ai-api-key"/);
+  assert.match(app, /AI 安装 API Key/);
 });
 
 test('Agent 安装 Skill 必须先询问范围，再使用官方页面', () => {

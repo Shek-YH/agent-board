@@ -29,6 +29,7 @@ const { launchClaudeDeepLink } = require('./lib/claude-desktop-launcher');
 const { repairCredentialsFile } = require('./lib/dsh-credentials');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
 const { focusZCodeSessionWithUiAutomation } = require('./lib/zcode-desktop-uia');
+const { runAgentInstall, getAgentInstallDefinitions } = require('./lib/agent-installer');
 const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const { buildRuntimeIdentity } = require('./lib/runtime-identity');
@@ -44,6 +45,7 @@ const zcode = require('./lib/adapters/zcode');
 const pi = require('./lib/adapters/pi');
 const hermes = require('./lib/adapters/hermes');
 const detectionCatalog = require('./lib/agent-detection-catalog');
+const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const PUBLIC = path.join(__dirname, 'public');
@@ -200,6 +202,53 @@ function launchGuiViaShell(executable) {
   // explorer.exe 使用 Windows Shell 语义处理带空格/非系统盘的 exe，
   // 比 cmd /c start 更不容易把路径误解析成窗口标题或参数。
   spawnDetachedClean('explorer.exe', [target]);
+}
+
+// Claude Desktop 是 Windows MSIX 应用。WindowsApps 内的 claude.exe 即使
+// 能被探测到，也不能稳定地交给 explorer.exe 直接打开；统一使用已注册
+// 的 Deep Link 让 Windows 按 AppUserModelId 启动并复用 Claude 单实例。
+function launchClaudeDesktop(cb) {
+  try {
+    launchClaudeDeepLink('claude://');
+    cb({ ok: true, action: 'launch', agent: 'claude' });
+  } catch (error) {
+    cb({ ok: false, error: error.message || '启动 Claude Desktop 失败', agent: 'claude' });
+  }
+}
+
+// ZCode 优先使用探测到的实际 Desktop exe；只有机器没有可执行文件时
+// 才退回随包启动脚本，避免旧脚本路径或通配符失效导致顶部按钮无反应。
+function launchZCodeDesktop(cb) {
+  const desktopExe = resolveAgentGuiExecutable('zcode');
+  const target = desktopExe || (process.platform === 'win32' ? AGENT_DEFS.zcode.launch : '');
+  if (!target) {
+    cb({ ok: false, error: '未找到 ZCode Desktop 启动目标', agent: 'zcode' });
+    return;
+  }
+  launchDetachedTarget(target, (result) => cb({
+    ...result,
+    action: result.ok ? 'launch' : result.action,
+    agent: 'zcode',
+  }));
+}
+
+// ZCode 没有可验证的 session 深链。跳转时必须先把该 session 的工作区
+// 投递给 ZCode，再由 UI Automation 从对应工作区的任务列表精确点击目标任务。
+async function launchZCodeWorkspace(workspace) {
+  const desktopExe = resolveAgentGuiExecutable('zcode');
+  if (desktopExe) {
+    const args = workspace ? ['--open-workspace', workspace] : [];
+    await launchDetachedTargetPromise(desktopExe, args);
+  } else {
+    await new Promise((resolve, reject) => {
+      launchZCodeDesktop((result) => result.ok ? resolve(result) : reject(new Error(result.error || '启动 ZCode Desktop 失败')));
+    });
+  }
+  const windowVerified = ['win32', 'darwin'].includes(process.platform)
+    ? await waitForAppWindow('ZCode', 9000)
+    : null;
+  if (windowVerified === false) throw new Error('ZCode Desktop 主窗口未确认出现');
+  return { windowVerified, workspaceOpened: Boolean(workspace) };
 }
 
 function launchSchemeTargetPromise(scheme) {
@@ -374,12 +423,7 @@ function launchAutomaticTarget(agent, requestedTarget, cb) {
     const selected = selectLaunchTarget(targets, agent, requestedTarget);
     if (selected.kind === 'scheme') launchSchemeTarget(selected.value, cb);
     else if (agent === 'claude') {
-      try {
-        launchGuiViaShell(selected.value);
-        cb({ ok: true, action: 'launch-target' });
-      } catch (error) {
-        cb({ ok: false, error: error.message || 'Claude Desktop 启动失败' });
-      }
+      launchClaudeDesktop((result) => cb({ ...result, action: result.ok ? 'launch-target' : result.action }));
     }
     else launchDetachedTarget(selected.value, cb);
   }).catch((error) => cb({ ok: false, error: error.message || '自动启动失败' }));
@@ -439,6 +483,16 @@ function launchOrFocusRaw(agent, requestedTarget, cb) {
   // 打开应用本身，直接传可执行文件路径，避免把协议交给系统 Shell 解析。
   if (agent === 'hermes') {
     launchHermesDesktop(cb);
+    return;
+  }
+
+  if (agent === 'claude') {
+    launchClaudeDesktop(cb);
+    return;
+  }
+
+  if (agent === 'zcode') {
+    launchZCodeDesktop(cb);
     return;
   }
 
@@ -502,8 +556,7 @@ function launchOrFocusRaw(agent, requestedTarget, cb) {
     } else if (result === 'NOT_RUNNING') {
       const configuredExecutable = resolveAgentGuiExecutable(agent);
       if (configuredExecutable) {
-        if (agent === 'claude') launchGuiViaShell(configuredExecutable);
-        else launchAgentExecutable(configuredExecutable);
+        launchAgentExecutable(configuredExecutable);
       } else if (def.scheme) {
         launchSchemeTarget(def.scheme, () => {});
       } else if (def.launch) {
@@ -1413,14 +1466,8 @@ const server = http.createServer(async (req, res) => {
       const claudeWindowRunning = process.platform === 'win32' && isClaudeDesktopRunning();
       const claudeAlreadyRunning = target.origin === 'desktop' && claudeWindowRunning;
       if (!claudeAlreadyRunning) {
-        // Claude Desktop 的 WindowsApps 目录受保护，不能依赖目录枚举；
-        // resolver 会优先使用当前机器已验证的 claude.exe，再通过注册表解析新版本目录。
-        if (!claudeWindowRunning) {
-          const claudeDesktopExe = resolveClaudeDesktopExe();
-          if (claudeDesktopExe && fs.existsSync(claudeDesktopExe)) {
-            launchGuiViaShell(claudeDesktopExe);
-          }
-        }
+        // Claude Desktop 是 MSIX，冷启动统一交给 Deep Link，避免直接
+        // 打开受保护的 WindowsApps\\...\\claude.exe 触发系统路径错误。
         await launchClaudeDeepLink(target.deepLink);
       }
       if (target.desktopSessionId && process.platform === 'win32') {
@@ -1462,8 +1509,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ZCode 跳转只负责在已运行的窗口中点击指定 session；找不到就结束本次脚本，
-  // 不启动 ZCode、不切换 workspace，也不做其它兜底动作。
+  // ZCode 没有 session 深链：先投递 session 对应工作区并确认主窗口，再按
+  // session ID/标题定位唯一任务；找不到任务时结束本次脚本，不跳转其它 session。
   if (pathname === '/api/open-zcode-session' && req.method === 'POST') {
     try {
       const body = await readBody(req);
@@ -1471,11 +1518,12 @@ const server = http.createServer(async (req, res) => {
       const session = store.getSession(`zcode:${sessionId}`);
       if (!session) throw new Error('ZCode session 不存在');
       const workspace = String(session.project || '').trim();
-      const focus = await focusZCodeSessionWithUiAutomation({ title: session.title, cwd: workspace });
+      const launch = await launchZCodeWorkspace(workspace);
+      const focus = await focusZCodeSessionWithUiAutomation({ sessionId, title: session.title, cwd: workspace });
       const ok = focus.status === 'ok';
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        ok, sessionId, workspace, status: focus.status,
+        ok, sessionId, workspace, windowVerified: launch.windowVerified, status: focus.status,
         ...(ok ? {} : { error: `ZCode 中未找到指定 session，脚本已结束（${focus.status}）` }),
       }));
     } catch (e) {
@@ -1946,6 +1994,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // AI 安装：AI 只负责在固定 Agent 定义中选择动作；实际 CLI 命令由
+  // lib/agent-installer.js 的白名单执行，桌面端只返回官方下载页。
+  // API Key 仅存在本次请求的内存和请求头中，不写入 Agent Board 配置。
+  if (pathname === '/api/agent-installer/run' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const result = await runAgentInstall({
+        agentId: body.agentId,
+        provider: body.provider,
+        model: body.model,
+        baseUrl: body.baseUrl,
+        apiKey: body.apiKey,
+      });
+      if (result.ok && result.action === 'install') probeCache = { data: null, ts: 0 };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || 'AI 安装失败' }));
+    }
+    return;
+  }
+
   // 应用探测：返回每个 agent 的安装/探测状态（设置页"应用管理"用）
   if (pathname === '/api/agents/status') {
     try {
@@ -1978,6 +2049,7 @@ const server = http.createServer(async (req, res) => {
             desktop: Array.isArray(configured.desktop) ? configured.desktop : [],
           },
           probeOnly: Boolean(target.probeOnly),
+          aiInstallable: AI_INSTALLABLE_IDS.has(id),
           install,
         };
       }

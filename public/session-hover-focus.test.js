@@ -8,16 +8,10 @@ const test = require('node:test');
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
-test('方案一不再使用悬停聚焦列，卡片直接进入全局矩阵', () => {
-  assert.match(app, /function renderBoard\(\)[\s\S]*?for \(const session of list\) board\.appendChild\(buildCard\(session, 'all'\)\)/);
-  assert.doesNotMatch(app, /setHoveredColumn|clearHoveredColumn|toggleManualColumn|applyColumnFocus/);
-  assert.doesNotMatch(app, /card\.addEventListener\('mouseenter'/);
-  assert.doesNotMatch(app, /card\.addEventListener\('mouseleave'/);
-  assert.match(html, /\.board\{[^}]*grid-template-columns:repeat\(auto-fit,minmax\(240px,1fr\)\)[^}]*gap:10px/);
+test('看板按列呈现 Agent，列内卡片保持垂直瀑布流', () => {
+  assert.match(app, /for \(const key of cols\) \{[\s\S]*?col\.className = 'agent-col'/);
+  assert.match(app, /const list = state\.board\[key\] \|\| \[\]/);
+  assert.match(app, /for \(const s of list\) cardsBox\.appendChild\(buildCard\(s, key\)\)/);
+  assert.match(html, /\.board\{[^}]*grid-auto-flow:column[^}]*grid-auto-columns:max\(180px,calc\(\(100% - 50px\)\/6\)\)/);
+  assert.match(html, /\.board\{[^}]*overflow-x:auto/);
  });
-
-test('刷新重建看板时只渲染当前显示 Agent 的 session', () => {
-  assert.match(app, /const visibleAgents = new Set\(cols\.filter\(\(key\) => key !== 'all'\)\)/);
-  assert.match(app, /const source = Array\.isArray\(state\.board\.all\)/);
-  assert.match(app, /const list = source\.filter\(\(session\) => !visibleAgents\.size \|\| visibleAgents\.has\(session\.agent\)\)/);
-});
