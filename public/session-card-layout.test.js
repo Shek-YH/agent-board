@@ -27,5 +27,10 @@ test('session 卡将时间和 session ID 放在底部，并为标题保留多行
   assert.match(bottomRow, /sessionIdHtml/);
   assert.match(template, /<div class="s-title-row">[\s\S]*?titleHtml[\s\S]*?statusHtml/);
   assert.match(html, /\.s-title\{[^}]*white-space:normal[^}]*-webkit-line-clamp:2/);
-  assert.match(html, /\.board\.has-focus \.agent-col\.focused \.s-card\{[^}]*min-height:154px/);
+  assert.match(html, /\.app\{[^}]*width:100%[^}]*max-width:none[^}]*margin:0/);
+  assert.match(html, /\.board-layout\{[^}]*grid-template-columns:166px minmax\(0,1fr\)[^}]*gap:10px/);
+  assert.match(html, /\.board\{[^}]*grid-template-columns:repeat\(auto-fit,minmax\(240px,1fr\)\)/);
+  assert.match(html, /\.s-card\{[^}]*height:196px[^}]*min-height:196px/);
+  assert.match(html, /\.s-actions\{[^}]*position:absolute[^}]*right:12px[^}]*bottom:12px/);
+  assert.doesNotMatch(html, /\.board\.has-focus \.agent-col\.focused \.s-card\{[^}]*min-height/);
 });

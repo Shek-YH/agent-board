@@ -37,5 +37,13 @@ test('Hermes session 跳转后激活 Hermes 主窗口', () => {
   assert.match(server, /hermes:[\s\S]*proc: 'Hermes'/, 'Hermes 必须使用实际桌面进程名，而不是 CLI 名');
   assert.match(server, /function focusHermesWindow\(attempt = 0\)/);
   assert.match(server, /function focusHermesWindow\(attempt = 0\)[\s\S]*?focusAppCall\('Hermes'/);
-  assert.match(server, /\/api\/open-hermes-session[\s\S]*?ensureAppThenDeepLink\([\s\S]*?focusAppCall/);
+  assert.match(server, /function launchHermesDesktop\([\s\S]*?focusAppCall\('Hermes'/);
+  assert.match(server, /function launchHermesDesktop\([\s\S]*?launchGuiViaShell\(desktopExe\)/);
+  assert.match(server, /function launchHermesThenFocus\([\s\S]*?launchHermesDesktop\([\s\S]*?waitForAppWindow\('Hermes'/);
+  assert.match(server, /\/api\/open-hermes-session[\s\S]*?launchHermesThenFocus\([\s\S]*?buildHermesDesktopDeepLink\(sessionId\)[\s\S]*?launchDetachedTargetPromise\(desktopExe, \[deepLink\]\)/);
+});
+
+test('Hermes 顶栏启动与 session 卡片复用同一套前台化入口', () => {
+  assert.match(server, /if \(agent === 'hermes'\)\s*\{[\s\S]*?launchHermesDesktop\(cb\);/);
+  assert.match(server, /function launchHermesDesktop\([\s\S]*?if \(text\.startsWith\('OK:'\)\)/);
 });

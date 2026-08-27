@@ -385,6 +385,40 @@ function launchAutomaticTarget(agent, requestedTarget, cb) {
   }).catch((error) => cb({ ok: false, error: error.message || '自动启动失败' }));
 }
 
+// Hermes 顶栏启动和 session 卡片跳转共用同一条“已有窗口前台化，否则启动”链路。
+// 先处理已有主窗口，避免直接带深链启动时只新增后台 helper 进程。
+function launchHermesDesktop(cb) {
+  const desktopExe = resolveHermesDesktopExe();
+  if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+    cb({ ok: false, error: `未找到 Hermes Desktop：${desktopExe}`, agent: 'hermes' });
+    return;
+  }
+  focusAppCall('Hermes', (result) => {
+    const text = String(result || '');
+    if (text.startsWith('OK:')) {
+      cb({ ok: true, action: 'focus', pid: text.slice(3), agent: 'hermes' });
+      return;
+    }
+    try {
+      launchGuiViaShell(desktopExe);
+      cb({ ok: true, action: 'launch', agent: 'hermes' });
+    } catch (error) {
+      cb({ ok: false, error: error.message || '启动 Hermes Desktop 失败', agent: 'hermes' });
+    }
+  });
+}
+
+async function launchHermesThenFocus() {
+  const launch = await new Promise((resolve, reject) => {
+    launchHermesDesktop((result) => result.ok ? resolve(result) : reject(new Error(result.error || '启动 Hermes Desktop 失败')));
+  });
+  const windowVerified = ['win32', 'darwin'].includes(process.platform)
+    ? await waitForAppWindow('Hermes', 9000)
+    : null;
+  if (windowVerified === false) throw new Error('Hermes Desktop 主窗口未确认出现');
+  return { ...launch, windowVerified };
+}
+
 // 窗口激活：手动桌面端优先；没有指定目标时保留原有默认启动/激活逻辑。
 function launchOrFocusRaw(agent, requestedTarget, cb) {
   const def = AGENT_DEFS[agent];
@@ -404,17 +438,7 @@ function launchOrFocusRaw(agent, requestedTarget, cb) {
   // Hermes Desktop 可能尚未向 Windows 注册 hermes:// 协议；顶栏启动只需要
   // 打开应用本身，直接传可执行文件路径，避免把协议交给系统 Shell 解析。
   if (agent === 'hermes') {
-    const desktopExe = resolveHermesDesktopExe();
-    if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
-      cb({ ok: false, error: `未找到 Hermes Desktop：${desktopExe}` });
-      return;
-    }
-    try {
-      launchGuiViaShell(desktopExe);
-      cb({ ok: true, action: 'launch', agent });
-    } catch (e) {
-      cb({ ok: false, error: e.message || '启动 Hermes Desktop 失败', agent });
-    }
+    launchHermesDesktop(cb);
     return;
   }
 
@@ -1521,25 +1545,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 按 stored session id 打开 Hermes Desktop。直接把 hermes URI 作为启动
-  // 参数传给 Electron：已运行实例由 second-instance 接收，冷启动实例由
-  // main.ts 的 argv 路径接收，不依赖旧安装是否已经注册协议。
+  // 按 stored session id 打开 Hermes Desktop：先复用顶栏的启动/前台化逻辑，
+  // 再把 hermes URI 作为启动参数交给单实例定位指定 session。
   if (pathname === '/api/open-hermes-session' && req.method === 'POST') {
     try {
       const body = await readBody(req);
       const sessionId = String(body.sessionId || '');
-      const deepLink = buildHermesDesktopDeepLink(sessionId);
       if (!store.getSession(`hermes:${sessionId}`)) throw new Error('Hermes session 不存在');
+      const launch = await launchHermesThenFocus();
+      const deepLink = buildHermesDesktopDeepLink(sessionId);
       const desktopExe = resolveHermesDesktopExe();
       if (process.platform === 'win32' && !fs.existsSync(desktopExe)) throw new Error(`未找到 Hermes Desktop：${desktopExe}`);
-      const result = await ensureAppThenDeepLink({
-        procName: AGENT_DEFS.hermes.proc,
-        launchExe: desktopExe,
-        sendDeepLink: () => process.platform === 'win32'
-          ? launchDetachedTargetPromise(desktopExe, [deepLink])
-          : launchSchemeTargetPromise(deepLink),
-      });
-      const ok = result.windowVerified !== false;
+      const deepLinkResult = process.platform === 'win32'
+        ? await launchDetachedTargetPromise(desktopExe, [deepLink])
+        : await launchSchemeTargetPromise(deepLink);
+      // 深链交给 Hermes 单实例后再次确认主窗口，确保卡片点击不仅创建后台进程。
+      const windowVerified = ['win32', 'darwin'].includes(process.platform)
+        ? await waitForAppWindow('Hermes', 5000)
+        : null;
+      const result = { ...launch, ...(deepLinkResult || {}), action: 'launch-then-focus-then-locate', windowVerified };
+      const ok = windowVerified !== false;
       res.writeHead(ok ? 200 : 502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok, sessionId, ...result, ...(ok ? {} : { error: 'Hermes Desktop 主窗口未确认出现，深链未能可靠跳转' }) }));
     } catch (e) {

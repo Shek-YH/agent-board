@@ -1,21 +1,6 @@
 'use strict';
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
-const AUTO_EXPAND_STORAGE_KEY = 'ab-hover-expand-v2';
-
-function loadAutoExpand() {
-  try {
-    const value = localStorage.getItem(AUTO_EXPAND_STORAGE_KEY);
-    return value === null ? false : value === '1';
-  } catch {
-    return false;
-  }
-}
-
-function saveAutoExpand(enabled) {
-  try { localStorage.setItem(AUTO_EXPAND_STORAGE_KEY, enabled ? '1' : '0'); } catch {}
-}
-
 const state = {
   agents: [], projects: [], active: [], agentsDef: {},
   project: '', q: '', range: 7, activeRange: 'day', activeProject: '',
@@ -33,12 +18,11 @@ const state = {
   loading: false,
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
-  autoExpandOnHover: loadAutoExpand(),
   monitorMode: 'manual',
   orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false },
 };
 
-// 瀑布流列配置：localStorage 持久化（显示哪些 agent 列 + 顺序），null 表示用默认
+// Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
 function loadColOrder() {
   try { return JSON.parse(localStorage.getItem('ab-cols')); } catch { return null; }
 }
@@ -760,139 +744,30 @@ function syncFlowDecor(ref) {
 function renderBoard() {
   const board = $('board');
   const cols = effectiveCols();
-  const hoveredCol = board.dataset.hoveredCol;
-  const focusedCol = board.dataset.focusedCol || hoveredCol;
-  const focusMode = board.dataset.focusMode || (hoveredCol ? 'hover' : '');
-  const preserveFocus = hoveredCol && cols.includes(hoveredCol)
-    && [...board.querySelectorAll('.agent-col')].some((col) => col.dataset.col === hoveredCol && col.matches(':hover'))
-    || (focusMode === 'manual' && focusedCol && cols.includes(focusedCol));
+  const visibleAgents = new Set(cols.filter((key) => key !== 'all'));
+  const source = Array.isArray(state.board.all)
+    ? state.board.all
+    : cols.flatMap((key) => state.board[key] || []);
+  const list = source.filter((session) => !visibleAgents.size || visibleAgents.has(session.agent));
   board.innerHTML = '';
-  if (!preserveFocus) {
-    clearColumnFocus(board, cols);
-  }
-  for (const key of cols) {
-    const col = document.createElement('div');
-    col.className = 'agent-col';
-    col.dataset.col = key;
-    const meta = key === 'all' ? { name: '全部', color: '#888780', icon: null } : (state.agentsDef[key] || { name: key, color: '#888780', icon: null });
-    const head = document.createElement('div');
-    head.className = 'col-head';
-    head.setAttribute('role', 'button');
-    head.setAttribute('tabindex', '0');
-    head.setAttribute('aria-label', `${meta.name}：点击手动展开或收起`);
-    head.style.setProperty('--colc', meta.color);
-    head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>`;
-    head.addEventListener('click', () => toggleManualColumn(key));
-    head.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleManualColumn(key);
-      }
-    });
-    const cardsBox = document.createElement('div');
-    cardsBox.className = 'col-cards';
-    col.appendChild(head);
-    col.appendChild(cardsBox);
-    board.appendChild(col);
-    // 焦点属于整列，而不是单张卡：在同列卡片间的间隙移动时保持展开。
-    col.addEventListener('mouseenter', () => setHoveredColumn(key));
-    col.addEventListener('mouseleave', () => clearHoveredColumn());
-    const list = state.board[key] || [];
-    if (!list.length) {
-      const empty = document.createElement('div');
-      empty.className = 'col-empty';
-      empty.textContent = key === 'all' ? '暂无会话' : '暂无该 agent 的会话';
-      if (key !== 'all' && state.agentsDef[key]) {
-        const quickOpen = document.createElement('button');
-        quickOpen.type = 'button';
-        quickOpen.className = 'col-empty-action';
-        quickOpen.textContent = `启动 ${meta.name}`;
-        quickOpen.title = `启动 ${meta.name}；如果没有窗口会自动显示恢复指引`;
-        quickOpen.addEventListener('click', (e) => {
-          e.stopPropagation();
-          launchAgent(key);
-        });
-        empty.appendChild(quickOpen);
-      }
-      cardsBox.appendChild(empty);
-      continue;
-    }
-    for (const s of list) cardsBox.appendChild(buildCard(s, key));
-  }
-  if (preserveFocus) {
-    const key = focusMode === 'manual' ? focusedCol : hoveredCol;
-    board.dataset.focusedCol = key;
-    board.dataset.focusMode = focusMode;
-    if (focusMode === 'hover') board.dataset.hoveredCol = key;
-    applyColumnFocus(board, key, cols);
-  }
-}
-
-function applyColumnFocus(board, key, cols = effectiveCols()) {
-  board.classList.add('has-focus');
-  // 聚焦列比普通列增加 1 倍宽度，避免回到原来的超宽比例。
-  board.style.gridTemplateColumns = cols.map((col) => col === key ? 'minmax(0, 2fr)' : 'minmax(0, 1fr)').join(' ');
-  board.querySelectorAll('.agent-col').forEach((col) => {
-    const focused = col.dataset.col === key;
-    col.classList.toggle('focused', focused);
-    col.querySelector('.col-head')?.setAttribute('aria-expanded', focused ? 'true' : 'false');
-  });
-}
-
-function clearColumnFocus(board, cols = effectiveCols()) {
-  board.classList.remove('has-focus');
-  delete board.dataset.hoveredCol;
-  delete board.dataset.focusedCol;
-  delete board.dataset.focusMode;
-  board.style.gridTemplateColumns = cols.map(() => 'minmax(0, 1fr)').join(' ');
-  board.querySelectorAll('.agent-col').forEach((col) => {
-    col.classList.remove('focused');
-    col.querySelector('.col-head')?.setAttribute('aria-expanded', 'false');
-  });
-}
-
-function setHoveredColumn(key) {
-  const board = $('board');
-  if (!state.autoExpandOnHover || board.dataset.focusMode === 'manual') return;
-  if (board.dataset.hoveredCol === key) return;
-  const cols = effectiveCols();
-  board.dataset.hoveredCol = key;
-  board.dataset.focusedCol = key;
-  board.dataset.focusMode = 'hover';
-  applyColumnFocus(board, key, cols);
-}
-
-function clearHoveredColumn() {
-  const board = $('board');
-  if (board.dataset.focusMode === 'manual' || !board.dataset.hoveredCol) return;
-  clearColumnFocus(board);
-}
-
-function toggleManualColumn(key) {
-  const board = $('board');
-  if (board.dataset.focusMode === 'manual' && board.dataset.focusedCol === key) {
-    clearColumnFocus(board);
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'col-empty';
+    empty.textContent = '暂无会话';
+    board.appendChild(empty);
     return;
   }
-  delete board.dataset.hoveredCol;
-  board.dataset.focusedCol = key;
-  board.dataset.focusMode = 'manual';
-  applyColumnFocus(board, key);
+  for (const session of list) board.appendChild(buildCard(session, 'all'));
 }
 
-function setAutoExpandOnHover(enabled) {
-  state.autoExpandOnHover = Boolean(enabled);
-  saveAutoExpand(state.autoExpandOnHover);
-  if (!state.autoExpandOnHover) clearHoveredColumn();
-}
-// 隐藏一列（从配置里移除；全部列不可隐藏）
+// 隐藏一个 Agent（从显示配置里移除；全部视图不可隐藏）
 function hideCol(key) {
   if (key === 'all') { toast('「全部」列不可隐藏'); return; }
   const order = effectiveCols().filter((c) => c !== key);
   state.colOrder = order;
   saveColOrder(order);
   renderBoard();
-  toast('已隐藏 ' + (agentMeta(key).name || key) + ' 列，点筛选栏「列设置」可恢复');
+  toast('已隐藏 ' + (agentMeta(key).name || key) + '，可在 Agent 显示设置中恢复');
 }
 
 const RUNTIME_STATUS_LABELS = {
@@ -986,6 +861,8 @@ function buildCard(s, colKey) {
       <span class="s-msg">${s.msg_count} 条</span>
       <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
       ${sessionIdHtml}
+    </div>
+    <div class="s-actions">
       <button class="s-more" data-action="session-menu" data-ref="${esc(s.id)}" title="更多操作">···</button>
       ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
       <button type="button" class="s-jump" data-action="jump-session" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" aria-label="跳转到 ${esc(meta.name||s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
@@ -1456,18 +1333,11 @@ function openSettingsHub() {
   pop.style.minWidth = '200px';
   document.body.appendChild(pop);
   pop.innerHTML = `<div class="pop-head">设置</div>
-    <label class="pop-item settings-toggle" for="settings-hover-expand">
-      <span>悬停 session 卡自动展开</span>
-      <input type="checkbox" id="settings-hover-expand">
-    </label>
-    <button class="pop-item" id="settings-cols">瀑布流设置</button>
+    <button class="pop-item" id="settings-cols">Agent 显示设置</button>
     <button class="pop-item" id="settings-account">账户与方案</button>
     <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
-  const toggle = pop.querySelector('#settings-hover-expand');
-  toggle.checked = state.autoExpandOnHover;
-  toggle.onchange = () => setAutoExpandOnHover(toggle.checked);
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
@@ -1791,7 +1661,7 @@ async function openLaunchOverridesManager() {
   });
 }
 
-/* ---------- 瀑布流列管理 ---------- */
+/* ---------- Agent 显示管理 ---------- */
 function openColManager() {
   closePopover();
   state.popoverFor = 'cols';
@@ -1805,7 +1675,7 @@ function openColManager() {
   document.body.appendChild(pop);
   const current = effectiveCols();
   const items = [...state.agentIds];
-  let html = `<div class="pop-head">瀑布流列设置 <span style="opacity:.5;font-weight:400">（勾选显示，上下拖动顺序）</span></div>
+  let html = `<div class="pop-head">Agent 显示设置 <span style="opacity:.5;font-weight:400">（勾选显示，上下拖动顺序）</span></div>
     <div style="padding:6px 8px;max-height:56vh;overflow-y:auto">`;
   for (const id of items) {
     const meta = id === 'all' ? { name: '全部', color: '#888780' } : agentMeta(id);
@@ -1863,7 +1733,7 @@ function openColManager() {
     });
   });
 
-  pop.querySelector('#cols-done').onclick = () => { applyCols(); closePopover(); toast('列设置已保存'); };
+  pop.querySelector('#cols-done').onclick = () => { applyCols(); closePopover(); toast('Agent 显示设置已保存'); };
   pop.querySelector('#cols-reset').onclick = () => {
     // 恢复默认＝恢复到「探测为已安装或有历史数据」过滤后的默认列，不是恢复成全部 agent
     state.colOrder = null;

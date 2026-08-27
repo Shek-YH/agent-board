@@ -63,6 +63,7 @@ function createMainWindow() {
     minWidth: 1000,
     minHeight: 680,
     show: false,
+    autoHideMenuBar: true,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       contextIsolation: true,
@@ -70,6 +71,7 @@ function createMainWindow() {
       sandbox: true,
     },
   });
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!isLocalUrl(url)) openExternalSafely(url);
