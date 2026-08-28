@@ -11,7 +11,7 @@ const workbuddy = require('./lib/adapters/workbuddy');
 const pi = require('./lib/adapters/pi');
 const deepseek = require('./lib/adapters/deepseek');
 
-const serverSource = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+const serverSource = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8').replace(/\r\n/g, '\n');
 
 function loadFileOffsetResolver() {
   const start = serverSource.indexOf('function fileOffsetKey(adapter, filePath)');
