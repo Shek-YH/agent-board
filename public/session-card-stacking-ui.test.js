@@ -4,9 +4,71 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8').replace(/\r\n/g, '\n');
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace(/\r\n/g, '\n');
+
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `missing ${name}`);
+  const open = source.indexOf('{', start);
+  let depth = 0;
+  let quote = '';
+  let lineComment = false;
+  let blockComment = false;
+  for (let i = open; i < source.length; i += 1) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (lineComment) { if (c === '\n') lineComment = false; continue; }
+    if (blockComment) { if (c === '*' && next === '/') { blockComment = false; i += 1; } continue; }
+    if (quote) {
+      if (c === '\\') { i += 1; continue; }
+      if (c === quote) quote = '';
+      continue;
+    }
+    if (c === '/' && next === '/') { lineComment = true; i += 1; continue; }
+    if (c === '/' && next === '*') { blockComment = true; i += 1; continue; }
+    if (c === "'" || c === '"' || c === '`') { quote = c; continue; }
+    if (c === '{') depth += 1;
+    if (c === '}' && --depth === 0) return source.slice(start, i + 1);
+  }
+  throw new Error(`unterminated ${name}`);
+}
+
+function loadFunctions(names, extra = {}) {
+  const script = names.map((name) => extractFunction(app, name)).join('\n');
+  return vm.runInNewContext(`${script}\n({${names.map((name) => `${name}`).join(',')}})`, extra);
+}
+
+function fakeClassList(...initial) {
+  const values = new Set(initial);
+  return {
+    add(...classes) { classes.forEach((name) => values.add(name)); },
+    remove(...classes) { classes.forEach((name) => values.delete(name)); },
+    toggle(name, force) {
+      const next = force === undefined ? !values.has(name) : force;
+      if (next) values.add(name); else values.delete(name);
+      return next;
+    },
+    contains(name) { return values.has(name); },
+  };
+}
+
+function fakeGroup(rootRef, childCount) {
+  const button = {
+    dataset: { childCount: String(childCount) },
+    attrs: {},
+    title: '',
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+  };
+  return {
+    dataset: { rootRef },
+    classList: fakeClassList('is-stacked'),
+    querySelector(selector) { return selector === '.s-subagent-toggle' ? button : null; },
+    button,
+  };
+}
 
 test('session card stacking helper script loads before app.js', () => {
   assert.match(html, /<script src="\/session-card-stacking\.js"><\/script>\n<script src="\/app\.js"><\/script>/);
@@ -84,4 +146,92 @@ test('only grouped main cards expose an accessible toggle and expansion sync exc
   assert.match(app, /e\.target\.closest\('\.s-subagent-toggle'\)/);
   const cardClick = app.match(/card\.addEventListener\('click',[\s\S]*?\n\s*\}\);/)?.[0] || '';
   assert.match(cardClick, /e\.target\.closest\('\.s-subagent-toggle'\)/);
+});
+
+test('toggleSubagentGroup updates both same-root columns and both accessibility states without touching another root', () => {
+  const firstColumn = fakeGroup('root-1', 3);
+  const secondColumn = fakeGroup('root-1', 3);
+  const otherRoot = fakeGroup('root-2', 1);
+  const state = { expandedSubagentGroups: new Set() };
+  const document = {
+    querySelectorAll(selector) {
+      assert.equal(selector, '#board .session-card-group');
+      return [firstColumn, secondColumn, otherRoot];
+    },
+  };
+  const { toggleSubagentGroup } = loadFunctions(['syncSubagentGroupExpansion', 'toggleSubagentGroup'], { state, document });
+
+  toggleSubagentGroup('root-1');
+  assert.equal(state.expandedSubagentGroups.has('root-1'), true);
+  for (const group of [firstColumn, secondColumn]) {
+    assert.equal(group.classList.contains('is-expanded'), true);
+    assert.equal(group.classList.contains('is-stacked'), false);
+    assert.equal(group.button.attrs['aria-expanded'], 'true');
+    assert.equal(group.button.title, '收拢 3 个子代理');
+    assert.equal(group.button.attrs['aria-label'], '收拢 3 个子代理');
+  }
+  assert.equal(otherRoot.classList.contains('is-expanded'), false);
+  assert.equal(otherRoot.classList.contains('is-stacked'), true);
+  assert.equal(otherRoot.button.attrs['aria-expanded'], undefined);
+
+  toggleSubagentGroup('root-1');
+  assert.equal(state.expandedSubagentGroups.has('root-1'), false);
+  for (const group of [firstColumn, secondColumn]) {
+    assert.equal(group.classList.contains('is-expanded'), false);
+    assert.equal(group.classList.contains('is-stacked'), true);
+    assert.equal(group.button.attrs['aria-expanded'], 'false');
+    assert.equal(group.button.title, '展开 3 个子代理');
+    assert.equal(group.button.attrs['aria-label'], '展开 3 个子代理');
+  }
+  assert.equal(otherRoot.classList.contains('is-expanded'), false);
+  assert.equal(otherRoot.classList.contains('is-stacked'), true);
+  assert.equal(otherRoot.button.attrs['aria-expanded'], undefined);
+});
+
+test('buildSessionCardGroup restores expanded state and passes context only to its root card', () => {
+  const calls = [];
+  const state = { expandedSubagentGroups: new Set(['root-1']) };
+  const document = {
+    createElement() {
+      const element = {
+        className: '',
+        dataset: {},
+        children: [],
+        style: { values: {}, setProperty(name, value) { this.values[name] = String(value); } },
+        classList: fakeClassList(),
+        appendChild(child) { this.children.push(child); return child; },
+      };
+      return element;
+    },
+  };
+  const buildCard = (...args) => {
+    calls.push(args);
+    return {
+      classList: fakeClassList(),
+      style: { values: {}, setProperty(name, value) { this.values[name] = String(value); } },
+    };
+  };
+  const { buildSessionCardGroup } = loadFunctions(['buildSessionCardGroup'], { state, document, buildCard });
+  const root = { id: 'root-1' };
+  const childA = { id: 'child-a' };
+  const childB = { id: 'child-b' };
+  const wrapper = buildSessionCardGroup({ root, children: [childA, childB] }, 'all');
+
+  assert.equal(wrapper.className, 'session-card-group is-expanded');
+  assert.equal(wrapper.dataset.rootRef, 'root-1');
+  assert.equal(wrapper.style.values['--stack-count'], '2');
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0][0], root);
+  assert.equal(calls[0][1], 'all');
+  assert.equal(calls[0][2].expanded, true);
+  assert.equal(calls[0][2].childCount, 2);
+  assert.deepEqual(calls.slice(1).map((args) => args.length), [2, 2]);
+  assert.deepEqual(calls.slice(1).map((args) => args[0]), [childA, childB]);
+  assert.equal(wrapper.children.length, 2);
+  assert.equal(wrapper.children[1].className, 'session-card-children');
+  assert.equal(wrapper.children[1].children.length, 2);
+
+  state.expandedSubagentGroups.clear();
+  const collapsed = buildSessionCardGroup({ root, children: [childA, childB] }, 'all');
+  assert.equal(collapsed.className, 'session-card-group is-stacked');
 });
