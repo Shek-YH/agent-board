@@ -20,8 +20,8 @@ test('提示音设置可上传、选择、试听并持久化请求', () => {
 
 test('仅在完成迁移时按 Agent 分配播放提示音', () => {
   assert.match(source, /function markRecentlyCompleted\(ref\)/);
-  assert.match(source, /const disabledAgents = new Set\(state\.completionSounds\.disabledAgents \|\| \[\]\)/);
-  assert.match(source, /if \(disabledAgents\.has\(agent\)\) return;/);
+  assert.match(source, /const role = sessionRoleForRef\(ref\)/);
+  assert.match(source, /if \(!isSoundRoleEnabled\(state\.completionSounds, agent, role\)\) return;/);
   assert.match(source, /state\.completionSounds\.assignments\[agent\]/);
   assert.match(source, /if \(sound\) playSoundPreview\(sound\.url\)/);
 });
@@ -32,6 +32,15 @@ test('提示音设置提供单 Agent 和一键全局开关', () => {
   assert.match(source, /id="sound-toggle-all"/);
   assert.match(source, /data-agent-toggle/);
   assert.match(source, /\/api\/sounds\/enabled/);
+});
+
+test('提示音设置提供主会话和子代理独立开关，并按会话角色播放', () => {
+  assert.match(source, /disabledAgentRoles/);
+  assert.match(source, /function sessionRoleForRef\(ref\)/);
+  assert.match(source, /state\.sessionRoles\.set\(ref, a\.session_role\)/);
+  assert.match(source, /function isSoundRoleEnabled\(settings, agent, role\)/);
+  assert.match(source, /data-sound-role="child"/);
+  assert.match(source, /const role = button\.dataset\.soundRole/);
 });
 
 test('升级修复时一次性清理旧的伪完成标记', () => {

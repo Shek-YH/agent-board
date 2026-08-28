@@ -1386,8 +1386,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (typeof body.enabled !== 'boolean') throw new TypeError('Invalid sound enabled state');
       const enabled = body.enabled;
+      const role = body.role === undefined ? 'all' : body.role;
+      if (role !== 'all' && role !== 'main' && role !== 'child') throw new TypeError('Invalid sound role');
       const agents = [...new Set(body.agents)];
-      const settings = soundSettings.setSoundsEnabled(agents, enabled);
+      const settings = soundSettings.setSoundsEnabled(agents, enabled, undefined, role);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(settings));
     } catch (error) {
