@@ -29,3 +29,11 @@ test('topology badge styles are compact and accessible by text, not color alone'
   assert.match(htmlSource, /\.s-topology-badge\.child/);
   assert.match(htmlSource, /\.s-topology-badge\.unknown/);
 });
+
+test('native jumps resolve synthetic Marvis and Hermes children through their durable parent', () => {
+  assert.match(appSource, /function sessionNavigationId\(s\)/);
+  assert.match(appSource, /s\.agent === 'marvis' \|\| s\.agent === 'hermes'/);
+  assert.match(appSource, /String\(s\.session_id \|\| ''\)\.includes\(':subagent:'\)/);
+  assert.match(appSource, /parent_session_ref/);
+  assert.match(appSource, /const navigationId = sessionNavigationId\(s\)/);
+});

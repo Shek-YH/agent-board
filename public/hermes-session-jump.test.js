@@ -12,6 +12,12 @@ const desktopPath = fs.readFileSync(path.join(__dirname, '..', 'lib', 'hermes-de
 test('Hermes session 卡片跳转调用桌面端指定 stored session 接口', () => {
   assert.match(app, /function openHermesSession\(sessionId\)/);
   assert.match(app, /function jumpToAgentSession\(s\)[\s\S]*?s\.agent === 'hermes'[\s\S]*?openHermesSession\(s\.session_id\)/);
+  assert.match(app, /function sessionNavigationId\(s\)/);
+});
+
+test('Hermes synthetic child jump uses durable parent while preserving child card identity', () => {
+  assert.match(app, /const navigationId = sessionNavigationId\(s\)/);
+  assert.match(app, /s = \{ \.\.\.s, session_id: navigationId \}/);
 });
 
 test('后端 Hermes 跳转接口只接受 sessionId 并构造 hermes 深链', () => {

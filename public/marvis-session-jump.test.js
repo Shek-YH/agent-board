@@ -11,6 +11,12 @@ const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 test('Marvis session 卡片跳转调用指定会话接口', () => {
   assert.match(app, /function openMarvisSession\(sessionId\)/);
   assert.match(app, /function jumpToAgentSession\(s\)[\s\S]*?s\.agent === 'marvis'[\s\S]*?openMarvisSession\(s\.session_id\)/);
+  assert.match(app, /function sessionNavigationId\(s\)/);
+});
+
+test('Marvis synthetic child jump uses durable parent while preserving child card identity', () => {
+  assert.match(app, /const navigationId = sessionNavigationId\(s\)/);
+  assert.match(app, /s = \{ \.\.\.s, session_id: navigationId \}/);
 });
 
 test('后端 Marvis 跳转接口构造 conversation share 深链并校验存储会话', () => {

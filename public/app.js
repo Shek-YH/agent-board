@@ -478,7 +478,21 @@ async function openHermesSession(sessionId) {
     toast('Hermes Agent：已打开指定 Desktop 会话');
   } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); }
 }
+function sessionNavigationId(s) {
+  const syntheticChild = s?.session_role === 'child'
+    && (s.agent === 'marvis' || s.agent === 'hermes')
+    && String(s.session_id || '').includes(':subagent:');
+  if (!syntheticChild || !s.parent_session_ref) return s.session_id;
+  const prefix = `${s.agent}:`;
+  return String(s.parent_session_ref).startsWith(prefix)
+    ? String(s.parent_session_ref).slice(prefix.length)
+    : s.session_id;
+}
 function jumpToAgentSession(s) {
+  // Native desktop links cannot resolve synthetic Marvis/Hermes child IDs. Keep the
+  // card/session identity untouched and use a short-lived navigation view instead.
+  const navigationId = sessionNavigationId(s);
+  s = { ...s, session_id: navigationId };
   if (s.agent === 'claude') return openClaudeSession(s.session_id);
   if (s.agent === 'codex') return openCodexThread(s.session_id);
   if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
