@@ -221,6 +221,15 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .sound-toggle.on .sound-toggle-thumb{transform:translateX(14px)}
 .sound-toggle:disabled{opacity:.55;cursor:wait}
 .sound-settings-panel{min-width:0}
+.sound-library{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:10px}
+.sound-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:5px;min-width:0;padding:6px 7px;border:1px solid var(--border);border-radius:7px}
+.sound-choice{display:flex;align-items:center;gap:5px;min-width:0;cursor:pointer}
+.sound-choice input{margin:0;flex:0 0 auto}
+.sound-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.sound-row .btn{min-height:26px;padding:3px 7px;font-size:11px}
+.sound-row .sound-delete{color:#B91C1C}
+@media (max-width:700px){.sound-library{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:520px){.sound-library{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .shortcut-settings{padding:14px 16px 16px}
 .shortcut-title{font-size:14px;font-weight:650;color:var(--text)}
 .shortcut-help{margin-top:4px;color:var(--text3);font-size:12px;line-height:1.55}

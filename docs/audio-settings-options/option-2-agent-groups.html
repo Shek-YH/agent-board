@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>试听模块方案 B · Agent 分组</title>
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--line:#dfe5ec;--text:#172033;--muted:#718096;--accent:#2563eb}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}.shell{width:min(980px,calc(100% - 32px));margin:28px auto}
+    .top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:18px}h1{font-size:20px;margin:0 0 5px}.desc{margin:0;color:var(--muted);font-size:12px}.badge{padding:5px 9px;border:1px solid #bfd2f8;border-radius:999px;background:#eef4ff;color:#2458b8;font-size:12px;white-space:nowrap}
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(23,32,51,.06);padding:16px}.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.title{font-weight:650}.help{color:var(--muted);font-size:12px;margin-top:2px}.btn{border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--text);padding:6px 9px;font:inherit;font-size:12px;cursor:pointer}.btn:hover{border-color:#9db6df;color:var(--accent)}
+    .agent-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.agent-card{min-width:0;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff}.agent-head{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:650;font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#10a37f;flex:none}.audio{padding:8px;background:#f8fafc;border-radius:8px}.audio-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.audio-meta{display:flex;justify-content:space-between;gap:6px;margin-top:5px;color:var(--muted);font-size:10px}.card-actions{display:flex;gap:5px;margin-top:8px}.card-actions .btn{flex:1;padding:5px 4px;font-size:11px}.select{width:100%;margin-top:8px;border:1px solid var(--line);border-radius:6px;padding:5px;background:#fff;color:var(--text);font:inherit;font-size:11px}.status{min-height:20px;margin-top:12px;color:var(--muted);font-size:12px}.note{margin-top:14px;padding:10px 12px;background:#f8fafc;border-left:3px solid #9db6df;color:var(--muted);font-size:12px}
+    @media(max-width:760px){.agent-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:560px){.shell{width:min(100% - 20px,480px);margin:16px auto}.top{display:block}.badge{display:inline-block;margin-top:10px}.agent-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:360px){.agent-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top"><div><h1>完成提示音设置</h1><p class="desc">方案 B：Agent 优先，每个 Agent 一张小卡片，直接看到当前默认音色。</p></div><span class="badge">适合逐个调整默认音色</span></div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="title">Agent 默认音频</div><div class="help">每张卡片独立选择、试听或更换声音。</div></div><button class="btn">全部开启</button></div>
+      <div class="agent-grid">
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>Claude Code</div><div class="audio"><span class="audio-name">claude龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.3s</span></div></div><select class="select"><option>claude龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="claude-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>Codex</div><div class="audio"><span class="audio-name">codex龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.5s</span></div></div><select class="select"><option>codex龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="codex-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>Marvis</div><div class="audio"><span class="audio-name">marvis龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.1s</span></div></div><select class="select"><option>marvis龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="marvis-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>ZCODE</div><div class="audio"><span class="audio-name">zcode龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.1s</span></div></div><select class="select"><option>zcode龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="zcode-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>Hermes</div><div class="audio"><span class="audio-name">赫秘书龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.1s</span></div></div><select class="select"><option>赫秘书龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="hermes-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>Pi</div><div class="audio"><span class="audio-name">派龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.0s</span></div></div><select class="select"><option>派龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="pi-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>DeepSeek</div><div class="audio"><span class="audio-name">deepseek龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.1s</span></div></div><select class="select"><option>deepseek龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="deepseek-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+        <article class="agent-card"><div class="agent-head"><span class="dot"></span>WorkBuddy</div><div class="audio"><span class="audio-name">workbuddy龙安昀.mp3</span><div class="audio-meta"><span>龙安昀 · MP3</span><span>2.4s</span></div></div><select class="select"><option>workbuddy龙安昀.mp3</option><option>性感女声.wav</option></select><div class="card-actions"><button class="btn preview" data-audio="workbuddy-longanyun.mp3">试听</button><button class="btn">更换</button></div></article>
+      </div>
+      <div class="status" id="status">已加载 8 个 Agent 的默认音频</div>
+      <div class="note">优点：默认关系一眼可见，适合按 Agent 管理。代价：音频库很大时，重复音频名称会出现在多张卡片里。</div>
+    </section>
+  </main>
+  <script>
+    const player = new Audio();
+    document.querySelectorAll('.preview').forEach((button) => button.addEventListener('click', () => {
+      player.src = '../../public/sounds/uploads/' + button.dataset.audio;
+      player.play().then(() => { document.querySelector('#status').textContent = '正在试听：' + button.dataset.audio; }).catch(() => { document.querySelector('#status').textContent = '试听文件已定位：' + button.dataset.audio; });
+    }));
+    document.querySelectorAll('.select').forEach((select) => select.addEventListener('change', () => { document.querySelector('#status').textContent = '已选择：' + select.value + '，点击“更换”保存到对应 Agent'; }));
+  </script>
+</body>
+</html>

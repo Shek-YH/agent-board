@@ -4,11 +4,22 @@ const path = require('node:path');
 const test = require('node:test');
 
 const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
+const styles = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 test('提示音设置使用 B 布局', () => {
   assert.match(source, /id="settings-sound">提示音设置/);
   assert.match(source, /function openSoundSettings\(/);
   assert.match(source, /grid-template-columns:190px minmax\(360px,1fr\)/);
+});
+
+test('提示音资源使用紧凑的响应式网格展示', () => {
+  assert.match(source, /class="sound-library"/);
+  assert.match(source, /class="sound-row/);
+  assert.match(source, /class="sound-name"/);
+  assert.match(styles, /\.sound-library\{[^}]*display:grid/);
+  assert.match(styles, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(styles, /\.sound-library\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/);
+  assert.match(styles, /\.sound-library\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
 });
 
 test('提示音设置可上传、选择、试听并持久化请求', () => {

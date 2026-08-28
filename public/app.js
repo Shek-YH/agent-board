@@ -1595,10 +1595,10 @@ function renderSoundSettings(pop, selectedAgent) {
       </button>
     </div>`;
   }).join('');
-  const soundRows = settings.sounds.map((sound) => `<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:7px;margin-top:7px">
-      <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}>${esc(sound.name)}</label>
-      <button class="btn sound-preview" data-url="${esc(sound.url)}" style="min-height:28px;padding:3px 8px;font-size:12px">试听</button>
-      <button class="btn sound-delete" data-sound-id="${esc(sound.id)}" data-sound-name="${esc(sound.name)}" style="min-height:28px;padding:3px 8px;font-size:12px;color:#B91C1C">删除</button></div>`).join('');
+  const soundRows = settings.sounds.map((sound) => `<div class="sound-row">
+      <label class="sound-choice"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}><span class="sound-name" title="${esc(sound.name)}">${esc(sound.name)}</span></label>
+      <button class="btn sound-preview" data-url="${esc(sound.url)}">试听</button>
+      <button class="btn sound-delete" data-sound-id="${esc(sound.id)}" data-sound-name="${esc(sound.name)}">删除</button></div>`).join('');
   pop.innerHTML = `<div class="pop-head sound-settings-head"><span>完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></span>
       <button type="button" class="btn sound-toggle-all" id="sound-toggle-all" title="${allEnabled ? '关闭' : '开启'}所有 Agent 的完成提示音">${allEnabled ? '全部关闭' : '全部开启'}</button></div>
     <div style="display:grid;grid-template-columns:190px minmax(360px,1fr);max-height:68vh">
@@ -1606,7 +1606,7 @@ function renderSoundSettings(pop, selectedAgent) {
       <section class="sound-settings-panel" style="padding:14px;overflow-y:auto"><div style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
         <div style="margin-top:5px;color:var(--text3);font-size:12px">该 Agent 的会话从进行中变为完成时播放。开关只控制通知状态，仍需选择一个声音文件。</div>
         <label style="display:flex;align-items:center;gap:8px;padding:8px;margin-top:10px;border:1px solid var(--border);border-radius:7px;cursor:pointer"><input type="radio" name="completion-sound" value="" ${selectedSoundId ? '' : 'checked'}>不播放提示音</label>
-        ${soundRows || '<div style="margin-top:10px;color:var(--text3);font-size:13px">还没有提示音，请上传一个本地音频。</div>'}
+        ${soundRows ? `<div class="sound-library">${soundRows}</div>` : '<div style="margin-top:10px;color:var(--text3);font-size:13px">还没有提示音，请上传一个本地音频。</div>'}
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span style="margin-left:8px;color:var(--text3);font-size:11px">WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
       </section>
     </div>`;
