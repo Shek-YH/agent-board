@@ -1,6 +1,6 @@
 # Agent Board Cloud
 
-Phase 1–7 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本、设备注册和在线授权租约。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–8 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本、设备注册、在线授权租约、离线宽限和客户端版本策略。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
@@ -62,6 +62,10 @@ GET  /v1/license/status
 POST /v1/license/acquire
 POST /v1/license/heartbeat
 POST /v1/license/release
+GET   /v1/admin/version-policies
+POST  /v1/admin/version-policies
+GET   /v1/admin/version-policies/:id
+PATCH /v1/admin/version-policies/:id
 GET   /v1/admin/devices
 POST  /v1/admin/devices/:id/revoke
 GET   /v1/agent/me
@@ -91,6 +95,8 @@ POST  /v1/redemptions/redeem
 
 在线授权使用 `LicenseLease`。Acquire 与 KICK_OLDEST 在 Serializable 事务中检查并发设备/实例限制，旧租约被撤销后下一次 Heartbeat 返回 `LEASE_REVOKED`。Heartbeat 使用设备 Ed25519 私钥签名的规范化请求体、时间窗口和数据库原子序列号 CAS 防重放；正常心跳只更新租约，不写 AuditLog。租约 TTL、心跳间隔、并发策略和 Feature 均来自 Plan。
 
+Phase 8 的 Offline Grant 使用独立的 `LICENSE_SIGNING_PRIVATE_KEY`（仅 API 进程环境变量）签发，桌面端只需配置对应的 Ed25519 公钥验签。离线可用截止时间取授权到期时间与 `offlineValidUntil` 的较小值；没有离线宽限时不签发凭证。`ClientVersionPolicy` 支持 latest/minimum/force-upgrade，低于最低版本的客户端不能获取或续租。
+
 首次建立管理员时，先通过 Better Auth 注册一个用户，再在测试环境显式执行 `BOOTSTRAP_ADMIN_EMAIL=... npm run admin:promote`；该脚本不会读取密码，也不会自动提升任何账号。
 
 ## 安全边界
@@ -98,4 +104,5 @@ POST  /v1/redemptions/redeem
 - `.env`、数据库密码和生产密钥不入库；使用环境变量注入。
 - Compose 的 PostgreSQL 和 API 端口都只绑定 `127.0.0.1`。
 - 生产环境要求 HTTPS origin 与至少 32 字符的 `BETTER_AUTH_SECRET`。
+- 生产离线授权必须注入 Ed25519 `LICENSE_SIGNING_PRIVATE_KEY`，私钥不进 Git、Admin Web 或日志。
 - 当前阶段不包含宝塔配置、生产 Migration 或生产部署操作。

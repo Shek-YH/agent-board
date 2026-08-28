@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const test = require('node:test');
 
 const { LeaseService, canonicalizePayload } = require('./lease.service');
+const { createOfflineGrantService } = require('./offline-grant.service');
 
 const now = new Date('2026-08-28T12:00:00.000Z');
 
@@ -208,4 +209,23 @@ test('missing client timestamp returns a stable validation code', async () => {
     service.acquire('user-1', { deviceId: 'device-1', instanceId: 'instance-1', sessionId: 'session-1', nonce: 'nonce-1', signature: 'not-used' }),
     (error) => error?.getResponse?.().code === 'INVALID_HEARTBEAT_TIMESTAMP',
   );
+});
+
+test('minimum client version blocks acquire while supported versions receive policy and signed offline grant', async () => {
+  const state = makeDatabase();
+  const keys = keyPair();
+  addDevice(state, 'device-1', keys);
+  state.plan.offlineGraceSeconds = 60;
+  const signingKeys = crypto.generateKeyPairSync('ed25519');
+  const service = new LeaseService(state.database, state.audit, () => now, {
+    versionPolicies: { getActive: async () => ({ id: 'policy-1', productId: 'product-1', latestVersion: '2.0.0', minimumVersion: '1.5.0', forceUpgradeBelow: null, status: 'ACTIVE' }) },
+    offlineGrants: createOfflineGrantService({ privateKey: signingKeys.privateKey, keyId: 'license-key-1' }),
+  });
+  const tooOld = request(keys.privateKey, { ...baseRequest('device-1', 'instance-1', 'session-1'), appVersion: '1.4.9' });
+  await assert.rejects(service.acquire('user-1', tooOld), (error) => error?.getResponse?.().code === 'CLIENT_UPDATE_REQUIRED');
+
+  const supportedPayload = { ...baseRequest('device-1', 'instance-1', 'session-1'), appVersion: '1.5.0' };
+  const result = await service.acquire('user-1', request(keys.privateKey, supportedPayload));
+  assert.equal(result.clientVersionPolicy.status, 'UPDATE_AVAILABLE');
+  assert.equal(typeof result.offlineGrant, 'string');
 });

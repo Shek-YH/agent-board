@@ -3,6 +3,7 @@
 const { BadRequestException, NotFoundException } = require('@nestjs/common');
 
 const { serializeDevice, verifyDeviceSignature } = require('./device.service');
+const { evaluateClientVersion } = require('./version-policy.service');
 
 const LEASE_STATUSES = new Set(['ACTIVE', 'EXPIRED', 'REVOKED']);
 const DEFAULT_CLOCK_SKEW_SECONDS = 300;
@@ -110,6 +111,8 @@ class LeaseService {
     this.database = database;
     this.audit = audit;
     this.clock = clock;
+    this.offlineGrants = options.offlineGrants;
+    this.versionPolicies = options.versionPolicies;
     this.clockSkewSeconds = Number.isInteger(options.clockSkewSeconds) && options.clockSkewSeconds >= 0
       ? options.clockSkewSeconds
       : DEFAULT_CLOCK_SKEW_SECONDS;
@@ -127,6 +130,7 @@ class LeaseService {
       this.assertTimestamp(request.timestamp, now);
       const entitlement = await this.getEntitlement(transaction, id, input.productId, now);
       const plan = entitlement.plan;
+      const clientVersionPolicy = await this.checkClientVersion(transaction, entitlement.productId, request.appVersion);
 
       await this.expireActiveLeases(transaction, id, now);
       const existing = await transaction.licenseLease.findFirst({
@@ -139,7 +143,7 @@ class LeaseService {
           where: { id: existing.id },
           data: { expiresAt: new Date(now.getTime() + ttl * 1000), lastHeartbeatAt: now, lastIp: context.ip || null },
         });
-        return this.response({ now, user, entitlement, device, lease: refreshed, activeLeases: await this.activeLeases(transaction, id, now), plan });
+        return this.response({ now, user, entitlement, device, lease: refreshed, activeLeases: await this.activeLeases(transaction, id, now), plan, clientVersionPolicy });
       }
 
       let activeLeases = await this.activeLeases(transaction, id, now);
@@ -169,7 +173,7 @@ class LeaseService {
         before: null,
         after: { id: lease.id, userId: id, deviceId: request.deviceId, instanceId: request.instanceId, status: lease.status },
       }, transaction);
-      return this.response({ now, user, entitlement, device, lease, activeLeases: [...activeLeases, lease], plan });
+      return this.response({ now, user, entitlement, device, lease, activeLeases: [...activeLeases, lease], plan, clientVersionPolicy });
     }, { isolationLevel: 'Serializable' });
   }
 
@@ -194,6 +198,7 @@ class LeaseService {
       }
       const entitlement = await this.getEntitlement(transaction, id, input.productId, now);
       const plan = entitlement.plan;
+      const clientVersionPolicy = await this.checkClientVersion(transaction, entitlement.productId, request.appVersion);
       if (request.sequence <= Number(current.sequence)) bad('HEARTBEAT_REPLAY');
       const renewedUntil = new Date(now.getTime() + this.leaseTtl(plan) * 1000);
       const updated = await transaction.licenseLease.updateMany({
@@ -217,7 +222,7 @@ class LeaseService {
         bad('LEASE_NOT_ACTIVE');
       }
       const lease = await transaction.licenseLease.findUnique({ where: { id: current.id } });
-      return this.response({ now, user, entitlement, device, lease, activeLeases: await this.activeLeases(transaction, id, now), plan });
+      return this.response({ now, user, entitlement, device, lease, activeLeases: await this.activeLeases(transaction, id, now), plan, clientVersionPolicy });
     }, { isolationLevel: 'Serializable' });
   }
 
@@ -257,6 +262,8 @@ class LeaseService {
     const device = input.deviceId ? await this.getDevice(this.database, id, assertId(input.deviceId, 'INVALID_DEVICE_ID'), { allowMissing: true }) : null;
     const leases = await this.activeLeases(this.database, id, now);
     const plan = entitlement?.plan || {};
+    const policy = entitlement && this.versionPolicies ? await this.versionPolicies.getActive(entitlement.productId) : null;
+    const clientVersionPolicy = input.appVersion ? evaluateClientVersion(String(input.appVersion), policy) : { status: 'SUPPORTED', policy: null };
     return {
       serverTime: now,
       user: { id: user.id, status: user.profile?.status || 'ACTIVE' },
@@ -266,7 +273,7 @@ class LeaseService {
       features: plan.features || {},
       limits: planLimits(plan),
       offline: { graceSeconds: plan.offlineGraceSeconds || 0 },
-      clientVersionPolicy: null,
+      clientVersionPolicy,
     };
   }
 
@@ -277,9 +284,11 @@ class LeaseService {
     const timestamp = parseClientTime(input.timestamp);
     const nonce = optionalText(input.nonce, 'INVALID_HEARTBEAT_NONCE', 255);
     if (!nonce) bad('INVALID_HEARTBEAT_NONCE');
+    const appVersion = optionalText(input.appVersion, 'INVALID_CLIENT_VERSION', 64);
+    if (!appVersion) bad('INVALID_CLIENT_VERSION');
     const signature = optionalText(input.signature, 'INVALID_DEVICE_SIGNATURE', 4096);
     if (!signature) bad('INVALID_DEVICE_SIGNATURE');
-    const result = { deviceId, instanceId, sessionId, timestamp, nonce, signature };
+    const result = { deviceId, instanceId, sessionId, timestamp, nonce, appVersion, signature };
     if (withHeartbeat) {
       const sequence = Number(input.sequence);
       if (!Number.isSafeInteger(sequence) || sequence < 1) bad('INVALID_HEARTBEAT_SEQUENCE');
@@ -343,6 +352,13 @@ class LeaseService {
     return entitlement;
   }
 
+  async checkClientVersion(transaction, productId, appVersion) {
+    const policy = this.versionPolicies ? await this.versionPolicies.getActive(productId, transaction) : null;
+    const result = evaluateClientVersion(appVersion, policy);
+    if (result.status === 'UPDATE_REQUIRED') bad('CLIENT_UPDATE_REQUIRED', { policy: result.policy });
+    return result;
+  }
+
   leaseTtl(plan) {
     const ttl = Number(plan.leaseTtlSeconds);
     if (!Number.isSafeInteger(ttl) || ttl < 1) bad('INVALID_LEASE_TTL');
@@ -381,7 +397,17 @@ class LeaseService {
     return leases;
   }
 
-  response({ now, user, entitlement, device, lease, activeLeases, plan }) {
+  response({ now, user, entitlement, device, lease, activeLeases, plan, clientVersionPolicy }) {
+    const offlineGrant = this.offlineGrants?.issue?.({
+      userId: user.id,
+      deviceId: device.id,
+      productId: entitlement.productId,
+      features: plan.features || {},
+      entitlementExpiresAt: entitlement.isPermanent ? null : entitlement.expiresAt,
+      offlineGraceSeconds: plan.offlineGraceSeconds || 0,
+      policyVersion: clientVersionPolicy?.policy?.id || 'default',
+      issuedAt: now,
+    }) || null;
     return {
       serverTime: now,
       user: { id: user.id, status: user.profile?.status || 'ACTIVE' },
@@ -391,7 +417,8 @@ class LeaseService {
       features: plan.features || {},
       limits: planLimits(plan),
       offline: { graceSeconds: plan.offlineGraceSeconds || 0 },
-      clientVersionPolicy: null,
+      clientVersionPolicy: clientVersionPolicy || { status: 'SUPPORTED', policy: null },
+      offlineGrant,
       online: { devices: new Set(activeLeases.map((item) => item.deviceId)).size, leases: activeLeases.length },
     };
   }

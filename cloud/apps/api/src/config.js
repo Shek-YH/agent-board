@@ -76,6 +76,8 @@ function loadConfig(env = process.env) {
     betterAuthSecret,
     betterAuthUrl,
     redemptionPepper,
+    licenseSigningPrivateKey: nonBlank(env.LICENSE_SIGNING_PRIVATE_KEY),
+    licenseSigningKeyId: nonBlank(env.LICENSE_SIGNING_KEY_ID) || 'primary',
     adminOrigin,
     trustedOrigins,
   };

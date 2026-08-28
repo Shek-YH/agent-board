@@ -24,6 +24,8 @@ test('loadConfig normalizes the cloud API environment', () => {
     betterAuthSecret: VALID_ENV.BETTER_AUTH_SECRET,
     betterAuthUrl: VALID_ENV.BETTER_AUTH_URL,
     redemptionPepper: VALID_ENV.REDEMPTION_PEPPER,
+    licenseSigningPrivateKey: null,
+    licenseSigningKeyId: 'primary',
     adminOrigin: VALID_ENV.ADMIN_ORIGIN,
     trustedOrigins: ['http://127.0.0.1:3101', 'http://localhost:3101'],
   });

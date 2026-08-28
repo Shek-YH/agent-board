@@ -257,8 +257,31 @@ model Product {
   plans         Plan[]
   entitlements  Entitlement[]
   redemptionBatches RedemptionBatch[]
+  clientVersionPolicy ClientVersionPolicy?
 
   @@map("product")
+}
+
+enum ClientVersionPolicyStatus {
+  ACTIVE
+  DISABLED
+}
+
+model ClientVersionPolicy {
+  id                String                    @id @default(cuid())
+  productId         String                    @unique
+  latestVersion     String
+  minimumVersion    String
+  forceUpgradeBelow String?
+  downloadUrl       String?
+  message           String?
+  status            ClientVersionPolicyStatus @default(ACTIVE)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, status])
+  @@map("client_version_policy")
 }
 
 enum PlanStatus {

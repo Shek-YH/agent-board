@@ -15,8 +15,10 @@ import { AGENT_SERVICE } from './agent.tokens.js';
 import { DeviceController, DEVICE_SERVICE } from './device.controller.js';
 import { DeviceService } from './device.service.js';
 import { AdminDevicesController } from './admin-devices.controller.js';
+import { AdminVersionPolicyController, VERSION_POLICY_SERVICE } from './admin-version-policy.controller.js';
 import { LicenseController, LEASE_SERVICE } from './license.controller.js';
 import { LeaseService } from './lease.service.js';
+import { createOfflineGrantService } from './offline-grant.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { CatalogService } from './catalog.service.js';
@@ -28,6 +30,7 @@ import { createAuditService } from './audit.js';
 import { HealthController } from './health.controller.js';
 import { PrismaModule } from './prisma.module.js';
 import { UsersController } from './users.controller.js';
+import { ClientVersionPolicyService } from './version-policy.service.js';
 import { PrismaClient } from '@prisma/client';
 
 @Module({
@@ -55,6 +58,7 @@ import { PrismaClient } from '@prisma/client';
     AgentController,
     DeviceController,
     AdminDevicesController,
+    AdminVersionPolicyController,
     LicenseController,
     RedemptionController,
   ],
@@ -92,9 +96,27 @@ import { PrismaClient } from '@prisma/client';
       inject: [PrismaClient, AUDIT_SERVICE],
     },
     {
-      provide: LEASE_SERVICE,
-      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new LeaseService(database, audit),
+      provide: VERSION_POLICY_SERVICE,
+      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new ClientVersionPolicyService(database, audit),
       inject: [PrismaClient, AUDIT_SERVICE],
+    },
+    {
+      provide: 'OFFLINE_GRANT_SERVICE',
+      useFactory: () => {
+        const config = loadConfig();
+        const signingOptions = { privateKey: config.licenseSigningPrivateKey, keyId: config.licenseSigningKeyId };
+        return createOfflineGrantService(signingOptions);
+      },
+    },
+    {
+      provide: LEASE_SERVICE,
+      useFactory: (
+        database: PrismaClient,
+        audit: ReturnType<typeof createAuditService>,
+        offlineGrants: ReturnType<typeof createOfflineGrantService>,
+        versionPolicies: ClientVersionPolicyService,
+      ) => new LeaseService(database, audit, undefined, { offlineGrants, versionPolicies }),
+      inject: [PrismaClient, AUDIT_SERVICE, 'OFFLINE_GRANT_SERVICE', VERSION_POLICY_SERVICE],
     },
     {
       provide: REDEMPTION_SERVICE,
