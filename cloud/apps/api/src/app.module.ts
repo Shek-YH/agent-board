@@ -6,10 +6,14 @@ import { AdminUsersController, ADMIN_USERS_SERVICE } from './admin-users.control
 import { AdminAuditController, AUDIT_SERVICE } from './admin-audit.controller.js';
 import { AdminEntitlementsController, ENTITLEMENT_SERVICE } from './admin-entitlements.controller.js';
 import { AdminPlansController, AdminProductsController, CATALOG_SERVICE } from './admin-catalog.controller.js';
+import { AdminRedemptionBatchesController, AdminRedemptionCodesController, REDEMPTION_SERVICE } from './admin-redemption.controller.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { CatalogService } from './catalog.service.js';
 import { EntitlementService } from './entitlement.service.js';
+import { RedemptionController } from './redemption.controller.js';
+import { RedemptionService } from './redemption.service.js';
+import { loadConfig } from './config.js';
 import { createAuditService } from './audit.js';
 import { HealthController } from './health.controller.js';
 import { PrismaModule } from './prisma.module.js';
@@ -35,6 +39,9 @@ import { PrismaClient } from '@prisma/client';
     AdminProductsController,
     AdminPlansController,
     AdminEntitlementsController,
+    AdminRedemptionBatchesController,
+    AdminRedemptionCodesController,
+    RedemptionController,
   ],
   providers: [
     AdminGuard,
@@ -57,6 +64,15 @@ import { PrismaClient } from '@prisma/client';
       provide: ENTITLEMENT_SERVICE,
       useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new EntitlementService(database, audit),
       inject: [PrismaClient, AUDIT_SERVICE],
+    },
+    {
+      provide: REDEMPTION_SERVICE,
+      useFactory: (
+        database: PrismaClient,
+        entitlements: EntitlementService,
+        audit: ReturnType<typeof createAuditService>,
+      ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper),
+      inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE],
     },
   ],
 })

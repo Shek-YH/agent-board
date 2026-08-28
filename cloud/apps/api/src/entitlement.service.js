@@ -54,6 +54,24 @@ function serializeEntitlement(entitlement) {
   };
 }
 
+function serializeGrant(grant) {
+  if (!grant) return null;
+  return {
+    id: grant.id,
+    entitlementId: grant.entitlementId,
+    type: grant.type,
+    durationSeconds: grant.durationSeconds,
+    source: grant.source,
+    redemptionCodeId: grant.redemptionCodeId,
+    operatorId: grant.operatorId,
+    agentId: grant.agentId,
+    oldExpiresAt: grant.oldExpiresAt,
+    newExpiresAt: grant.newExpiresAt,
+    requestId: grant.requestId,
+    createdAt: grant.createdAt,
+  };
+}
+
 function grantSnapshot(entitlement) {
   return entitlement
     ? {
@@ -83,7 +101,23 @@ class EntitlementService {
     const source = String(context.source || 'ADMIN_GRANT').toUpperCase();
     if (!GRANT_SOURCES.has(source)) bad('INVALID_GRANT_SOURCE');
 
-    return this.database.$transaction(async (transaction) => {
+    return this.database.$transaction((transaction) => this.grantToUserInTransaction(
+      transaction,
+      userId,
+      input,
+      context,
+      now,
+      source,
+    ));
+  }
+
+  async grantToUserInTransaction(transaction, userId, input = {}, context = {}, transactionNow, transactionSource) {
+    assertId(userId, 'INVALID_USER_ID');
+    assertId(input.productId, 'INVALID_PRODUCT_ID');
+    const now = transactionNow ? toDate(transactionNow) : toDate(this.clock());
+    const source = transactionSource || String(context.source || 'ADMIN_GRANT').toUpperCase();
+    if (!GRANT_SOURCES.has(source)) bad('INVALID_GRANT_SOURCE');
+
       const user = await transaction.user.findUnique({
         where: { id: userId },
         select: { id: true, profile: { select: { status: true } } },
@@ -145,6 +179,7 @@ class EntitlementService {
           type: isPermanent ? 'PERMANENT' : 'DURATION',
           durationSeconds,
           source,
+          redemptionCodeId: context.redemptionCodeId || null,
           operatorId: context.actorId || null,
           oldExpiresAt,
           newExpiresAt,
@@ -163,9 +198,8 @@ class EntitlementService {
 
       return {
         entitlement: serializeEntitlement(entitlement),
-        grant,
+        grant: serializeGrant(grant),
       };
-    });
   }
 
   async getById(id) {
@@ -207,4 +241,5 @@ module.exports = {
   ENTITLEMENT_STATUSES,
   GRANT_SOURCES,
   serializeEntitlement,
+  serializeGrant,
 };

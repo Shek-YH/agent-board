@@ -35,7 +35,7 @@ function validateUrl(value, name, { httpsOnly = false } = {}) {
 
 function loadConfig(env = process.env) {
   const nodeEnv = nonBlank(env.NODE_ENV) || 'development';
-  const missing = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL']
+  const missing = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL', 'REDEMPTION_PEPPER']
     .filter((name) => !nonBlank(env[name]));
   if (missing.length) {
     throw new ConfigurationError(`Missing required configuration: ${missing.join(', ')}`);
@@ -44,6 +44,14 @@ function loadConfig(env = process.env) {
   const betterAuthSecret = nonBlank(env.BETTER_AUTH_SECRET);
   if (betterAuthSecret.length < 32) {
     throw new ConfigurationError('BETTER_AUTH_SECRET must contain at least 32 characters');
+  }
+
+  const redemptionPepper = nonBlank(env.REDEMPTION_PEPPER);
+  if (redemptionPepper.length < 32) {
+    throw new ConfigurationError('REDEMPTION_PEPPER must contain at least 32 characters');
+  }
+  if (nodeEnv === 'production' && /^(change-me|secret|test[-_])/i.test(redemptionPepper)) {
+    throw new ConfigurationError('REDEMPTION_PEPPER must not use a development placeholder');
   }
   if (nodeEnv === 'production' && /^(change-me|secret|test[-_])/i.test(betterAuthSecret)) {
     throw new ConfigurationError('BETTER_AUTH_SECRET must not use a development placeholder');
@@ -67,6 +75,7 @@ function loadConfig(env = process.env) {
     databaseUrl: nonBlank(env.DATABASE_URL),
     betterAuthSecret,
     betterAuthUrl,
+    redemptionPepper,
     adminOrigin,
     trustedOrigins,
   };

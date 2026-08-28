@@ -21,6 +21,7 @@ model User {
   accounts      Account[]
   profile       UserProfile?
   entitlements  Entitlement[]
+  redemptionRequests RedemptionRequest[]
 
   @@map("user")
 }
@@ -133,6 +134,7 @@ model Product {
   updatedAt     DateTime        @updatedAt
   plans         Plan[]
   entitlements  Entitlement[]
+  redemptionBatches RedemptionBatch[]
 
   @@map("product")
 }
@@ -171,6 +173,8 @@ model Plan {
   updatedAt                DateTime           @updatedAt
   product                  Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
   entitlements             Entitlement[]
+  redemptionBatches        RedemptionBatch[]
+  redemptionCodes          RedemptionCode[]
 
   @@unique([productId, code])
   @@index([productId, status])
@@ -241,4 +245,80 @@ model EntitlementGrant {
   @@index([entitlementId, createdAt])
   @@index([requestId])
   @@map("entitlement_grant")
+}
+
+enum RedemptionBatchStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model RedemptionBatch {
+  id           String                @id @default(cuid())
+  name         String
+  productId    String
+  planId       String
+  quantity     Int
+  ownerAgentId String?
+  createdBy    String
+  expiresAt    DateTime?
+  status       RedemptionBatchStatus @default(ACTIVE)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  product      Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  plan         Plan                  @relation(fields: [planId], references: [id], onDelete: Restrict)
+  codes        RedemptionCode[]
+
+  @@index([productId, createdAt])
+  @@index([planId, status])
+  @@map("redemption_batch")
+}
+
+enum RedemptionCodeStatus {
+  UNUSED
+  REDEEMED
+  REVOKED
+  EXPIRED
+}
+
+model RedemptionCode {
+  id               String               @id @default(cuid())
+  batchId          String
+  codeHash         String               @unique
+  codeLast4        String
+  planId           String
+  durationSeconds  Int?
+  status           RedemptionCodeStatus @default(UNUSED)
+  ownerAgentId     String?
+  createdBy        String
+  redeemedByUserId String?
+  redeemedAt       DateTime?
+  codeExpiresAt    DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  batch            RedemptionBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  plan             Plan                 @relation(fields: [planId], references: [id], onDelete: Restrict)
+  requests         RedemptionRequest[]
+
+  @@index([batchId, status])
+  @@index([planId, status])
+  @@map("redemption_code")
+}
+
+model RedemptionRequest {
+  id             String          @id @default(cuid())
+  requestId      String          @unique
+  userId         String
+  codeId         String
+  codeHash       String
+  entitlementId  String
+  grantId        String
+  response       Json
+  createdAt      DateTime        @default(now())
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code           RedemptionCode  @relation(fields: [codeId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("redemption_request")
 }
