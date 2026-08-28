@@ -694,6 +694,8 @@ function markRecentlyCompleted(ref) {
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
   const agent = String(ref).split(':', 1)[0];
+  const disabledAgents = new Set(state.completionSounds.disabledAgents || []);
+  if (disabledAgents.has(agent)) return;
   const soundId = state.completionSounds.assignments[agent];
   const sound = state.completionSounds.sounds.find((item) => item.id === soundId);
   if (sound) playSoundPreview(sound.url);
@@ -1478,6 +1480,18 @@ function soundAgents() {
   return Object.entries(state.agentsDef || {});
 }
 
+function isSoundAgentEnabled(settings, agent) {
+  return !(settings.disabledAgents || []).includes(agent);
+}
+
+async function saveSoundEnabled(agents, enabled) {
+  return requestJson('/api/sounds/enabled', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agents, enabled }),
+  });
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1493,29 +1507,66 @@ function playSoundPreview(url) {
 }
 
 function renderSoundSettings(pop, selectedAgent) {
-  const settings = state.completionSounds;
+  const settings = state.completionSounds || { assignments: {}, sounds: [], disabledAgents: [] };
   const agents = soundAgents();
   if (!agents.some(([id]) => id === selectedAgent)) selectedAgent = agents[0]?.[0] || '';
   const selectedMeta = state.agentsDef[selectedAgent] || { color: '#888', name: selectedAgent };
   const selectedSoundId = settings.assignments[selectedAgent] || '';
-  const agentList = agents.map(([id, meta]) => `<button class="sound-agent ${id === selectedAgent ? 'on' : ''}" data-agent="${esc(id)}"
-      style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:7px;text-align:left;${id === selectedAgent ? 'background:var(--accent-bg);color:var(--accent)' : ''}">
-      <span class="dot" style="width:8px;height:8px;border-radius:50%;background:${esc(meta.color || '#888')}"></span>${esc(meta.name || id)}</button>`).join('');
+  const allEnabled = agents.length > 0 && agents.every(([id]) => isSoundAgentEnabled(settings, id));
+  const agentList = agents.map(([id, meta]) => {
+    const name = meta.name || id;
+    const enabled = isSoundAgentEnabled(settings, id);
+    return `<div class="sound-agent-row ${id === selectedAgent ? 'on' : ''}">
+      <button type="button" class="sound-agent" data-agent="${esc(id)}" aria-current="${id === selectedAgent ? 'true' : 'false'}">
+        <span class="dot" style="background:${esc(meta.color || '#888')}"></span><span class="sound-agent-name">${esc(name)}</span>
+      </button>
+      <button type="button" class="sound-toggle ${enabled ? 'on' : ''}" data-agent-toggle="${esc(id)}" role="switch" aria-checked="${enabled ? 'true' : 'false'}" aria-label="${esc(name)}完成提示音开关" title="${enabled ? '关闭' : '开启'} ${esc(name)} 完成提示音">
+        <span class="sound-toggle-track"><span class="sound-toggle-thumb"></span></span>
+      </button>
+    </div>`;
+  }).join('');
   const soundRows = settings.sounds.map((sound) => `<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:7px;margin-top:7px">
       <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}>${esc(sound.name)}</label>
       <button class="btn sound-preview" data-url="${esc(sound.url)}" style="min-height:28px;padding:3px 8px;font-size:12px">试听</button>
       <button class="btn sound-delete" data-sound-id="${esc(sound.id)}" data-sound-name="${esc(sound.name)}" style="min-height:28px;padding:3px 8px;font-size:12px;color:#B91C1C">删除</button></div>`).join('');
-  pop.innerHTML = `<div class="pop-head">完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></div>
+  pop.innerHTML = `<div class="pop-head sound-settings-head"><span>完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></span>
+      <button type="button" class="btn sound-toggle-all" id="sound-toggle-all" title="${allEnabled ? '关闭' : '开启'}所有 Agent 的完成提示音">${allEnabled ? '全部关闭' : '全部开启'}</button></div>
     <div style="display:grid;grid-template-columns:190px minmax(360px,1fr);max-height:68vh">
-      <aside style="padding:8px;border-right:1px solid var(--border);overflow-y:auto">${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
-      <section style="padding:14px;overflow-y:auto"><div style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
-        <div style="margin-top:5px;color:var(--text3);font-size:12px">该 Agent 的会话从进行中变为完成时播放</div>
+      <aside class="sound-agent-list" style="padding:8px;border-right:1px solid var(--border);overflow-y:auto">${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
+      <section class="sound-settings-panel" style="padding:14px;overflow-y:auto"><div style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
+        <div style="margin-top:5px;color:var(--text3);font-size:12px">该 Agent 的会话从进行中变为完成时播放。开关只控制通知状态，仍需选择一个声音文件。</div>
         <label style="display:flex;align-items:center;gap:8px;padding:8px;margin-top:10px;border:1px solid var(--border);border-radius:7px;cursor:pointer"><input type="radio" name="completion-sound" value="" ${selectedSoundId ? '' : 'checked'}>不播放提示音</label>
         ${soundRows || '<div style="margin-top:10px;color:var(--text3);font-size:13px">还没有提示音，请上传一个本地音频。</div>'}
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span style="margin-left:8px;color:var(--text3);font-size:11px">WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
       </section>
     </div>`;
   pop.querySelectorAll('.sound-agent').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); renderSoundSettings(pop, button.dataset.agent); }; });
+  const applyEnabled = async (agentIds, enabled, message) => {
+    try {
+      state.completionSounds = await saveSoundEnabled(agentIds, enabled);
+      renderSoundSettings(pop, selectedAgent);
+      toast(message);
+    } catch (error) {
+      toast('保存失败：' + (error.message || '未知错误'));
+      renderSoundSettings(pop, selectedAgent);
+    }
+  };
+  pop.querySelectorAll('[data-agent-toggle]').forEach((button) => {
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      button.disabled = true;
+      const agent = button.dataset.agentToggle;
+      const enabled = button.getAttribute('aria-checked') !== 'true';
+      await applyEnabled([agent], enabled, enabled ? '已开启该 Agent 完成提示音' : '已关闭该 Agent 完成提示音');
+    };
+  });
+  pop.querySelector('#sound-toggle-all').onclick = async (event) => {
+    event.stopPropagation();
+    const button = event.currentTarget;
+    button.disabled = true;
+    const enabled = !allEnabled;
+    await applyEnabled(agents.map(([id]) => id), enabled, enabled ? '已开启全部 Agent 完成提示音' : '已关闭全部 Agent 完成提示音');
+  };
   pop.querySelectorAll('input[name="completion-sound"]').forEach((input) => {
     input.onchange = async (event) => {
       event.stopPropagation();

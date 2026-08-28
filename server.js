@@ -1378,6 +1378,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/sounds/enabled' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      if (!Array.isArray(body.agents) || !body.agents.length || !body.agents.every((agent) => typeof agent === 'string' && Object.hasOwn(AGENT_DEFS, agent))) {
+        throw new TypeError('Invalid agents');
+      }
+      if (typeof body.enabled !== 'boolean') throw new TypeError('Invalid sound enabled state');
+      const enabled = body.enabled;
+      const agents = [...new Set(body.agents)];
+      const settings = soundSettings.setSoundsEnabled(agents, enabled);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(settings));
+    } catch (error) {
+      const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
+      res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.statusCode === 413 ? 'Audio upload is too large' : (badInput ? 'Invalid sound enabled state' : 'Unable to save sound enabled state') }));
+    }
+    return;
+  }
+
   // 按 threadId 打开指定 Codex 会话。只接受固定格式的 ID，不接受任意 URL。
   if (pathname === '/api/open-codex-thread' && req.method === 'POST') {
     try {
