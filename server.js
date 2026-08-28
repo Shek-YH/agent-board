@@ -826,6 +826,12 @@ function fileMetaKey(kind, adapter, filePath) {
   return `${kind}:${adapter.ID}:${filePath}`;
 }
 
+function fileOffsetKey(adapter, filePath) {
+  return typeof adapter.fileOffsetKey === 'function'
+    ? adapter.fileOffsetKey(filePath)
+    : `offset:${adapter.ID}:${filePath}`;
+}
+
 function prepareFileOffset(adapter, filePath) {
   const current = watcher.fileSignature(filePath);
   if (!current) return null;
@@ -835,7 +841,7 @@ function prepareFileOffset(adapter, filePath) {
     ? { identity: previousIdentity, size: Number(previousSizeValue || 0) }
     : null;
   if (watcher.shouldResetOffset(previous, current)) {
-    store.stmts.setMeta.run(fileMetaKey('offset', adapter, filePath), '0');
+    store.stmts.setMeta.run(fileOffsetKey(adapter, filePath), '0');
   }
   return current;
 }
@@ -909,7 +915,7 @@ async function scanAll({ full = false } = {}) {
     const batch = jobs.slice(i, i + 5);
     store.tx(() => {
       for (const j of batch) {
-        const key = `offset:${j.adapter.ID}:${j.file}`;
+        const key = fileOffsetKey(j.adapter, j.file);
         const signature = prepareFileOffset(j.adapter, j.file);
         const offset = full ? 0 : Number(store.stmts.getMeta.get(key)?.v || 0);
         const size = watcher.fileSize(j.file);
@@ -1006,7 +1012,7 @@ function pollChanged(adapter, paths) {
     if (sid) {
       const n = store.deleteSessionByRef(adapter.ID, sid);
       if (n) deleted.push({ agent: adapter.ID, sessionId: sid });
-      store.stmts.setMeta.run(`offset:${adapter.ID}:${p}`, '0');
+      store.stmts.setMeta.run(fileOffsetKey(adapter, p), '0');
     }
   }
   try {

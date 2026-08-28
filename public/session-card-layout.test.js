@@ -17,7 +17,7 @@ test('较长 session ID 的可见标签会统一截断，避免挤压状态标�
 });
 
 test('session 卡将时间和 session ID 放在底部，并为标题保留多行空间', () => {
-  const cardTemplate = app.match(/function buildCard[\s\S]*?card\.innerHTML = `([\s\S]*?)`;\n/);
+  const cardTemplate = app.match(/function buildCard[\s\S]*?card\.innerHTML = `([\s\S]*?)`;\r?\n/);
   assert.ok(cardTemplate, '未找到 session 卡片模板');
   const template = cardTemplate[1];
   const firstRow = template.match(/<div class="s-row1">([\s\S]*?)<\/div>/)?.[1] || '';
