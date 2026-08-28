@@ -96,10 +96,11 @@ function serializeDevice(device) {
 }
 
 class DeviceService {
-  constructor(database, audit, clock = () => new Date()) {
+  constructor(database, audit, clock = () => new Date(), securityEvents) {
     this.database = database;
     this.audit = audit;
     this.clock = clock;
+    this.securityEvents = securityEvents;
   }
 
   async enroll(userId, input = {}, context = {}) {
@@ -117,7 +118,8 @@ class DeviceService {
     const productId = input.productId ? assertId(input.productId, 'INVALID_PRODUCT_ID') : null;
     const now = parseServerTime(this.clock());
 
-    return this.database.$transaction(async (transaction) => {
+    try {
+      return await this.database.$transaction(async (transaction) => {
       const user = await transaction.user.findUnique({ where: { id }, select: { id: true, profile: { select: { status: true } } } });
       if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
       if (user.profile?.status === 'DISABLED') bad('USER_DISABLED');
@@ -129,6 +131,16 @@ class DeviceService {
         const existingKey = Buffer.from(existing.publicKey);
         const nextKey = Buffer.from(publicKey);
         if (existingKey.length !== nextKey.length || !crypto.timingSafeEqual(existingKey, nextKey)) bad('DEVICE_KEY_MISMATCH');
+        if (existing.fingerprintHash && fingerprintHash && existing.fingerprintHash !== fingerprintHash) {
+          await this.securityEvents?.create?.({
+            type: 'FINGERPRINT_CHANGED',
+            severity: 'HIGH',
+            userId: id,
+            deviceId: existing.id,
+            ip: context.ip,
+            metadata: { installationId, fingerprintVersion },
+          }, transaction);
+        }
         const refreshed = await transaction.device.update({
           where: { id: existing.id },
           data: { publicKey, fingerprintHash, fingerprintSignalsHash, fingerprintVersion, deviceName, os, osVersion, appVersion, lastSeenAt: now, lastIp: context.ip || null, status: 'ACTIVE' },
@@ -176,8 +188,24 @@ class DeviceService {
         before: null,
         after: { id: device.id, userId: id, installationId, fingerprintVersion, status: device.status },
       }, transaction);
+      await this.securityEvents?.create?.({
+        type: 'NEW_DEVICE',
+        severity: 'LOW',
+        userId: id,
+        deviceId: device.id,
+        ip: context.ip,
+        metadata: { installationId, fingerprintVersion },
+      }, transaction);
       return serializeDevice(device);
-    });
+      });
+    } catch (error) {
+      const response = typeof error?.getResponse === 'function' ? error.getResponse() : error?.response;
+      const code = typeof response === 'object' && response ? response.code : null;
+      if (code === 'DEVICE_LIMIT_EXCEEDED' && this.securityEvents?.create) {
+        await this.securityEvents.create({ type: 'DEVICE_LIMIT_EXCEEDED', severity: 'MEDIUM', userId: id, ip: context.ip, metadata: { productId } }).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async listMine(userId) {

@@ -94,7 +94,7 @@ function jsonSafe(value) {
 }
 
 class RedemptionService {
-  constructor(database, entitlements, audit, pepper, clock = () => new Date(), randomBytes = crypto.randomBytes, agents) {
+  constructor(database, entitlements, audit, pepper, clock = () => new Date(), randomBytes = crypto.randomBytes, agents, securityEvents) {
     this.database = database;
     this.entitlements = entitlements;
     this.audit = audit;
@@ -102,6 +102,7 @@ class RedemptionService {
     this.clock = clock;
     this.randomBytes = randomBytes;
     this.agents = agents;
+    this.securityEvents = securityEvents;
   }
 
   async createBatch(input = {}, context = {}) {
@@ -188,7 +189,7 @@ class RedemptionService {
     });
   }
 
-  async redeem(userId, input = {}) {
+  async redeem(userId, input = {}, context = {}) {
     assertId(userId, 'INVALID_USER_ID');
     const code = normalizeCode(input.code);
     const requestId = requiredText(input.requestId, 'INVALID_REDEMPTION_REQUEST_ID');
@@ -294,6 +295,18 @@ class RedemptionService {
         return response;
       });
     } catch (error) {
+      const response = typeof error?.getResponse === 'function' ? error.getResponse() : error?.response;
+      const code = typeof response === 'object' && response ? response.code : null;
+      const abuseCodes = new Set(['INVALID_REDEMPTION_CODE', 'REDEMPTION_ALREADY_USED', 'REDEMPTION_EXPIRED', 'REDEMPTION_REVOKED', 'REDEMPTION_CODE_NOT_AVAILABLE', 'IDEMPOTENCY_KEY_REUSED']);
+      if (abuseCodes.has(code) && this.securityEvents?.create) {
+        await this.securityEvents.create({
+          type: 'REDEMPTION_ABUSE',
+          severity: 'MEDIUM',
+          userId,
+          ip: context.ip,
+          metadata: { requestId, code },
+        }).catch(() => undefined);
+      }
       if (error?.code === 'P2002') {
         const racedRequest = await this.database.redemptionRequest.findUnique({ where: { requestId } });
         if (racedRequest) {

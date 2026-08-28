@@ -110,6 +110,24 @@ test('redeem is idempotent for the same requestId', async () => {
   assert.equal(grantCalls.length, 1);
 });
 
+test('invalid redemption attempts create a sanitized security event without storing the plaintext code', async () => {
+  const events = [];
+  const database = {
+    $transaction: async (callback) => callback(database),
+    redemptionRequest: { findUnique: async () => null },
+    user: { findUnique: async () => ({ id: 'user-1', profile: { status: 'ACTIVE' } }) },
+    redemptionCode: { findUnique: async () => null },
+  };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now, undefined, undefined, { create: async (event) => events.push(event) });
+
+  await assert.rejects(
+    service.redeem('user-1', { code: 'PLAINTEXT-CODE', requestId: 'request-abuse' }, { ip: '127.0.0.1' }),
+    (error) => error?.getResponse?.().code === 'INVALID_REDEMPTION_CODE',
+  );
+  assert.equal(events[0].type, 'REDEMPTION_ABUSE');
+  assert.equal(JSON.stringify(events[0]).includes('PLAINTEXT-CODE'), false);
+});
+
 test('the same idempotency key cannot be reused with a different redemption code', async () => {
   const { database } = makeRedeemDatabase('TEST-CODE');
   const service = new RedemptionService(

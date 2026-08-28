@@ -16,6 +16,7 @@ import { DeviceController, DEVICE_SERVICE } from './device.controller.js';
 import { DeviceService } from './device.service.js';
 import { AdminDevicesController } from './admin-devices.controller.js';
 import { AdminVersionPolicyController, VERSION_POLICY_SERVICE } from './admin-version-policy.controller.js';
+import { SecurityEventController, SECURITY_EVENT_SERVICE } from './security-event.controller.js';
 import { LicenseController, LEASE_SERVICE } from './license.controller.js';
 import { LeaseService } from './lease.service.js';
 import { createOfflineGrantService } from './offline-grant.service.js';
@@ -31,6 +32,9 @@ import { HealthController } from './health.controller.js';
 import { PrismaModule } from './prisma.module.js';
 import { UsersController } from './users.controller.js';
 import { ClientVersionPolicyService } from './version-policy.service.js';
+import { createSecurityEventService, SecurityEventService } from './security-event.service.js';
+import { RATE_LIMIT_SERVICE } from './rate-limit.tokens.js';
+import { createRateLimitService } from './rate-limit.service.js';
 import { PrismaClient } from '@prisma/client';
 
 @Module({
@@ -59,6 +63,7 @@ import { PrismaClient } from '@prisma/client';
     DeviceController,
     AdminDevicesController,
     AdminVersionPolicyController,
+    SecurityEventController,
     LicenseController,
     RedemptionController,
   ],
@@ -69,6 +74,21 @@ import { PrismaClient } from '@prisma/client';
       provide: AUDIT_SERVICE,
       useFactory: (database: PrismaClient) => createAuditService(database),
       inject: [PrismaClient],
+    },
+    {
+      provide: SECURITY_EVENT_SERVICE,
+      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => createSecurityEventService(database, audit),
+      inject: [PrismaClient, AUDIT_SERVICE],
+    },
+    {
+      provide: RATE_LIMIT_SERVICE,
+      useFactory: (securityEvents: SecurityEventService) => createRateLimitService({
+        onLimited: (event: any) => securityEvents.create({
+          ...event,
+          type: event.metadata?.route === 'login' ? 'BRUTE_FORCE_LOGIN' : event.type,
+        }).catch(() => undefined),
+      }),
+      inject: [SECURITY_EVENT_SERVICE],
     },
     {
       provide: ADMIN_USERS_SERVICE,
@@ -92,8 +112,8 @@ import { PrismaClient } from '@prisma/client';
     },
     {
       provide: DEVICE_SERVICE,
-      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new DeviceService(database, audit),
-      inject: [PrismaClient, AUDIT_SERVICE],
+      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>, securityEvents: SecurityEventService) => new DeviceService(database, audit, undefined, securityEvents),
+      inject: [PrismaClient, AUDIT_SERVICE, SECURITY_EVENT_SERVICE],
     },
     {
       provide: VERSION_POLICY_SERVICE,
@@ -115,8 +135,9 @@ import { PrismaClient } from '@prisma/client';
         audit: ReturnType<typeof createAuditService>,
         offlineGrants: ReturnType<typeof createOfflineGrantService>,
         versionPolicies: ClientVersionPolicyService,
-      ) => new LeaseService(database, audit, undefined, { offlineGrants, versionPolicies }),
-      inject: [PrismaClient, AUDIT_SERVICE, 'OFFLINE_GRANT_SERVICE', VERSION_POLICY_SERVICE],
+        securityEvents: SecurityEventService,
+      ) => new LeaseService(database, audit, undefined, { offlineGrants, versionPolicies, securityEvents }),
+      inject: [PrismaClient, AUDIT_SERVICE, 'OFFLINE_GRANT_SERVICE', VERSION_POLICY_SERVICE, SECURITY_EVENT_SERVICE],
     },
     {
       provide: REDEMPTION_SERVICE,
@@ -125,8 +146,9 @@ import { PrismaClient } from '@prisma/client';
         entitlements: EntitlementService,
         audit: ReturnType<typeof createAuditService>,
         agents: AgentService,
-      ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper, undefined, undefined, agents),
-      inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE, AGENT_SERVICE],
+        securityEvents: SecurityEventService,
+      ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper, undefined, undefined, agents, securityEvents),
+      inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE, AGENT_SERVICE, SECURITY_EVENT_SERVICE],
     },
   ],
 })

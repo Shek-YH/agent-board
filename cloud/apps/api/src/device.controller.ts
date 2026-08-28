@@ -2,6 +2,8 @@ import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common'
 import { Session, UserSession } from '@thallesp/nestjs-better-auth';
 
 import { DeviceService } from './device.service.js';
+import type { RateLimitService } from './rate-limit.service.js';
+import { RATE_LIMIT_SERVICE } from './rate-limit.tokens.js';
 
 export const DEVICE_SERVICE = 'DEVICE_SERVICE';
 
@@ -17,10 +19,14 @@ function context(request: any) {
 
 @Controller('v1/devices')
 export class DeviceController {
-  constructor(@Inject(DEVICE_SERVICE) private readonly devices: DeviceService) {}
+  constructor(
+    @Inject(DEVICE_SERVICE) private readonly devices: DeviceService,
+    @Inject(RATE_LIMIT_SERVICE) private readonly rateLimits: RateLimitService,
+  ) {}
 
   @Post('enroll')
   enroll(@Session() session: UserSession, @Body() input: Record<string, unknown>, @Req() request: any) {
+    this.rateLimits.consume({ route: 'device-enroll', ip: request.ip, userId: session.user.id, deviceId: input.installationId });
     return this.devices.enroll(session.user.id, input, context(request));
   }
 

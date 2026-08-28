@@ -20,6 +20,7 @@ export default function AdminLayout({ children }) {
           <Link href="/admin/redemption-batches">兑换批次</Link>
           <Link href="/admin/redemption-codes">兑换码</Link>
           <Link href="/admin/audit-logs">审计日志</Link>
+          <Link href="/admin/security-events">安全事件</Link>
         </nav>
         <Link className="muted back-link" href="/">返回首页</Link>
       </aside>

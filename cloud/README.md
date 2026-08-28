@@ -68,6 +68,8 @@ GET   /v1/admin/version-policies
 POST  /v1/admin/version-policies
 GET   /v1/admin/version-policies/:id
 PATCH /v1/admin/version-policies/:id
+GET   /v1/admin/security-events
+POST  /v1/admin/security-events/:id/resolve
 GET   /v1/admin/devices
 POST  /v1/admin/devices/:id/revoke
 GET   /v1/agent/me
@@ -107,6 +109,8 @@ Phase 8 的 Offline Grant 使用独立的 `LICENSE_SIGNING_PRIVATE_KEY`（仅 AP
 - Compose 的 PostgreSQL 和 API 端口都只绑定 `127.0.0.1`。
 - 生产环境要求 HTTPS origin 与至少 32 字符的 `BETTER_AUTH_SECRET`。
 - 生产离线授权必须注入 Ed25519 `LICENSE_SIGNING_PRIVATE_KEY`，私钥不进 Git、Admin Web 或日志。
+- `SecurityEvent` 记录签名失败、重放、设备/并发超限、版本阻断和限流；Admin 可在 `/admin/security-events` 查看并处置。
+- `RATE_LIMITS_JSON` 可按 route 配置 `max` 与 `windowSeconds`，默认覆盖登录、注册、找回密码、刷新、兑换、设备注册、获取租约和心跳。
 - 当前阶段不包含宝塔配置、生产 Migration 或生产部署操作。
 
 ## Phase 9 部署材料

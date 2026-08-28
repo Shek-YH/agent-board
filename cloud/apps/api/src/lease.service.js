@@ -111,6 +111,7 @@ class LeaseService {
     this.database = database;
     this.audit = audit;
     this.clock = clock;
+    this.securityEvents = options.securityEvents;
     this.offlineGrants = options.offlineGrants;
     this.versionPolicies = options.versionPolicies;
     this.clockSkewSeconds = Number.isInteger(options.clockSkewSeconds) && options.clockSkewSeconds >= 0
@@ -122,7 +123,8 @@ class LeaseService {
     const id = assertId(userId, 'INVALID_USER_ID');
     const request = this.normalizeRequest(input, false);
     const now = parseServerTime(this.clock());
-    return this.database.$transaction(async (transaction) => {
+    try {
+      return await this.database.$transaction(async (transaction) => {
       const user = await this.getUser(transaction, id);
       const device = await this.getDevice(transaction, id, request.deviceId);
       this.assertDeviceActive(device);
@@ -174,14 +176,19 @@ class LeaseService {
         after: { id: lease.id, userId: id, deviceId: request.deviceId, instanceId: request.instanceId, status: lease.status },
       }, transaction);
       return this.response({ now, user, entitlement, device, lease, activeLeases: [...activeLeases, lease], plan, clientVersionPolicy });
-    }, { isolationLevel: 'Serializable' });
+      }, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      await this.recordSecurityFailure(error, id, input, context, 'acquire');
+      throw error;
+    }
   }
 
   async heartbeat(userId, input = {}, context = {}) {
     const id = assertId(userId, 'INVALID_USER_ID');
     const request = this.normalizeRequest(input, true);
     const now = parseServerTime(this.clock());
-    return this.database.$transaction(async (transaction) => {
+    try {
+      return await this.database.$transaction(async (transaction) => {
       const user = await this.getUser(transaction, id);
       const device = await this.getDevice(transaction, id, request.deviceId);
       this.assertDeviceActive(device);
@@ -223,7 +230,11 @@ class LeaseService {
       }
       const lease = await transaction.licenseLease.findUnique({ where: { id: current.id } });
       return this.response({ now, user, entitlement, device, lease, activeLeases: await this.activeLeases(transaction, id, now), plan, clientVersionPolicy });
-    }, { isolationLevel: 'Serializable' });
+      }, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      await this.recordSecurityFailure(error, id, input, context, 'heartbeat');
+      throw error;
+    }
   }
 
   async release(userId, leaseId, context = {}) {
@@ -357,6 +368,32 @@ class LeaseService {
     const result = evaluateClientVersion(appVersion, policy);
     if (result.status === 'UPDATE_REQUIRED') bad('CLIENT_UPDATE_REQUIRED', { policy: result.policy });
     return result;
+  }
+
+  async recordSecurityFailure(error, userId, input, context, route) {
+    const response = typeof error?.getResponse === 'function' ? error.getResponse() : error?.response;
+    const code = typeof response === 'object' && response ? response.code : null;
+    const mapping = {
+      INVALID_DEVICE_SIGNATURE: ['INVALID_DEVICE_SIGNATURE', 'HIGH'],
+      HEARTBEAT_REPLAY: ['HEARTBEAT_REPLAY', 'HIGH'],
+      CLIENT_UPDATE_REQUIRED: ['CLIENT_VERSION_BLOCKED', 'MEDIUM'],
+      CONCURRENT_DEVICE_LIMIT: ['CONCURRENT_LIMIT_EXCEEDED', 'MEDIUM'],
+      CONCURRENT_INSTANCE_LIMIT: ['CONCURRENT_LIMIT_EXCEEDED', 'MEDIUM'],
+    };
+    const [type, severity] = mapping[code] || [];
+    if (!type || !this.securityEvents?.create) return;
+    try {
+      await this.securityEvents.create({
+        type,
+        severity,
+        userId,
+        deviceId: typeof input?.deviceId === 'string' ? input.deviceId : null,
+        ip: context?.ip,
+        metadata: { route, productId: input?.productId || null, code },
+      });
+    } catch {
+      // Security telemetry must never replace the original authorization error.
+    }
   }
 
   leaseTtl(plan) {

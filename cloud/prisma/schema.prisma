@@ -25,6 +25,8 @@ model User {
   redemptionRequests RedemptionRequest[]
   devices       Device[]
   licenseLeases LicenseLease[]
+  securityEvents SecurityEvent[] @relation("SecurityEventUser")
+  resolvedSecurityEvents SecurityEvent[] @relation("SecurityEventResolver")
 
   @@map("user")
 }
@@ -129,6 +131,7 @@ model Agent {
   subAgents         Agent[]             @relation("AgentHierarchy")
   scopedUsers       UserProfile[]
   ledgerEntries     AgentLedgerEntry[]
+  securityEvents    SecurityEvent[]
 
   @@index([parentAgentId])
   @@index([status])
@@ -190,6 +193,7 @@ model Device {
   updatedAt             DateTime     @updatedAt
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   licenseLeases         LicenseLease[]
+  securityEvents        SecurityEvent[]
 
   @@unique([userId, installationId])
   @@index([userId, status])
@@ -240,6 +244,43 @@ model AuditLog {
   @@index([targetType, targetId, createdAt])
   @@index([action, createdAt])
   @@map("audit_log")
+}
+
+enum SecurityEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityEventStatus {
+  OPEN
+  RESOLVED
+}
+
+model SecurityEvent {
+  id                String                @id @default(cuid())
+  userId            String?
+  deviceId          String?
+  agentId           String?
+  type              String
+  severity          SecurityEventSeverity @default(MEDIUM)
+  ip                String?
+  metadataSanitized Json                  @default("{}")
+  status            SecurityEventStatus   @default(OPEN)
+  createdAt         DateTime              @default(now())
+  resolvedAt        DateTime?
+  resolvedBy        String?
+  user              User?                 @relation("SecurityEventUser", fields: [userId], references: [id], onDelete: SetNull)
+  device            Device?               @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  agent             Agent?                @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  resolvedByUser    User?                 @relation("SecurityEventResolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([deviceId, createdAt])
+  @@map("security_event")
 }
 
 enum ProductStatus {
