@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace(/\r\n/g, '\n');
 
 test('较长 session ID 的可见标签会统一截断，避免挤压状态标签造成卡片变高', () => {
   assert.match(app, /function displaySessionId\(sessionId\)\s*\{/);
