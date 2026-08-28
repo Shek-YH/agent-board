@@ -20,8 +20,18 @@ test('提示音设置可上传、选择、试听并持久化请求', () => {
 
 test('仅在完成迁移时按 Agent 分配播放提示音', () => {
   assert.match(source, /function markRecentlyCompleted\(ref\)/);
+  assert.match(source, /const disabledAgents = new Set\(state\.completionSounds\.disabledAgents \|\| \[\]\)/);
+  assert.match(source, /if \(disabledAgents\.has\(agent\)\) return;/);
   assert.match(source, /state\.completionSounds\.assignments\[agent\]/);
   assert.match(source, /if \(sound\) playSoundPreview\(sound\.url\)/);
+});
+
+test('提示音设置提供单 Agent 和一键全局开关', () => {
+  assert.match(source, /disabledAgents/);
+  assert.match(source, /class="sound-toggle\s/);
+  assert.match(source, /id="sound-toggle-all"/);
+  assert.match(source, /data-agent-toggle/);
+  assert.match(source, /\/api\/sounds\/enabled/);
 });
 
 test('升级修复时一次性清理旧的伪完成标记', () => {
