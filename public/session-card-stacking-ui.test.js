@@ -235,3 +235,54 @@ test('buildSessionCardGroup restores expanded state and passes context only to i
   const collapsed = buildSessionCardGroup({ root, children: [childA, childB] }, 'all');
   assert.equal(collapsed.className, 'session-card-group is-stacked');
 });
+
+test('stack groups establish an isolated column layout and keep child cards in a column', () => {
+  assert.match(html, /\.session-card-group\{[^}]*display:flex[^}]*flex-direction:column[^}]*min-width:0[^}]*isolation:isolate/);
+  assert.match(html, /\.session-card-children\{[^}]*display:flex[^}]*flex-direction:column[^}]*min-width:0/);
+});
+
+test('compact child cards expose their action rows with indexed offsets and descending layers', () => {
+  assert.match(html, /\.session-card-group\.is-stacked[^}]*\.stack-child-card\{[^}]*--stack-peek-height:48px[^}]*margin-top:calc\(var\(--stack-peek-height\) - 196px\)/);
+  assert.match(html, /--stack-offset:\s*min\(calc\(var\(--stack-index\) \* [^)]*\),\s*16px\)/);
+  assert.match(html, /margin-left:var\(--stack-offset\)/);
+  assert.match(html, /width:calc\(100% - var\(--stack-offset\)\)/);
+  assert.match(html, /z-index:calc\([^)]*var\(--stack-index\)[^)]*\)/);
+  assert.match(html, /\.session-card-group\.is-stacked[^}]*\.stack-main-card\{[^}]*z-index:\s*\d+/);
+  assert.match(html, /\.session-card-group\.is-stacked[^}]*\.stack-child-card:hover\{[^}]*transform:none/);
+});
+
+test('expanded groups restore full card spacing while retaining the existing card height', () => {
+  assert.match(html, /\.session-card-group\.is-expanded\s*>\.session-card-children\{[^}]*margin-top:10px[^}]*gap:10px/);
+  assert.match(html, /\.session-card-group\.is-expanded\s*>\.session-card-children\s*>\.stack-child-card\{[^}]*margin-top:0/);
+  assert.match(html, /\.s-card\{[^}]*height:196px[^}]*min-height:196px/);
+});
+
+test('subagent toggle is a focusable compact control with an expanded chevron state', () => {
+  assert.match(html, /\.s-subagent-toggle\{[^}]*position:absolute[^}]*top:[^}]*right:[^}]*width:24px[^}]*height:24px[^}]*border-radius:[^}]*border:/);
+  assert.match(html, /\.s-subagent-toggle:hover/);
+  assert.match(html, /\.s-subagent-toggle:focus-visible/);
+  assert.match(html, /\.s-subagent-toggle\s+svg\{[^}]*transition:transform/);
+  assert.match(html, /\.session-card-group\.is-expanded\s+\.s-subagent-toggle\s+svg\{[^}]*transform:rotate\(180deg\)/);
+  assert.match(html, /\.has-subagent-toggle\s+\.s-row1\{[^}]*padding-right:/);
+});
+
+test('flow card stacking keeps the subagent toggle above the animated border contents', () => {
+  assert.match(html, /\.s-card\.flow-red>\.s-subagent-toggle,\.s-card\.flow-green>\.s-subagent-toggle\{[^}]*position:absolute[^}]*z-index:4/);
+});
+
+test('Agent display settings use compact selectable cards without inline option styles', () => {
+  const manager = app.match(/function openColManager\(\)\s*\{[\s\S]*?\n\}\n\$\('btn-settings-hub'\)/)?.[0] || '';
+  assert.match(manager, /<fieldset class="subagent-style-settings">/);
+  assert.match(manager, /<div class="subagent-style-options">/);
+  assert.match(manager, /<label class="subagent-style-option">/g);
+  assert.match(manager, /<span class="subagent-style-copy">/g);
+  assert.doesNotMatch(manager, /<fieldset[^>]*style=/);
+  assert.doesNotMatch(manager, /<label[^>]*style=/);
+  assert.doesNotMatch(manager, /<span class="subagent-style-copy"[^>]*style=/);
+  assert.match(html, /\.subagent-style-options\{[^}]*display:grid[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(html, /\.subagent-style-option:has\(input:checked\)\{[^}]*border-color:var\(--accent\)[^}]*background:var\(--accent-bg\)/);
+  assert.match(html, /\.subagent-style-option\s+input\{[^}]*accent-color:var\(--accent\)/);
+  assert.match(html, /\.subagent-style-option:focus-within\{[^}]*box-shadow:/);
+  assert.match(html, /\.subagent-style-copy\{[^}]*min-width:0[^}]*overflow-wrap:/);
+  assert.match(html, /\.popover:has\(\.subagent-style-settings\)\{[^}]*min-width:min\(300px,calc\(100vw - 24px\)\)/);
+});
