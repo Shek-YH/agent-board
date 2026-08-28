@@ -9,6 +9,8 @@ const {
   Tray,
   dialog,
   shell,
+  globalShortcut,
+  ipcMain,
 } = require('electron');
 const { resolveDesktopPaths } = require('./paths');
 const { findAvailablePort } = require('./port');
@@ -18,6 +20,11 @@ const {
   waitForBackend,
   stopBackend,
 } = require('./backend-process');
+const { createGlobalShortcutController } = require('./global-shortcut');
+const {
+  loadShortcutSettings,
+  saveShortcutSettings,
+} = require('./shortcut-settings');
 
 let mainWindow = null;
 let tray = null;
@@ -25,6 +32,10 @@ let backend = null;
 let backendContext = null;
 let localUrl = '';
 let quitting = false;
+const shortcutController = createGlobalShortcutController({
+  globalShortcut,
+  onActivate: showMainWindow,
+});
 
 function logPath() {
   return path.join(app.getPath('logs'), 'desktop.log');
@@ -69,6 +80,7 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
   mainWindow.setMenuBarVisibility(false);
@@ -153,7 +165,40 @@ async function startApplication() {
   await startBackendProcess();
   createMainWindow();
   createTray();
+  registerConfiguredShortcut();
 }
+
+function registerConfiguredShortcut() {
+  const settings = loadShortcutSettings();
+  const result = shortcutController.apply(settings.activateApp);
+  if (!result.ok) writeDesktopLog(`全局快捷键注册失败：${result.error}`);
+}
+
+ipcMain.handle('shortcut:get', () => {
+  const settings = loadShortcutSettings();
+  return {
+    ok: true,
+    shortcut: settings.activateApp,
+    activeShortcut: shortcutController.current,
+  };
+});
+
+ipcMain.handle('shortcut:set', (_event, shortcut) => {
+  const previous = shortcutController.current || loadShortcutSettings().activateApp;
+  const applied = shortcutController.apply(shortcut);
+  if (!applied.ok) return applied;
+  try {
+    const saved = saveShortcutSettings(applied.accelerator);
+    return {
+      ok: true,
+      shortcut: saved.activateApp,
+      activeShortcut: shortcutController.current,
+    };
+  } catch (error) {
+    shortcutController.apply(previous);
+    return { ok: false, error: `保存快捷键失败：${error.message || '未知错误'}`, accelerator: previous };
+  }
+});
 
 async function quitApplication() {
   if (quitting) return;
@@ -189,6 +234,7 @@ if (!gotLock) {
       quitApplication().catch(showStartupError);
     }
   });
+  app.on('will-quit', () => shortcutController.dispose());
   app.on('window-all-closed', (event) => event.preventDefault());
   app.whenReady().then(startApplication).catch(showStartupError);
 }

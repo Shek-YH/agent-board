@@ -1366,11 +1366,13 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-cols">Agent 显示设置</button>
     <button class="pop-item" id="settings-account">账户与方案</button>
     <button class="pop-item" id="settings-sound">提示音设置</button>
+    <button class="pop-item" id="settings-shortcut">快捷键设置</button>
     <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
+  pop.querySelector('#settings-shortcut').onclick = openShortcutSettings;
   // 皮肤设置本轮仍为占位（disabled，不接点击事件）。
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
@@ -1562,6 +1564,115 @@ async function openSoundSettings() {
   pop.innerHTML = '<div class="pop-head">完成提示音设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
   await loadCompletionSounds();
   renderSoundSettings(pop, soundAgents()[0]?.[0]);
+}
+
+const DEFAULT_AGENT_BOARD_SHORTCUT = 'Alt+`';
+
+function renderShortcutSettings(pop, settings, bridge) {
+  const current = settings?.shortcut || DEFAULT_AGENT_BOARD_SHORTCUT;
+  const active = settings?.activeShortcut;
+  const unavailable = !bridge;
+  pop.innerHTML = `<div class="pop-head">快捷键设置</div>
+    <div class="shortcut-settings">
+      <div class="shortcut-title">激活 Agent Board 到前台</div>
+      <div class="shortcut-help">在任意应用中按下该组合键，可显示并聚焦 Agent Board 窗口。</div>
+      <div class="shortcut-row">
+        <input id="shortcut-input" class="shortcut-input" value="${esc(current)}" readonly aria-label="Agent Board 激活快捷键" ${unavailable ? 'disabled' : ''}>
+        <button class="btn" id="shortcut-record" type="button" ${unavailable ? 'disabled' : ''}>录入快捷键</button>
+      </div>
+      <div class="shortcut-status" id="shortcut-status">${unavailable ? '快捷键仅在桌面版中可用。' : active === current ? '当前快捷键已启用。' : '当前快捷键尚未成功注册，请重新录入。'}</div>
+      <div class="shortcut-actions">
+        <button class="btn" id="shortcut-reset" type="button" ${unavailable ? 'disabled' : ''}>恢复默认（${esc(DEFAULT_AGENT_BOARD_SHORTCUT)}）</button>
+        <button class="btn primary" id="shortcut-save" type="button" ${unavailable ? 'disabled' : ''}>保存快捷键</button>
+      </div>
+    </div>`;
+  if (unavailable) return;
+
+  const input = pop.querySelector('#shortcut-input');
+  const recordButton = pop.querySelector('#shortcut-record');
+  const resetButton = pop.querySelector('#shortcut-reset');
+  const saveButton = pop.querySelector('#shortcut-save');
+  const status = pop.querySelector('#shortcut-status');
+  let recording = false;
+  let candidate = current;
+
+  const setStatus = (message, error = false) => {
+    status.textContent = message;
+    status.classList.toggle('error', error);
+  };
+  const persist = async (shortcut, successMessage) => {
+    saveButton.disabled = true;
+    resetButton.disabled = true;
+    try {
+      const result = await bridge.setShortcutSettings(shortcut);
+      if (!result?.ok) {
+        setStatus(result?.error || '快捷键保存失败。', true);
+        return;
+      }
+      candidate = result.shortcut || shortcut;
+      input.value = candidate;
+      setStatus(successMessage || '快捷键已保存。');
+      toast('快捷键设置已保存');
+    } catch (error) {
+      setStatus(error.message || '快捷键保存失败。', true);
+    } finally {
+      saveButton.disabled = false;
+      resetButton.disabled = false;
+    }
+  };
+
+  recordButton.onclick = (event) => {
+    event.stopPropagation();
+    recording = true;
+    input.focus();
+    setStatus('请按下包含 Alt、Ctrl、Shift 或 Win 的组合键…');
+  };
+  input.onkeydown = (event) => {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next = window.AgentBoardShortcutUtils.acceleratorFromKeyboardEvent(event);
+    if (!next) {
+      setStatus('请至少包含一个修饰键和一个普通按键。', true);
+      return;
+    }
+    recording = false;
+    candidate = next;
+    input.value = next;
+    setStatus('快捷键已录入，点击“保存快捷键”后生效。');
+  };
+  saveButton.onclick = (event) => {
+    event.stopPropagation();
+    persist(candidate);
+  };
+  resetButton.onclick = (event) => {
+    event.stopPropagation();
+    persist(DEFAULT_AGENT_BOARD_SHORTCUT, '已恢复并启用默认快捷键 Alt+`。');
+  };
+}
+
+async function openShortcutSettings() {
+  closePopover();
+  state.popoverFor = 'shortcuts';
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  pop.style.width = '500px'; pop.style.maxWidth = 'calc(100vw - 32px)';
+  document.body.appendChild(pop);
+  const bridge = window.AgentBoardDesktop;
+  pop.innerHTML = '<div class="pop-head">快捷键设置</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
+  if (!bridge) {
+    renderShortcutSettings(pop, null, null);
+    return;
+  }
+  try {
+    const settings = await bridge.getShortcutSettings();
+    renderShortcutSettings(pop, settings, bridge);
+  } catch (error) {
+    renderShortcutSettings(pop, { shortcut: DEFAULT_AGENT_BOARD_SHORTCUT }, null);
+    const status = pop.querySelector('#shortcut-status');
+    if (status) { status.textContent = `加载失败：${error.message || '无法读取快捷键设置'}`; status.classList.add('error'); }
+  }
 }
 
 // 每个 agent 默认

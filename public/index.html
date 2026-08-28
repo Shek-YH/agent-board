@@ -172,6 +172,16 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 @keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .pop-head{font-size:12px;font-weight:600;color:var(--text2);padding:4px 8px 6px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);margin-bottom:4px}
 .pop-head .dot{width:8px;height:8px;border-radius:50%}
+.shortcut-settings{padding:14px 16px 16px}
+.shortcut-title{font-size:14px;font-weight:650;color:var(--text)}
+.shortcut-help{margin-top:4px;color:var(--text3);font-size:12px;line-height:1.55}
+.shortcut-row{display:flex;align-items:center;gap:8px;margin-top:14px}
+.shortcut-input{flex:1;min-width:0;min-height:40px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#F8FAFC;color:var(--text);font-family:ui-monospace,Consolas,monospace;font-size:14px;font-weight:600;text-align:center;outline:none}
+.shortcut-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.shortcut-status{min-height:20px;margin-top:8px;color:var(--text3);font-size:12px}
+.shortcut-status.error{color:#B91C1C}
+.shortcut-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.shortcut-actions .btn,.shortcut-row .btn{min-height:32px;padding:5px 10px;font-size:12px;white-space:nowrap}
 .ab-agent-manager{width:min(720px,calc(100vw - 24px));min-width:0;max-width:none;max-height:calc(100vh - 84px);padding:0;overflow:hidden;display:flex;flex-direction:column}
 .ab-manager-head{flex:0 0 auto;padding:12px 14px 10px;margin:0;align-items:center}
 .ab-manager-heading{min-width:0;display:flex;flex-direction:column;gap:1px}
@@ -563,6 +573,7 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 
 <script src="/scroll-containment.js"></script>
 <script src="/api-client.js"></script>
+<script src="/shortcut-utils.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
