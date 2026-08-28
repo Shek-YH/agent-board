@@ -1,6 +1,6 @@
 # Agent Board Cloud
 
-Phase 1–2 的独立云端服务，负责身份、Admin 用户管理、RBAC 基础、审计和健康检查。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–3 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录和授权。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
@@ -41,7 +41,17 @@ PATCH /v1/admin/users/:id
 POST  /v1/admin/users/:id/disable
 POST  /v1/admin/users/:id/enable
 GET   /v1/admin/audit-logs
+GET   /v1/admin/products
+POST  /v1/admin/products
+PATCH /v1/admin/products/:id
+GET   /v1/admin/plans
+POST  /v1/admin/plans
+PATCH /v1/admin/plans/:id
+GET   /v1/admin/entitlements
+POST  /v1/admin/users/:id/grants
 ```
+
+计划的 `durationSeconds`、设备限制、心跳策略、Feature JSON 和代理成本均来自数据库配置，不在代码中硬编码。人工授权会在同一事务中更新 Entitlement、创建 EntitlementGrant 并写入 AuditLog；有效授权从现有 `expiresAt` 叠加，已过期授权从服务端当前时间计算。
 
 首次建立管理员时，先通过 Better Auth 注册一个用户，再在测试环境显式执行 `BOOTSTRAP_ADMIN_EMAIL=... npm run admin:promote`；该脚本不会读取密码，也不会自动提升任何账号。
 

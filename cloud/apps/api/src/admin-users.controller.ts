@@ -13,6 +13,8 @@ import {
 
 import { AdminGuard } from './admin.guard.js';
 import { AdminUsersService } from './admin-users.service.js';
+import { ENTITLEMENT_SERVICE } from './admin-entitlements.controller.js';
+import { EntitlementService } from './entitlement.service.js';
 
 export const ADMIN_USERS_SERVICE = 'ADMIN_USERS_SERVICE';
 
@@ -30,7 +32,10 @@ function auditContext(request: any) {
 @UseGuards(AdminGuard)
 @Controller('v1/admin/users')
 export class AdminUsersController {
-  constructor(@Inject(ADMIN_USERS_SERVICE) private readonly users: AdminUsersService) {}
+  constructor(
+    @Inject(ADMIN_USERS_SERVICE) private readonly users: AdminUsersService,
+    @Inject(ENTITLEMENT_SERVICE) private readonly entitlements: EntitlementService,
+  ) {}
 
   @Get()
   list(@Query() query: Record<string, unknown>) {
@@ -60,5 +65,10 @@ export class AdminUsersController {
   @Post(':id/enable')
   enable(@Param('id') id: string, @Req() request: any) {
     return this.users.setStatus(id, 'ACTIVE', auditContext(request));
+  }
+
+  @Post(':id/grants')
+  grant(@Param('id') id: string, @Body() input: Record<string, unknown>, @Req() request: any) {
+    return this.entitlements.grantToUser(id, input, auditContext(request));
   }
 }

@@ -11,6 +11,9 @@ export default function AdminLayout({ children }) {
         </div>
         <nav>
           <Link href="/admin/users">用户</Link>
+          <Link href="/admin/products">产品</Link>
+          <Link href="/admin/plans">计划</Link>
+          <Link href="/admin/entitlements">授权</Link>
           <Link href="/admin/audit-logs">审计日志</Link>
         </nav>
         <Link className="muted back-link" href="/">返回首页</Link>

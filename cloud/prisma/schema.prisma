@@ -20,6 +20,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   profile       UserProfile?
+  entitlements  Entitlement[]
 
   @@map("user")
 }
@@ -116,4 +117,128 @@ model AuditLog {
   @@index([targetType, targetId, createdAt])
   @@index([action, createdAt])
   @@map("audit_log")
+}
+
+enum ProductStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Product {
+  id            String          @id @default(cuid())
+  code          String          @unique
+  name          String
+  status        ProductStatus   @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  plans         Plan[]
+  entitlements  Entitlement[]
+
+  @@map("product")
+}
+
+enum PlanStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ConcurrencyPolicy {
+  REJECT
+  KICK_OLDEST
+}
+
+model Plan {
+  id                       String             @id @default(cuid())
+  productId                String
+  code                     String
+  name                     String
+  durationSeconds          Int?
+  isPermanent              Boolean            @default(false)
+  maxRegisteredDevices     Int                @default(1)
+  maxConcurrentDevices     Int                @default(1)
+  maxInstancesPerDevice   Int                @default(1)
+  heartbeatRequired        Boolean            @default(true)
+  heartbeatIntervalSeconds Int                @default(60)
+  leaseTtlSeconds          Int                @default(180)
+  offlineGraceSeconds      Int                @default(0)
+  deviceResetLimit         Int                @default(0)
+  deviceResetWindowDays    Int                @default(30)
+  concurrencyPolicy        ConcurrencyPolicy  @default(REJECT)
+  features                 Json               @default("{}")
+  agentCostCredits         Int                @default(0)
+  status                   PlanStatus         @default(ACTIVE)
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  product                  Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  entitlements             Entitlement[]
+
+  @@unique([productId, code])
+  @@index([productId, status])
+  @@map("plan")
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+model Entitlement {
+  id               String             @id @default(cuid())
+  userId           String
+  productId        String
+  planId           String?
+  status           EntitlementStatus  @default(ACTIVE)
+  startsAt         DateTime
+  expiresAt        DateTime?
+  isPermanent      Boolean            @default(false)
+  suspendedAt      DateTime?
+  revokedAt        DateTime?
+  lastValidatedAt  DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product          Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  plan             Plan?              @relation(fields: [planId], references: [id], onDelete: Restrict)
+  grants           EntitlementGrant[]
+
+  @@unique([userId, productId])
+  @@index([userId, status])
+  @@index([expiresAt, status])
+  @@map("entitlement")
+}
+
+enum EntitlementGrantType {
+  DURATION
+  PERMANENT
+}
+
+enum EntitlementGrantSource {
+  REDEMPTION
+  ADMIN_GRANT
+  AGENT_GRANT
+  PROMOTION
+  COMPENSATION
+  MIGRATION
+}
+
+model EntitlementGrant {
+  id               String                @id @default(cuid())
+  entitlementId    String
+  type             EntitlementGrantType
+  durationSeconds  Int?
+  source           EntitlementGrantSource
+  redemptionCodeId String?
+  operatorId       String?
+  agentId          String?
+  oldExpiresAt     DateTime?
+  newExpiresAt     DateTime?
+  requestId        String
+  createdAt        DateTime              @default(now())
+  entitlement      Entitlement            @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@index([entitlementId, createdAt])
+  @@index([requestId])
+  @@map("entitlement_grant")
 }
