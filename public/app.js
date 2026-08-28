@@ -1,11 +1,19 @@
 'use strict';
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
+const sessionCardStacking = window.AgentBoardSessionStacking;
+let subagentStorage = null;
+try {
+  subagentStorage = window.localStorage;
+} catch {}
+
 const state = {
   agents: [], projects: [], active: [], agentsDef: {},
   project: '', q: '', range: 7, activeRange: 'day', activeProject: '',
   onlyUser: true,
   board: {}, agentIds: [], defaultAgentIds: [], colOrder: null,
+  subagentCardStyle: sessionCardStacking.loadSubagentCardStyle(subagentStorage),
+  expandedSubagentGroups: new Set(),
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
   // Codex 线程/回合归并状态：与 liveRefs 分离，避免把所有状态压成二元值
@@ -1831,6 +1839,17 @@ function openColManager() {
   const current = effectiveCols();
   const items = [...state.agentIds];
   let html = `<div class="pop-head">Agent 显示设置 <span style="opacity:.5;font-weight:400">（勾选显示，上下拖动顺序）</span></div>
+    <fieldset style="margin:0;padding:8px 14px 10px;border:0;border-bottom:1px solid var(--border)">
+      <legend style="padding:0;font-size:12px;color:var(--text2)">子代理卡片显示</legend>
+      <label style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;cursor:pointer;font-size:13px">
+        <input type="radio" name="subagent-card-style" value="flat" ${state.subagentCardStyle === 'flat' ? 'checked' : ''} style="margin-top:2px">
+        <span><span>平铺卡片</span><small style="display:block;color:var(--text3);font-size:11px;margin-top:2px">子代理按普通卡片平铺显示</small></span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;cursor:pointer;font-size:13px">
+        <input type="radio" name="subagent-card-style" value="stacked" ${state.subagentCardStyle === 'stacked' ? 'checked' : ''} style="margin-top:2px">
+        <span><span>卡片对叠</span><small style="display:block;color:var(--text3);font-size:11px;margin-top:2px">子代理卡片叠放在父卡片下方</small></span>
+      </label>
+    </fieldset>
     <div style="padding:6px 8px;max-height:56vh;overflow-y:auto">`;
   for (const id of items) {
     const meta = id === 'all' ? { name: '全部', color: '#888780' } : agentMeta(id);
@@ -1850,6 +1869,14 @@ function openColManager() {
     </div>`;
   pop.innerHTML = html;
 
+  pop.querySelectorAll('input[name="subagent-card-style"]').forEach((radio) => radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    const style = sessionCardStacking.normalizeSubagentCardStyle(radio.value);
+    state.subagentCardStyle = sessionCardStacking.saveSubagentCardStyle(subagentStorage, style);
+    state.expandedSubagentGroups.clear();
+    renderBoard();
+  }));
+
   // 勾选 → 更新显示
   const applyCols = () => {
     const order = [];
@@ -1860,7 +1887,7 @@ function openColManager() {
       if (cb.checked) order.push(id);
     }
     state.colOrder = order;
-    saveColOrder(order);
+    try { saveColOrder(order); } catch {}
     renderBoard();
   };
   pop.querySelectorAll('.col-mgr-cb').forEach((cb) => cb.addEventListener('change', applyCols));
@@ -1892,7 +1919,10 @@ function openColManager() {
   pop.querySelector('#cols-reset').onclick = () => {
     // 恢复默认＝恢复到「探测为已安装或有历史数据」过滤后的默认列，不是恢复成全部 agent
     state.colOrder = null;
-    saveColOrder(['all', ...state.defaultAgentIds]);
+    sessionCardStacking.saveSubagentCardStyle(subagentStorage, 'flat');
+    state.subagentCardStyle = 'flat';
+    state.expandedSubagentGroups.clear();
+    try { saveColOrder(['all', ...state.defaultAgentIds]); } catch {}
     closePopover();
     loadBoard();
   };
