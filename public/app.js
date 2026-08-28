@@ -1904,16 +1904,14 @@ function openColManager() {
   let html = `<div class="pop-head">Agent 显示设置 <span style="opacity:.5;font-weight:400">（勾选显示，上下拖动顺序）</span></div>
     <fieldset class="subagent-style-settings">
       <legend>子代理卡片显示</legend>
-      <div class="subagent-style-options">
-        <label class="subagent-style-option">
-          <input type="radio" name="subagent-card-style" value="flat" ${state.subagentCardStyle === 'flat' ? 'checked' : ''}>
-          <span class="subagent-style-copy"><span>平铺卡片</span><small>子代理按普通卡片平铺显示</small></span>
-        </label>
-        <label class="subagent-style-option">
-          <input type="radio" name="subagent-card-style" value="stacked" ${state.subagentCardStyle === 'stacked' ? 'checked' : ''}>
-          <span class="subagent-style-copy"><span>卡片对叠</span><small>子代理卡片叠放在父卡片下方</small></span>
-        </label>
-      </div>
+      <label class="subagent-style-option">
+        <input type="radio" name="subagent-card-style" value="flat" ${state.subagentCardStyle === 'flat' ? 'checked' : ''}>
+        <span class="subagent-style-copy"><span>平铺卡片</span><small>子代理按普通卡片平铺显示</small></span>
+      </label>
+      <label class="subagent-style-option">
+        <input type="radio" name="subagent-card-style" value="stacked" ${state.subagentCardStyle === 'stacked' ? 'checked' : ''}>
+        <span class="subagent-style-copy"><span>卡片对叠</span><small>子代理卡片叠放在父卡片下方</small></span>
+      </label>
     </fieldset>
     <div style="padding:6px 8px;max-height:56vh;overflow-y:auto">`;
   for (const id of items) {

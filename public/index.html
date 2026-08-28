@@ -191,9 +191,8 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 /* 跳转弹菜单 */
 .popover{position:fixed;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;min-width:200px;animation:pop .12s ease}
 .popover:has(.subagent-style-settings){min-width:min(300px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)}
-.subagent-style-settings{margin:0;padding:8px 14px 10px;border:0;border-bottom:1px solid var(--border);min-width:0}
-.subagent-style-settings legend{padding:0;font-size:12px;color:var(--text2)}
-.subagent-style-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px;min-width:0}
+.subagent-style-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0;padding:8px 14px 10px;border:0;border-bottom:1px solid var(--border);min-width:0}
+.subagent-style-settings legend{grid-column:1/-1;padding:0;font-size:12px;color:var(--text2)}
 .subagent-style-option{display:flex;align-items:flex-start;gap:7px;min-width:0;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-size:13px;line-height:1.4;transition:.12s}
 .subagent-style-option:hover{border-color:var(--border2);background:#FBFAF8}
 .subagent-style-option:has(input:checked){border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px rgba(59,130,246,.12)}

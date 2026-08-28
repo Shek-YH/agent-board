@@ -272,14 +272,17 @@ test('flow card stacking keeps the subagent toggle above the animated border con
 
 test('Agent display settings use compact selectable cards without inline option styles', () => {
   const manager = app.match(/function openColManager\(\)\s*\{[\s\S]*?\n\}\n\$\('btn-settings-hub'\)/)?.[0] || '';
+  const settingsMarkup = manager.match(/<fieldset class="subagent-style-settings">[\s\S]*?<\/fieldset>/)?.[0] || '';
   assert.match(manager, /<fieldset class="subagent-style-settings">/);
-  assert.match(manager, /<div class="subagent-style-options">/);
-  assert.match(manager, /<label class="subagent-style-option">/g);
+  assert.doesNotMatch(manager, /<div class="subagent-style-options">/);
+  assert.match(settingsMarkup, /<fieldset class="subagent-style-settings">\s*<legend>[\s\S]*?<\/legend>\s*<label class="subagent-style-option">/);
+  assert.match(settingsMarkup, /<\/label>\s*<label class="subagent-style-option">[\s\S]*?<\/label>\s*<\/fieldset>$/);
   assert.match(manager, /<span class="subagent-style-copy">/g);
   assert.doesNotMatch(manager, /<fieldset[^>]*style=/);
   assert.doesNotMatch(manager, /<label[^>]*style=/);
   assert.doesNotMatch(manager, /<span class="subagent-style-copy"[^>]*style=/);
-  assert.match(html, /\.subagent-style-options\{[^}]*display:grid[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(html, /\.subagent-style-settings\{[^}]*display:grid[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(html, /\.subagent-style-settings\s+legend\{[^}]*grid-column:1\/-1/);
   assert.match(html, /\.subagent-style-option:has\(input:checked\)\{[^}]*border-color:var\(--accent\)[^}]*background:var\(--accent-bg\)/);
   assert.match(html, /\.subagent-style-option\s+input\{[^}]*accent-color:var\(--accent\)/);
   assert.match(html, /\.subagent-style-option:focus-within\{[^}]*box-shadow:/);
