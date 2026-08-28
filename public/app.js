@@ -177,7 +177,8 @@ async function loadBoard() {
     state.board = d.groups || state.board;
     for (const sessions of Object.values(state.board || {})) {
       for (const session of sessions || []) {
-        if (session?.id) state.sessionRoles.set(session.id, session.session_role === 'child' ? 'child' : 'main');
+        const role = session?.session_role === 'child' || session?.session_role === 'main' ? session.session_role : null;
+        if (session?.id && role) state.sessionRoles.set(session.id, role);
       }
     }
     state.agentIds = d.agentIds || [];
