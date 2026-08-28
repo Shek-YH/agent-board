@@ -15,7 +15,8 @@ const serverSource = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 
 function loadFileOffsetResolver() {
   const start = serverSource.indexOf('function fileOffsetKey(adapter, filePath)');
-  const end = serverSource.indexOf('\n\nfunction prepareFileOffset', start);
+  const match = /\r?\n\r?\nfunction prepareFileOffset/.exec(serverSource.slice(start));
+  const end = match ? start + match.index : -1;
   assert.ok(start >= 0, 'server must define the file offset resolver');
   assert.ok(end > start, 'server resolver must precede prepareFileOffset');
   return vm.runInNewContext(`(() => { ${serverSource.slice(start, end)}; return fileOffsetKey; })()`);
