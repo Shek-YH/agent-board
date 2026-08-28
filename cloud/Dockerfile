@@ -16,4 +16,4 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/apps/api/src/main.js"]
+CMD ["node", "dist/apps/api/src/main.js"]

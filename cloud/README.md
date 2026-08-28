@@ -1,15 +1,17 @@
 # Agent Board Cloud
 
-Phase 1–8 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本、设备注册、在线授权租约、离线宽限和客户端版本策略。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–9 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本、设备注册、在线授权租约、离线宽限、客户端版本策略和部署运行手册。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
 1. 复制 `.env.example` 为 `.env`，只填入本地开发值。
-2. 启动 PostgreSQL、API 和 Admin Web：`docker compose up -d`。
-3. 安装依赖：`npm ci`。
-4. 生成 Prisma Client：`npm run prisma:generate`。
+2. 安装依赖：`npm ci`。
+3. 生成 Prisma Client：`npm run prisma:generate`。
+4. 先启动 PostgreSQL：`docker compose up -d postgres`。
 5. 应用迁移：`npm run prisma:migrate:deploy`。
-6. 启动 API：`npm run dev`。
+6. 启动 API 和 Admin Web：`docker compose up -d api admin`。
+
+只运行 API 源码进行调试时，在迁移完成后执行 `npm run dev`；不要同时启动 Compose API 和源码 API。
 
 仅开发 Admin Web 时，在另一个终端运行：
 
@@ -106,3 +108,15 @@ Phase 8 的 Offline Grant 使用独立的 `LICENSE_SIGNING_PRIVATE_KEY`（仅 AP
 - 生产环境要求 HTTPS origin 与至少 32 字符的 `BETTER_AUTH_SECRET`。
 - 生产离线授权必须注入 Ed25519 `LICENSE_SIGNING_PRIVATE_KEY`，私钥不进 Git、Admin Web 或日志。
 - 当前阶段不包含宝塔配置、生产 Migration 或生产部署操作。
+
+## Phase 9 部署材料
+
+- [生产部署 Runbook](infra/deploy-runbook.md)：受控迁移、宝塔/TLS、三重验收与恢复流程。
+- [ECS 安全组清单](infra/security-group-checklist.md)：公网端口与主机安全边界。
+- `infra/nginx-examples/`：只包含宝塔 `location /` 反代片段，不覆盖宝塔 SSL/Include 配置。
+- `infra/scripts/backup-postgres.sh`：PostgreSQL custom-format 备份并校验 `pg_restore --list`。
+- `infra/scripts/backup-stack-config.sh`：备份 Compose、Dockerfile、Schema 和 Migration，不包含 `.env`。
+- `infra/scripts/restore-postgres.sh`：恢复前要求 `CONFIRM_RESTORE=YES`，避免误覆盖目标数据库。
+- `infra/scripts/verify-stack.sh`：检查 live/ready、Admin 页面和未授权 API 的 401。
+
+生产容器重启不会自动执行 Prisma migration；必须先备份、检查 SQL、在测试库回归，再按 Runbook 显式执行 `docker compose run --rm api npx prisma migrate deploy`。

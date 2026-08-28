@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    init: true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in cloud/.env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in cloud/.env}
@@ -15,12 +16,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - backend
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    init: true
     env_file:
       - .env
     environment:
@@ -30,6 +34,14 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:3200:3200"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3200/health/live').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - backend
 
   admin:
     build:
@@ -38,6 +50,18 @@ services:
         NEXT_PUBLIC_API_URL: ${ADMIN_API_URL:-http://127.0.0.1:3200}
     ports:
       - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
 volumes:
   postgres-data:
+
+networks:
+  backend:
+    internal: true
