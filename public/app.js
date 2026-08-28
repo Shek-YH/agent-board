@@ -900,7 +900,6 @@ function buildSessionCardGroup(group, colKey) {
   const wrapper = document.createElement('div');
   wrapper.className = 'session-card-group ' + (expanded ? 'is-expanded' : 'is-stacked');
   wrapper.dataset.rootRef = group.root.id;
-  wrapper.style.setProperty('--stack-count', String(childCount));
   wrapper.appendChild(buildCard(group.root, colKey, { expanded, childCount }));
 
   const children = document.createElement('div');
