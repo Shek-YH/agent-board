@@ -47,3 +47,41 @@ test('restoring Agent display defaults also resets the subagent card style and e
 test('localStorage property access is protected so unavailable storage cannot break the board or settings', () => {
   assert.match(app, /let subagentStorage\s*=\s*null\s*;[\s\S]*?try\s*\{\s*subagentStorage\s*=\s*window\.localStorage\s*;\s*\}\s*catch/);
 });
+
+test('stacked board rendering groups sessions while flat rendering keeps one card per session', () => {
+  const render = app.match(/function renderBoard\(\)\s*\{[\s\S]*?\n\}\n\n\/\/ 隐藏一个 Agent/)?.[0] || '';
+  assert.match(render, /if \(state\.subagentCardStyle === 'stacked'\)/);
+  assert.match(render, /const groups = sessionCardStacking\.groupSessions\(list\)/);
+  assert.match(render, /buildSessionCardGroup\(item, key\)/);
+  assert.match(render, /buildCard\(item\.session, key\)/);
+  assert.match(render, /for \(const s of list\) cardsBox\.appendChild\(buildCard\(s, key\)\)/);
+});
+
+test('stacked groups render a contextual root card and indexed child cards', () => {
+  const group = app.match(/function buildSessionCardGroup\([\s\S]*?\n\}\n\nfunction buildCard/)?.[0] || '';
+  assert.match(group, /className = 'session-card-group\s*'/);
+  assert.match(group, /dataset\.rootRef = group\.root\.id/);
+  assert.match(group, /is-expanded.*is-stacked|is-stacked.*is-expanded/);
+  assert.match(group, /buildCard\(group\.root, colKey, \{ expanded, childCount \}\)/);
+  assert.match(group, /className = 'session-card-children'/);
+  assert.match(group, /buildCard\(child, colKey\)/);
+  assert.match(group, /stack-child-card/);
+  assert.match(group, /--stack-index/);
+});
+
+test('only grouped main cards expose an accessible toggle and expansion sync excludes card opening', () => {
+  assert.match(app, /function buildCard\(s, colKey, groupContext = null\)/);
+  assert.match(app, /classList\.add\('has-subagent-toggle',\s*'stack-main-card'\)/);
+  assert.match(app, /class="s-subagent-toggle"/);
+  assert.match(app, /data-child-count="\$\{groupContext\.childCount\}"/);
+  assert.match(app, /aria-expanded="\$\{groupContext\.expanded \? 'true' : 'false'\}"/);
+  assert.match(app, /function toggleSubagentGroup\(rootRef\)/);
+  assert.match(app, /state\.expandedSubagentGroups\.(?:add|delete)\(rootRef\)/);
+  assert.match(app, /syncSubagentGroupExpansion\(rootRef\)/);
+  assert.match(app, /function syncSubagentGroupExpansion\(rootRef\)/);
+  assert.match(app, /button\.setAttribute\('aria-label', label\)/);
+  assert.match(app, /button\.title = label/);
+  assert.match(app, /e\.target\.closest\('\.s-subagent-toggle'\)/);
+  const cardClick = app.match(/card\.addEventListener\('click',[\s\S]*?\n\s*\}\);/)?.[0] || '';
+  assert.match(cardClick, /e\.target\.closest\('\.s-subagent-toggle'\)/);
+});
