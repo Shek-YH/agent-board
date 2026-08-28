@@ -8,6 +8,7 @@ const now = new Date('2026-08-28T12:00:00.000Z');
 
 function makeDatabase(maxRegisteredDevices = 1) {
   const devices = new Map();
+  const leases = new Map();
   const auditRecords = [];
   let nextId = 0;
   const database = {
@@ -44,8 +45,15 @@ function makeDatabase(maxRegisteredDevices = 1) {
         return { count: 1 };
       },
     },
+    licenseLease: {
+      updateMany: async ({ where, data }) => {
+        const matched = [...leases.values()].filter((lease) => lease.deviceId === where.deviceId && lease.status === where.status);
+        for (const lease of matched) leases.set(lease.id, { ...lease, ...data });
+        return { count: matched.length };
+      },
+    },
   };
-  return { database, devices, auditRecords, audit: { record: async (record) => auditRecords.push(record) } };
+  return { database, devices, leases, auditRecords, audit: { record: async (record) => auditRecords.push(record) } };
 }
 
 function keyPair() {
@@ -103,6 +111,20 @@ test('device signature verification uses the Ed25519 public key and canonical pa
 
   assert.equal(verifyDeviceSignature(keys.publicKey, payload, signature), true);
   assert.equal(verifyDeviceSignature(keys.publicKey, { ...payload, a: 2 }, signature), false);
+});
+
+test('remote device revocation also revokes every active lease for that device', async () => {
+  const state = makeDatabase(1);
+  const keys = keyPair();
+  const service = new DeviceService(state.database, state.audit, () => now);
+  const enrolled = await service.enroll('user-1', { installationId: 'install-remote', publicKey: keys.publicKey });
+  state.leases.set('lease-1', { id: 'lease-1', deviceId: enrolled.id, status: 'ACTIVE' });
+  state.leases.set('lease-2', { id: 'lease-2', deviceId: enrolled.id, status: 'REVOKED' });
+
+  await service.adminRevoke(enrolled.id, { actorType: 'ADMIN', actorId: 'admin-1' });
+
+  assert.equal(state.leases.get('lease-1').status, 'REVOKED');
+  assert.equal(state.leases.get('lease-2').status, 'REVOKED');
 });
 
 test('admin revocation is server-side and idempotently blocks the device', async () => {

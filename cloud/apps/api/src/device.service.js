@@ -216,6 +216,10 @@ class DeviceService {
         if (current?.status === 'BLOCKED') bad('DEVICE_BLOCKED');
         bad('DEVICE_NOT_AVAILABLE');
       }
+      await transaction.licenseLease?.updateMany?.({
+        where: { deviceId: id, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revokedAt },
+      });
       await this.audit?.record?.({
         ...context,
         actorType: 'USER',
@@ -246,6 +250,10 @@ class DeviceService {
         if (current?.status === 'REVOKED') return serializeDevice(current);
         bad('DEVICE_NOT_AVAILABLE');
       }
+      await transaction.licenseLease?.updateMany?.({
+        where: { deviceId: id, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revokedAt },
+      });
       await this.audit?.record?.({
         ...context,
         action: 'DEVICE_REVOKED',

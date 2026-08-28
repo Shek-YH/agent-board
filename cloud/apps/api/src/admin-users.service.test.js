@@ -50,6 +50,8 @@ test('admin user listing applies pagination and case-insensitive search', async 
 
 test('disabling a user updates profile status and writes an audit record', async () => {
   const auditRecords = [];
+  const revokedLeases = [];
+  const deletedSessions = [];
   const database = {
     user: {
       findUnique: async () => ({
@@ -68,6 +70,18 @@ test('disabling a user updates profile status and writes an audit record', async
         status: update.status,
       }),
     },
+    licenseLease: {
+      updateMany: async ({ where, data }) => {
+        revokedLeases.push({ where, data });
+        return { count: 1 };
+      },
+    },
+    session: {
+      deleteMany: async ({ where }) => {
+        deletedSessions.push(where);
+        return { count: 1 };
+      },
+    },
     $transaction: async (callback) => callback(database),
   };
   const audit = {
@@ -82,6 +96,8 @@ test('disabling a user updates profile status and writes an audit record', async
 
   assert.equal(result.profile.status, 'DISABLED');
   assert.equal(auditRecords.length, 1);
+  assert.deepEqual(revokedLeases[0].where, { userId: 'user-1', status: 'ACTIVE' });
+  assert.deepEqual(deletedSessions, [{ userId: 'user-1' }]);
   assert.equal(auditRecords[0].action, 'USER_DISABLED');
   assert.deepEqual(auditRecords[0].before, { status: 'ACTIVE', role: 'USER' });
   assert.deepEqual(auditRecords[0].after, { status: 'DISABLED', role: 'USER' });

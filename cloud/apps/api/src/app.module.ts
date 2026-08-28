@@ -15,6 +15,8 @@ import { AGENT_SERVICE } from './agent.tokens.js';
 import { DeviceController, DEVICE_SERVICE } from './device.controller.js';
 import { DeviceService } from './device.service.js';
 import { AdminDevicesController } from './admin-devices.controller.js';
+import { LicenseController, LEASE_SERVICE } from './license.controller.js';
+import { LeaseService } from './lease.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { CatalogService } from './catalog.service.js';
@@ -53,6 +55,7 @@ import { PrismaClient } from '@prisma/client';
     AgentController,
     DeviceController,
     AdminDevicesController,
+    LicenseController,
     RedemptionController,
   ],
   providers: [
@@ -86,6 +89,11 @@ import { PrismaClient } from '@prisma/client';
     {
       provide: DEVICE_SERVICE,
       useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new DeviceService(database, audit),
+      inject: [PrismaClient, AUDIT_SERVICE],
+    },
+    {
+      provide: LEASE_SERVICE,
+      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new LeaseService(database, audit),
       inject: [PrismaClient, AUDIT_SERVICE],
     },
     {

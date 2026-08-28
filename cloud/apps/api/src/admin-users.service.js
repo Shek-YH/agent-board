@@ -162,6 +162,14 @@ class AdminUsersService {
         create: { userId: id, role: before.profile?.role || 'USER', status: nextStatus },
         select: { role: true, status: true },
       });
+      if (nextStatus === 'DISABLED') {
+        const revokedAt = new Date();
+        await transaction.licenseLease?.updateMany?.({
+          where: { userId: id, status: 'ACTIVE' },
+          data: { status: 'REVOKED', revokedAt },
+        });
+        await transaction.session?.deleteMany?.({ where: { userId: id } });
+      }
       const after = { ...before, profile };
       await this.audit.record({
         ...context,

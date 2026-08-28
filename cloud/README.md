@@ -1,6 +1,6 @@
 # Agent Board Cloud
 
-Phase 1–6 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本和设备注册。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–7 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本、设备注册和在线授权租约。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
@@ -58,6 +58,10 @@ POST  /v1/admin/agents/:id/users/:userId
 POST  /v1/devices/enroll
 GET   /v1/devices/me
 POST  /v1/devices/:id/revoke
+GET  /v1/license/status
+POST /v1/license/acquire
+POST /v1/license/heartbeat
+POST /v1/license/release
 GET   /v1/admin/devices
 POST  /v1/admin/devices/:id/revoke
 GET   /v1/agent/me
@@ -84,6 +88,8 @@ POST  /v1/redemptions/redeem
 兑换批次会将兑换码以 HMAC-SHA256（服务端 `REDEMPTION_PEPPER`）存储，数据库不保存完整明文。明文只在创建批次的响应中出现一次，并可当次导出 CSV；兑换使用 `Idempotency-Key`（或 body `requestId`），同一码通过状态 CAS 防止并发双花。
 
 设备注册使用安装标识和 Ed25519 公钥建立设备身份；服务端只保存公钥、指纹摘要和设备元数据，不接收或记录私钥。相同安装标识重复注册会更新最后在线信息而不重复占用设备名额，撤销或封禁设备不能重新接管；设备名额由有效 Plan 的 `maxRegisteredDevices` 控制。用户可查看并撤销自己的设备，管理员可在 `/admin/devices` 查看和撤销全局设备。
+
+在线授权使用 `LicenseLease`。Acquire 与 KICK_OLDEST 在 Serializable 事务中检查并发设备/实例限制，旧租约被撤销后下一次 Heartbeat 返回 `LEASE_REVOKED`。Heartbeat 使用设备 Ed25519 私钥签名的规范化请求体、时间窗口和数据库原子序列号 CAS 防重放；正常心跳只更新租约，不写 AuditLog。租约 TTL、心跳间隔、并发策略和 Feature 均来自 Plan。
 
 首次建立管理员时，先通过 Better Auth 注册一个用户，再在测试环境显式执行 `BOOTSTRAP_ADMIN_EMAIL=... npm run admin:promote`；该脚本不会读取密码，也不会自动提升任何账号。
 
