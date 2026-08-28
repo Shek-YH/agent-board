@@ -1,0 +1,36 @@
+import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import { Session, UserSession } from '@thallesp/nestjs-better-auth';
+
+import { DeviceService } from './device.service.js';
+
+export const DEVICE_SERVICE = 'DEVICE_SERVICE';
+
+function context(request: any) {
+  return {
+    actorType: 'USER',
+    actorId: request.session?.user?.id,
+    requestId: request.res?.locals?.requestId,
+    ip: request.ip,
+    userAgent: request.get?.('user-agent') || request.headers?.['user-agent'],
+  };
+}
+
+@Controller('v1/devices')
+export class DeviceController {
+  constructor(@Inject(DEVICE_SERVICE) private readonly devices: DeviceService) {}
+
+  @Post('enroll')
+  enroll(@Session() session: UserSession, @Body() input: Record<string, unknown>, @Req() request: any) {
+    return this.devices.enroll(session.user.id, input, context(request));
+  }
+
+  @Get('me')
+  me(@Session() session: UserSession) {
+    return this.devices.listMine(session.user.id);
+  }
+
+  @Post(':id/revoke')
+  revoke(@Session() session: UserSession, @Param('id') id: string, @Req() request: any) {
+    return this.devices.revoke(session.user.id, id, context(request));
+  }
+}

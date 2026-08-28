@@ -1,6 +1,6 @@
 # Agent Board Cloud
 
-Phase 1–5 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理和额度账本。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–6 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理、额度账本和设备注册。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
@@ -55,6 +55,11 @@ GET   /v1/admin/agents/:id
 PATCH /v1/admin/agents/:id
 POST  /v1/admin/agents/:id/ledger-adjustment
 POST  /v1/admin/agents/:id/users/:userId
+POST  /v1/devices/enroll
+GET   /v1/devices/me
+POST  /v1/devices/:id/revoke
+GET   /v1/admin/devices
+POST  /v1/admin/devices/:id/revoke
 GET   /v1/agent/me
 GET   /v1/agent/profile
 GET   /v1/agent/batches
@@ -77,6 +82,8 @@ POST  /v1/redemptions/redeem
 计划的 `durationSeconds`、设备限制、心跳策略、Feature JSON 和代理成本均来自数据库配置，不在代码中硬编码。人工授权会在同一事务中更新 Entitlement、创建 EntitlementGrant 并写入 AuditLog；有效授权从现有 `expiresAt` 叠加，已过期授权从服务端当前时间计算。
 
 兑换批次会将兑换码以 HMAC-SHA256（服务端 `REDEMPTION_PEPPER`）存储，数据库不保存完整明文。明文只在创建批次的响应中出现一次，并可当次导出 CSV；兑换使用 `Idempotency-Key`（或 body `requestId`），同一码通过状态 CAS 防止并发双花。
+
+设备注册使用安装标识和 Ed25519 公钥建立设备身份；服务端只保存公钥、指纹摘要和设备元数据，不接收或记录私钥。相同安装标识重复注册会更新最后在线信息而不重复占用设备名额，撤销或封禁设备不能重新接管；设备名额由有效 Plan 的 `maxRegisteredDevices` 控制。用户可查看并撤销自己的设备，管理员可在 `/admin/devices` 查看和撤销全局设备。
 
 首次建立管理员时，先通过 Better Auth 注册一个用户，再在测试环境显式执行 `BOOTSTRAP_ADMIN_EMAIL=... npm run admin:promote`；该脚本不会读取密码，也不会自动提升任何账号。
 
