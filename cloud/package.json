@@ -9,7 +9,8 @@
     "start": "node dist/apps/api/src/main.js",
     "test": "node --test apps/api/src/*.test.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "admin:promote": "node scripts/promote-user.mjs"
   },
   "engines": {
     "node": ">=22"

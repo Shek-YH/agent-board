@@ -31,5 +31,13 @@ services:
     ports:
       - "127.0.0.1:3200:3200"
 
+  admin:
+    build:
+      context: ./apps/admin
+      args:
+        NEXT_PUBLIC_API_URL: ${ADMIN_API_URL:-http://127.0.0.1:3200}
+    ports:
+      - "127.0.0.1:3100:3100"
+
 volumes:
   postgres-data:

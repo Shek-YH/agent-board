@@ -97,3 +97,23 @@ model UserProfile {
 
   @@map("user_profile")
 }
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  actorType       String
+  actorId         String
+  action          String
+  targetType      String
+  targetId        String?
+  beforeSanitized Json?
+  afterSanitized  Json?
+  requestId       String?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
