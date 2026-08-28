@@ -7,6 +7,11 @@ import { AdminAuditController, AUDIT_SERVICE } from './admin-audit.controller.js
 import { AdminEntitlementsController, ENTITLEMENT_SERVICE } from './admin-entitlements.controller.js';
 import { AdminPlansController, AdminProductsController, CATALOG_SERVICE } from './admin-catalog.controller.js';
 import { AdminRedemptionBatchesController, AdminRedemptionCodesController, REDEMPTION_SERVICE } from './admin-redemption.controller.js';
+import { AdminAgentsController } from './admin-agents.controller.js';
+import { AgentController } from './agent.controller.js';
+import { AgentGuard } from './agent.guard.js';
+import { AgentService } from './agent.service.js';
+import { AGENT_SERVICE } from './agent.tokens.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { CatalogService } from './catalog.service.js';
@@ -41,10 +46,13 @@ import { PrismaClient } from '@prisma/client';
     AdminEntitlementsController,
     AdminRedemptionBatchesController,
     AdminRedemptionCodesController,
+    AdminAgentsController,
+    AgentController,
     RedemptionController,
   ],
   providers: [
     AdminGuard,
+    AgentGuard,
     {
       provide: AUDIT_SERVICE,
       useFactory: (database: PrismaClient) => createAuditService(database),
@@ -66,13 +74,19 @@ import { PrismaClient } from '@prisma/client';
       inject: [PrismaClient, AUDIT_SERVICE],
     },
     {
+      provide: AGENT_SERVICE,
+      useFactory: (database: PrismaClient, audit: ReturnType<typeof createAuditService>) => new AgentService(database, audit),
+      inject: [PrismaClient, AUDIT_SERVICE],
+    },
+    {
       provide: REDEMPTION_SERVICE,
       useFactory: (
         database: PrismaClient,
         entitlements: EntitlementService,
         audit: ReturnType<typeof createAuditService>,
-      ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper),
-      inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE],
+        agents: AgentService,
+      ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper, undefined, undefined, agents),
+      inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE, AGENT_SERVICE],
     },
   ],
 })

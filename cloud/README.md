@@ -1,6 +1,6 @@
 # Agent Board Cloud
 
-Phase 1–4 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权和兑换。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
+Phase 1–5 的独立云端服务，负责身份、Admin 用户管理、RBAC、审计、产品计划目录、授权、兑换、分级代理和额度账本。它不进入现有 Electron 桌面包，也不读取桌面端会话正文。
 
 ## 本地启动
 
@@ -49,12 +49,30 @@ POST  /v1/admin/plans
 PATCH /v1/admin/plans/:id
 GET   /v1/admin/entitlements
 POST  /v1/admin/users/:id/grants
+GET   /v1/admin/agents
+POST  /v1/admin/agents
+GET   /v1/admin/agents/:id
+PATCH /v1/admin/agents/:id
+POST  /v1/admin/agents/:id/ledger-adjustment
+POST  /v1/admin/agents/:id/users/:userId
+GET   /v1/agent/me
+GET   /v1/agent/profile
+GET   /v1/agent/batches
+POST  /v1/agent/batches
+GET   /v1/agent/codes
+GET   /v1/agent/users
+GET   /v1/agent/sub-agents
+POST  /v1/agent/sub-agents
+GET   /v1/agent/ledger
+POST  /v1/agent/users/:id/grants
 GET   /v1/admin/redemption-batches
 POST  /v1/admin/redemption-batches
 GET   /v1/admin/redemption-codes
 POST  /v1/admin/redemption-codes/:id/revoke
 POST  /v1/redemptions/redeem
 ```
+
+代理 Portal 路由为 `/agent/dashboard`、`/agent/codes`、`/agent/batches`、`/agent/users`、`/agent/sub-agents`、`/agent/ledger` 和 `/agent/profile`；对应 API 只允许访问当前代理及其下级体系的数据。Agent 使用 `parentAgentId` 邻接表，API 在修改上级时防止循环；代理额度只通过不可变 `AgentLedgerEntry` 计算余额，发码时按 Plan 的 `agentCostCredits` 在同一事务中扣减，余额不足或 Plan 不在白名单时拒绝。
 
 计划的 `durationSeconds`、设备限制、心跳策略、Feature JSON 和代理成本均来自数据库配置，不在代码中硬编码。人工授权会在同一事务中更新 Entitlement、创建 EntitlementGrant 并写入 AuditLog；有效授权从现有 `expiresAt` 叠加，已过期授权从服务端当前时间计算。
 

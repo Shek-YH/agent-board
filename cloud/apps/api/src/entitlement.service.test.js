@@ -69,14 +69,15 @@ test('grant extends an active entitlement from its existing expiry and records t
   const result = await service.grantToUser(
     'user-1',
     { productId: 'product-1', planId: 'plan-30' },
-    { actorId: 'admin-1', requestId: 'request-1' },
+    { actorId: 'agent-user-1', agentId: 'agent-1', requestId: 'request-1', source: 'AGENT_GRANT' },
   );
 
   const expectedExpiry = new Date(existingExpiresAt.getTime() + 30 * DAY * 1000);
   assert.equal(writes.entitlement.expiresAt.getTime(), expectedExpiry.getTime());
   assert.equal(writes.grant.oldExpiresAt.getTime(), existingExpiresAt.getTime());
   assert.equal(writes.grant.newExpiresAt.getTime(), expectedExpiry.getTime());
-  assert.equal(writes.grant.source, 'ADMIN_GRANT');
+  assert.equal(writes.grant.source, 'AGENT_GRANT');
+  assert.equal(writes.grant.agentId, 'agent-1');
   assert.equal(writes.grant.durationSeconds, 30 * DAY);
   assert.equal(result.entitlement.expiresAt.getTime(), expectedExpiry.getTime());
   assert.equal(auditRecords[0].action, 'ENTITLEMENT_GRANTED');

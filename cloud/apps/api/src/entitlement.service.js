@@ -181,6 +181,7 @@ class EntitlementService {
           source,
           redemptionCodeId: context.redemptionCodeId || null,
           operatorId: context.actorId || null,
+          agentId: context.agentId || null,
           oldExpiresAt,
           newExpiresAt,
           requestId: context.requestId || 'system',

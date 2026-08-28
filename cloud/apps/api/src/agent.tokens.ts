@@ -1,0 +1,1 @@
+export const AGENT_SERVICE = 'AGENT_SERVICE';

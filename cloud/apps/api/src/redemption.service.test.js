@@ -252,3 +252,56 @@ test('expiry cannot overwrite a code that was revoked after the initial read', a
   );
   assert.equal(row.status, 'REVOKED');
 });
+
+test('batch and code listings can be restricted to an agent data scope', async () => {
+  const calls = [];
+  const database = {
+    redemptionBatch: { findMany: async (args) => { calls.push(args); return []; } },
+    redemptionCode: { findMany: async (args) => { calls.push(args); return []; } },
+  };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now);
+
+  await service.listBatches({ ownerAgentIds: ['agent-a', 'agent-a1'] });
+  await service.listCodes({ ownerAgentIds: ['agent-a', 'agent-a1'] });
+
+  assert.deepEqual(calls, [
+    { where: { ownerAgentId: { in: ['agent-a', 'agent-a1'] } }, orderBy: { createdAt: 'desc' } },
+    { where: { ownerAgentId: { in: ['agent-a', 'agent-a1'] } }, orderBy: { createdAt: 'desc' } },
+  ]);
+});
+
+test('batch status filters reject unknown values', async () => {
+  const database = { redemptionBatch: { findMany: async () => [] } };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now);
+
+  await assert.rejects(
+    service.listBatches({ status: 'not-a-status' }),
+    (error) => error?.getResponse?.().code === 'INVALID_REDEMPTION_STATUS',
+  );
+});
+
+test('agent batch creation checks plan allowlist and debits the immutable ledger in the same transaction', async () => {
+  let ledgerInput;
+  let codeCount = 0;
+  const database = {
+    product: { findUnique: async () => ({ id: 'product-1', status: 'ACTIVE' }) },
+    plan: { findUnique: async () => ({ id: 'plan-1', productId: 'product-1', status: 'ACTIVE', isPermanent: false, durationSeconds: 3600, agentCostCredits: 3 }) },
+    $transaction: async (callback) => callback(database),
+    redemptionBatch: { create: async ({ data }) => ({ id: 'batch-1', ...data }) },
+    redemptionCode: { create: async ({ data }) => { codeCount += 1; return { id: `code-${codeCount}`, ...data }; } },
+  };
+  const agents = {
+    isPlanAllowed: async (_agentId, planId) => planId === 'plan-1',
+    adjustLedgerInTransaction: async (_transaction, agentId, input, context) => { ledgerInput = { agentId, input, context }; return { balance: 4 }; },
+  };
+  const service = new RedemptionService(database, {}, { record: async () => {} }, pepper, () => now, () => Buffer.from('fixed-random-bytes'), agents);
+
+  await service.createBatch({ name: 'Agent batch', productId: 'product-1', planId: 'plan-1', quantity: 2, ownerAgentId: 'agent-1' }, { actorId: 'agent-user-1', actorType: 'AGENT' });
+
+  assert.equal(ledgerInput.agentId, 'agent-1');
+  assert.equal(ledgerInput.input.type, 'DEBIT');
+  assert.equal(ledgerInput.input.amount, 6);
+  assert.equal(ledgerInput.input.relatedBatchId, 'batch-1');
+  assert.equal(ledgerInput.context.actorId, 'agent-user-1');
+  assert.equal(codeCount, 2);
+});

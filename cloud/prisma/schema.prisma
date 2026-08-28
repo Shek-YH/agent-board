@@ -20,6 +20,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   profile       UserProfile?
+  agent         Agent?
   entitlements  Entitlement[]
   redemptionRequests RedemptionRequest[]
 
@@ -87,17 +88,68 @@ enum UserStatus {
   DISABLED
 }
 
+enum AgentLedgerEntryType {
+  CREDIT
+  DEBIT
+  REFUND
+  ADJUSTMENT
+}
+
 // Business profile is intentionally separate from Better Auth's User table.
 model UserProfile {
   id        String     @id @default(cuid())
   userId    String     @unique
+  agentId   String?
   role      UserRole   @default(USER)
   status    UserStatus @default(ACTIVE)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent     Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
+  @@index([agentId])
   @@map("user_profile")
+}
+
+model Agent {
+  id                String              @id @default(cuid())
+  userId            String              @unique
+  parentAgentId     String?
+  level             Int                 @default(1)
+  status            AgentStatus         @default(ACTIVE)
+  canCreateSubAgents Boolean            @default(false)
+  maxSubAgentDepth  Int?
+  planAllowlist     Json                @default("[]")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentAgent       Agent?              @relation("AgentHierarchy", fields: [parentAgentId], references: [id], onDelete: SetNull)
+  subAgents         Agent[]             @relation("AgentHierarchy")
+  scopedUsers       UserProfile[]
+  ledgerEntries     AgentLedgerEntry[]
+
+  @@index([parentAgentId])
+  @@index([status])
+  @@map("agent")
+}
+
+model AgentLedgerEntry {
+  id             String                @id @default(cuid())
+  agentId        String
+  type           AgentLedgerEntryType
+  amount         Int
+  balanceAfter   Int
+  reason         String
+  relatedBatchId String?
+  relatedCodeId  String?
+  operatorId     String?
+  createdAt      DateTime              @default(now())
+  agent          Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, createdAt])
+  @@index([relatedBatchId])
+  @@index([relatedCodeId])
+  @@map("agent_ledger_entry")
 }
 
 model AuditLog {
@@ -321,4 +373,10 @@ model RedemptionRequest {
 
   @@index([userId, createdAt])
   @@map("redemption_request")
+}
+
+enum AgentStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
 }

@@ -94,13 +94,14 @@ function jsonSafe(value) {
 }
 
 class RedemptionService {
-  constructor(database, entitlements, audit, pepper, clock = () => new Date(), randomBytes = crypto.randomBytes) {
+  constructor(database, entitlements, audit, pepper, clock = () => new Date(), randomBytes = crypto.randomBytes, agents) {
     this.database = database;
     this.entitlements = entitlements;
     this.audit = audit;
     this.pepper = pepper;
     this.clock = clock;
     this.randomBytes = randomBytes;
+    this.agents = agents;
   }
 
   async createBatch(input = {}, context = {}) {
@@ -132,6 +133,20 @@ class RedemptionService {
           status: 'ACTIVE',
         },
       });
+      if (input.ownerAgentId && this.agents) {
+        if (!await this.agents.isPlanAllowed(input.ownerAgentId, plan.id, transaction)) bad('AGENT_PLAN_NOT_ALLOWED');
+        const agentCostCredits = Number(plan.agentCostCredits || 0);
+        if (!Number.isInteger(agentCostCredits) || agentCostCredits < 0) bad('INVALID_AGENT_COST');
+        const totalCost = agentCostCredits * quantity;
+        if (totalCost > 0) {
+          await this.agents.adjustLedgerInTransaction(transaction, input.ownerAgentId, {
+            type: 'DEBIT',
+            amount: totalCost,
+            reason: `REDEMPTION_BATCH:${batch.id}`,
+            relatedBatchId: batch.id,
+          }, context);
+        }
+      }
       const codes = [];
       for (let index = 0; index < quantity; index += 1) {
         const plaintext = generateCode(this.randomBytes);
@@ -291,8 +306,17 @@ class RedemptionService {
   }
 
   async listBatches(query = {}) {
+    const where = {};
+    if (query.status) {
+      const status = String(query.status).toUpperCase();
+      if (!BATCH_STATUSES.has(status)) bad('INVALID_REDEMPTION_STATUS');
+      where.status = status;
+    }
+    if (Array.isArray(query.ownerAgentIds)) {
+      where.ownerAgentId = { in: query.ownerAgentIds.map((id) => String(id)).filter(Boolean) };
+    }
     const batches = await this.database.redemptionBatch.findMany({
-      where: query.status ? { status: String(query.status).toUpperCase() } : {},
+      where,
       orderBy: { createdAt: 'desc' },
     });
     return { items: batches.map(serializeBatch) };
@@ -301,6 +325,9 @@ class RedemptionService {
   async listCodes(query = {}) {
     const where = {};
     if (query.batchId) where.batchId = String(query.batchId);
+    if (Array.isArray(query.ownerAgentIds)) {
+      where.ownerAgentId = { in: query.ownerAgentIds.map((id) => String(id)).filter(Boolean) };
+    }
     if (query.status) {
       const status = String(query.status).toUpperCase();
       if (!CODE_STATUSES.has(status)) bad('INVALID_REDEMPTION_STATUS');
