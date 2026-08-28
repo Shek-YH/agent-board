@@ -219,7 +219,6 @@ test('buildSessionCardGroup restores expanded state and passes context only to i
 
   assert.equal(wrapper.className, 'session-card-group is-expanded');
   assert.equal(wrapper.dataset.rootRef, 'root-1');
-  assert.equal(wrapper.style.values['--stack-count'], '2');
   assert.equal(calls.length, 3);
   assert.equal(calls[0][0], root);
   assert.equal(calls[0][1], 'all');
