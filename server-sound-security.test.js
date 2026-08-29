@@ -10,10 +10,10 @@ test('声音分配只接受 AGENT_DEFS 的自有 Agent', () => {
 });
 
 test('声音开关接口校验 Agent 列表和布尔开关状态', () => {
-  assert.match(source, /pathname === '\/api\/sounds\/enabled' && req\.method === 'POST'/);
+  assert.match(source, /pathname === '\/api\/sounds\/subagent-enabled'/);
   assert.match(source, /Array\.isArray\(body\.agents\)/);
   assert.match(source, /typeof body\.enabled !== 'boolean'/);
-  assert.match(source, /soundSettings\.setSoundsEnabled\(agents, enabled\)/);
+  assert.match(source, /soundSettings\.setSubagentSoundsEnabled\(agents, enabled\)/);
 });
 
 test('声音上传以字节限流，并返回不泄漏内部细节的错误', () => {

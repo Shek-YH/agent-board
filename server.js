@@ -1378,7 +1378,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pathname === '/api/sounds/enabled' && req.method === 'POST') {
+  if ((pathname === '/api/sounds/subagent-enabled' || pathname === '/api/sounds/enabled') && req.method === 'POST') {
     try {
       const body = await readBody(req);
       if (!Array.isArray(body.agents) || !body.agents.length || !body.agents.every((agent) => typeof agent === 'string' && Object.hasOwn(AGENT_DEFS, agent))) {
@@ -1387,7 +1387,7 @@ const server = http.createServer(async (req, res) => {
       if (typeof body.enabled !== 'boolean') throw new TypeError('Invalid sound enabled state');
       const enabled = body.enabled;
       const agents = [...new Set(body.agents)];
-      const settings = soundSettings.setSoundsEnabled(agents, enabled);
+      const settings = soundSettings.setSubagentSoundsEnabled(agents, enabled);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(settings));
     } catch (error) {

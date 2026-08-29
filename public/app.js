@@ -16,11 +16,13 @@ const state = {
   expandedSubagentGroups: new Set(),
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
+  // 会话拓扑元数据缓存：即使会话刚离开 active 快照，也能判断它是否为子代理
+  sessionMeta: new Map(),
   // Codex 线程/回合归并状态：与 liveRefs 分离，避免把所有状态压成二元值
   runtimeStatuses: new Map(),
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
   recentDone: new Map(),
-  completionSounds: { assignments: {}, sounds: [] },
+  completionSounds: { assignments: {}, sounds: [], disabledSubagentAgents: [] },
   // 用户手动点「已读」取消高亮的 ref 集合（localStorage 持久化，避免刷新后重新点亮）
   dismissedRecent: new Set(),
   loading: false,
@@ -181,6 +183,9 @@ async function loadBoard() {
     if (state.onlyUser) params.set('onlyUser', '1');
     const d = await requestJson('/api/board?' + params);
     state.board = d.groups || state.board;
+    Object.values(state.board).forEach((list) => {
+      if (Array.isArray(list)) list.forEach(rememberSessionMeta);
+    });
     state.agentIds = d.agentIds || [];
     // defaultAgentIds：探测为已安装 或 有历史数据的 agent 子集，只用来算「默认列」，
     // 不影响 state.agentIds（列设置弹窗仍然要能看到全部 agent，供手动勾选恢复）
@@ -697,15 +702,39 @@ function isRecentCompleted(ref) {
   if (Date.now() - t > RECENT_DONE_TTL) { state.recentDone.delete(ref); persistRecentDone(); return false; }
   return true;
 }
+function rememberSessionMeta(session) {
+  if (!session || typeof session !== 'object') return;
+  const ref = session.sessionRef || session.id || (session.agent && session.session_id ? `${session.agent}:${session.session_id}` : '');
+  if (ref) state.sessionMeta.set(ref, { ...session, sessionRef: ref });
+}
+function sessionMetaForRef(ref) {
+  const cached = state.sessionMeta.get(ref);
+  if (cached) return cached;
+  for (const list of Object.values(state.board || {})) {
+    if (!Array.isArray(list)) continue;
+    const found = list.find((session) => session.id === ref || session.sessionRef === ref || `${session.agent}:${session.session_id}` === ref);
+    if (found) {
+      rememberSessionMeta(found);
+      return state.sessionMeta.get(ref);
+    }
+  }
+  return null;
+}
+function shouldPlayCompletionSound(session, settings, agent) {
+  if (!session || session.session_role !== 'child') return true;
+  const disabledAgents = settings?.disabledSubagentAgents || settings?.disabledAgents || [];
+  return !disabledAgents.includes(agent);
+}
 function markRecentlyCompleted(ref) {
   state.dismissedRecent.delete(ref); // 新一轮完成重新点亮，忽略之前的「已读」
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
-  const agent = String(ref).split(':', 1)[0];
-  const disabledAgents = new Set(state.completionSounds.disabledAgents || []);
-  if (disabledAgents.has(agent)) return;
-  const soundId = state.completionSounds.assignments[agent];
-  const sound = state.completionSounds.sounds.find((item) => item.id === soundId);
+  const session = sessionMetaForRef(ref);
+  const agent = session?.agent || String(ref).split(':', 1)[0];
+  const settings = state.completionSounds || { assignments: {}, sounds: [] };
+  if (!shouldPlayCompletionSound(session, settings, agent)) return;
+  const soundId = settings.assignments[agent];
+  const sound = settings.sounds.find((item) => item.id === soundId);
   if (sound) playSoundPreview(sound.url);
 }
 function dismissRecent(ref) {
@@ -1551,11 +1580,12 @@ function soundAgents() {
 }
 
 function isSoundAgentEnabled(settings, agent) {
-  return !(settings.disabledAgents || []).includes(agent);
+  const disabledAgents = settings.disabledSubagentAgents || settings.disabledAgents || [];
+  return !disabledAgents.includes(agent);
 }
 
-async function saveSoundEnabled(agents, enabled) {
-  return requestJson('/api/sounds/enabled', {
+async function saveSubagentSoundEnabled(agents, enabled) {
+  return requestJson('/api/sounds/subagent-enabled', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ agents, enabled }),
@@ -1577,12 +1607,14 @@ function playSoundPreview(url) {
 }
 
 function renderSoundSettings(pop, selectedAgent) {
-  const settings = state.completionSounds || { assignments: {}, sounds: [], disabledAgents: [] };
+  const settings = state.completionSounds || { assignments: {}, sounds: [], disabledSubagentAgents: [] };
   const agents = soundAgents();
   if (!agents.some(([id]) => id === selectedAgent)) selectedAgent = agents[0]?.[0] || '';
   const selectedMeta = state.agentsDef[selectedAgent] || { color: '#888', name: selectedAgent };
   const selectedSoundId = settings.assignments[selectedAgent] || '';
   const allEnabled = agents.length > 0 && agents.every(([id]) => isSoundAgentEnabled(settings, id));
+  const selectedEnabled = selectedAgent ? isSoundAgentEnabled(settings, selectedAgent) : false;
+  const selectedSound = settings.sounds.find((sound) => sound.id === selectedSoundId);
   const agentList = agents.map(([id, meta]) => {
     const name = meta.name || id;
     const enabled = isSoundAgentEnabled(settings, id);
@@ -1590,30 +1622,31 @@ function renderSoundSettings(pop, selectedAgent) {
       <button type="button" class="sound-agent" data-agent="${esc(id)}" aria-current="${id === selectedAgent ? 'true' : 'false'}">
         <span class="dot" style="background:${esc(meta.color || '#888')}"></span><span class="sound-agent-name">${esc(name)}</span>
       </button>
-      <button type="button" class="sound-toggle ${enabled ? 'on' : ''}" data-agent-toggle="${esc(id)}" role="switch" aria-checked="${enabled ? 'true' : 'false'}" aria-label="${esc(name)}完成提示音开关" title="${enabled ? '关闭' : '开启'} ${esc(name)} 完成提示音">
+      <button type="button" class="sound-toggle ${enabled ? 'on' : ''}" data-agent-toggle="${esc(id)}" role="switch" aria-checked="${enabled ? 'true' : 'false'}" aria-label="${esc(name)}子代理完成通知开关" title="${enabled ? '关闭' : '开启'} ${esc(name)} 子代理完成通知">
         <span class="sound-toggle-track"><span class="sound-toggle-thumb"></span></span>
       </button>
     </div>`;
   }).join('');
   const soundRows = settings.sounds.map((sound) => `<div class="sound-row">
-      <label class="sound-choice"><input type="radio" name="completion-sound" value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'checked' : ''}><span class="sound-name" title="${esc(sound.name)}">${esc(sound.name)}</span></label>
+      <span class="sound-name" title="${esc(sound.name)}">${esc(sound.name)}${sound.id === selectedSoundId ? ' · 当前使用' : ''}</span>
       <button class="btn sound-preview" data-url="${esc(sound.url)}">试听</button>
       <button class="btn sound-delete" data-sound-id="${esc(sound.id)}" data-sound-name="${esc(sound.name)}">删除</button></div>`).join('');
-  pop.innerHTML = `<div class="pop-head sound-settings-head"><span>完成提示音设置 <span style="opacity:.55;font-weight:400">（每个 Agent 可单独设置）</span></span>
-      <button type="button" class="btn sound-toggle-all" id="sound-toggle-all" title="${allEnabled ? '关闭' : '开启'}所有 Agent 的完成提示音">${allEnabled ? '全部关闭' : '全部开启'}</button></div>
+  const soundOptions = [`<option value="">不播放提示音</option>`, ...settings.sounds.map((sound) => `<option value="${esc(sound.id)}" ${sound.id === selectedSoundId ? 'selected' : ''}>${esc(sound.name)}</option>`)].join('');
+  pop.innerHTML = `<div class="pop-head sound-settings-head"><span>完成提示音设置 <span style="opacity:.55;font-weight:400">（主任务与子代理共用当前提示音）</span></span>
+      <div class="sound-global-actions"><span class="sound-global-state">子代理通知：${allEnabled ? '全部开启' : '部分开启或已关闭'}</span><button type="button" class="btn sound-toggle-all" id="sound-toggle-subagent-all-on" title="开启所有 Agent 的子代理完成通知">全部开启</button><button type="button" class="btn sound-toggle-all" id="sound-toggle-subagent-all-off" title="关闭所有 Agent 的子代理完成通知">全部关闭</button></div></div>
     <div style="display:grid;grid-template-columns:190px minmax(360px,1fr);max-height:68vh">
-      <aside class="sound-agent-list" style="padding:8px;border-right:1px solid var(--border);overflow-y:auto">${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
-      <section class="sound-settings-panel" style="padding:14px;overflow-y:auto"><div style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
-        <div style="margin-top:5px;color:var(--text3);font-size:12px">该 Agent 的会话从进行中变为完成时播放。开关只控制通知状态，仍需选择一个声音文件。</div>
-        <label style="display:flex;align-items:center;gap:8px;padding:8px;margin-top:10px;border:1px solid var(--border);border-radius:7px;cursor:pointer"><input type="radio" name="completion-sound" value="" ${selectedSoundId ? '' : 'checked'}>不播放提示音</label>
-        ${soundRows ? `<div class="sound-library">${soundRows}</div>` : '<div style="margin-top:10px;color:var(--text3);font-size:13px">还没有提示音，请上传一个本地音频。</div>'}
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span style="margin-left:8px;color:var(--text3);font-size:11px">WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
+      <aside class="sound-agent-list" style="padding:8px;border-right:1px solid var(--border);overflow-y:auto"><div class="sound-agent-list-title">各 Agent 子代理通知</div>${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
+      <section class="sound-settings-panel" style="padding:14px;overflow-y:auto"><div class="sound-selected-agent" style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
+        <div class="sound-subagent-box"><div class="sound-subagent-copy"><strong>子代理任务完成通知</strong><small>仅控制 ${esc(selectedMeta.name || selectedAgent)} 的子代理会话完成时是否播放，主任务提示音不受影响。</small></div><button type="button" class="sound-toggle ${selectedEnabled ? 'on' : ''}" id="sound-subagent-toggle" role="switch" aria-checked="${selectedEnabled ? 'true' : 'false'}" aria-label="${esc(selectedMeta.name || selectedAgent)}子代理完成通知开关" title="${selectedEnabled ? '关闭' : '开启'}子代理完成通知"><span class="sound-toggle-track"><span class="sound-toggle-thumb"></span></span></button></div>
+        <div class="sound-audio-box"><div class="sound-audio-label">当前提示音（主任务与子代理共用）</div><div class="sound-select-row"><select id="completion-sound-select" class="sound-select" ${selectedAgent ? '' : 'disabled'}>${soundOptions}</select><button type="button" class="btn sound-preview-current" data-url="${esc(selectedSound?.url || '')}" ${selectedSound ? '' : 'disabled'}>试听</button></div><div class="sound-audio-help">主任务和子代理使用同一个 Agent 提示音；下拉框选“不播放提示音”即可关闭该 Agent 的声音。</div></div>
+        ${soundRows ? `<div class="sound-library-label">声音库管理</div><div class="sound-library">${soundRows}</div>` : '<div class="sound-empty">还没有提示音，请上传一个本地音频。</div>'}
+        <div class="sound-upload-row"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span>WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
       </section>
     </div>`;
   pop.querySelectorAll('.sound-agent').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); renderSoundSettings(pop, button.dataset.agent); }; });
   const applyEnabled = async (agentIds, enabled, message) => {
     try {
-      state.completionSounds = await saveSoundEnabled(agentIds, enabled);
+      state.completionSounds = await saveSubagentSoundEnabled(agentIds, enabled);
       renderSoundSettings(pop, selectedAgent);
       toast(message);
     } catch (error) {
@@ -1627,27 +1660,39 @@ function renderSoundSettings(pop, selectedAgent) {
       button.disabled = true;
       const agent = button.dataset.agentToggle;
       const enabled = button.getAttribute('aria-checked') !== 'true';
-      await applyEnabled([agent], enabled, enabled ? '已开启该 Agent 完成提示音' : '已关闭该 Agent 完成提示音');
+      await applyEnabled([agent], enabled, enabled ? '已开启该 Agent 子代理完成通知' : '已关闭该 Agent 子代理完成通知');
     };
   });
-  pop.querySelector('#sound-toggle-all').onclick = async (event) => {
+  const selectedToggle = pop.querySelector('#sound-subagent-toggle');
+  if (selectedToggle) selectedToggle.onclick = async (event) => {
     event.stopPropagation();
-    const button = event.currentTarget;
-    button.disabled = true;
-    const enabled = !allEnabled;
-    await applyEnabled(agents.map(([id]) => id), enabled, enabled ? '已开启全部 Agent 完成提示音' : '已关闭全部 Agent 完成提示音');
+    selectedToggle.disabled = true;
+    await applyEnabled([selectedAgent], !selectedEnabled, !selectedEnabled ? '已开启该 Agent 子代理完成通知' : '已关闭该 Agent 子代理完成通知');
   };
-  pop.querySelectorAll('input[name="completion-sound"]').forEach((input) => {
-    input.onchange = async (event) => {
-      event.stopPropagation();
-      try {
-        const next = await requestJson('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: input.value }) });
-        state.completionSounds = next;
-        renderSoundSettings(pop, selectedAgent);
-        toast(input.value ? '已设置完成提示音' : '已关闭完成提示音');
-      } catch (error) { toast('保存失败：' + (error.message || '未知错误')); renderSoundSettings(pop, selectedAgent); }
-    };
-  });
+  const allOnButton = pop.querySelector('#sound-toggle-subagent-all-on');
+  if (allOnButton) allOnButton.onclick = async (event) => {
+    event.stopPropagation();
+    allOnButton.disabled = true;
+    await applyEnabled(agents.map(([id]) => id), true, '已开启全部 Agent 子代理完成通知');
+  };
+  const allOffButton = pop.querySelector('#sound-toggle-subagent-all-off');
+  if (allOffButton) allOffButton.onclick = async (event) => {
+    event.stopPropagation();
+    allOffButton.disabled = true;
+    await applyEnabled(agents.map(([id]) => id), false, '已关闭全部 Agent 子代理完成通知');
+  };
+  const soundSelect = pop.querySelector('#completion-sound-select');
+  if (soundSelect) soundSelect.onchange = async (event) => {
+    event.stopPropagation();
+    try {
+      const next = await requestJson('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: soundSelect.value }) });
+      state.completionSounds = next;
+      renderSoundSettings(pop, selectedAgent);
+      toast(soundSelect.value ? '已设置当前提示音' : '已关闭该 Agent 提示音');
+    } catch (error) { toast('保存失败：' + (error.message || '未知错误')); renderSoundSettings(pop, selectedAgent); }
+  };
+  const currentPreview = pop.querySelector('.sound-preview-current');
+  if (currentPreview) currentPreview.onclick = (event) => { event.stopPropagation(); if (currentPreview.dataset.url) playSoundPreview(currentPreview.dataset.url); };
   pop.querySelectorAll('.sound-preview').forEach((button) => { button.onclick = (event) => { event.stopPropagation(); playSoundPreview(button.dataset.url); }; });
   pop.querySelectorAll('.sound-delete').forEach((button) => {
     button.onclick = async (event) => {
@@ -1668,7 +1713,8 @@ function renderSoundSettings(pop, selectedAgent) {
       }
     };
   });
-  pop.querySelector('#sound-upload').onchange = async (event) => {
+  const uploadInput = pop.querySelector('#sound-upload');
+  if (uploadInput) uploadInput.onchange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (file.size > 8 * 1024 * 1024) { toast('音频不能超过 8 MB'); return; }
@@ -1685,7 +1731,7 @@ function renderSoundSettings(pop, selectedAgent) {
 async function loadCompletionSounds() {
   try {
     state.completionSounds = await requestJson('/api/sounds');
-  } catch { state.completionSounds = { assignments: {}, sounds: [] }; }
+  } catch { state.completionSounds = { assignments: {}, sounds: [], disabledSubagentAgents: [] }; }
 }
 
 async function openSoundSettings() {
@@ -2363,6 +2409,7 @@ function connectSSE() {
       if (!Array.isArray(payload) && payload.statuses && typeof payload.statuses === 'object') {
         state.runtimeStatuses = new Map(Object.entries(payload.statuses));
       }
+      arr.forEach(rememberSessionMeta);
       // 兼容两种条目结构：getActive() 返回 {sessionRef}；心跳曾返回 {sessionId}
       // 且只认 active 明确为 true 的条目（防御：任何来源都不该把 inactive 会话当活跃）
       const liveSet = new Set(
