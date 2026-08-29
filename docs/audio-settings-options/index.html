@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>试听模块布局方案选择</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef2f7;color:#172033;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}.shell{width:min(1440px,calc(100% - 28px));margin:20px auto}h1{font-size:22px;margin:0 0 4px}.help{margin:0 0 16px;color:#718096;font-size:12px}.choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.choice{min-width:0;background:#fff;border:1px solid #dfe5ec;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(23,32,51,.06)}.choice-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #dfe5ec}.choice-title{font-weight:650}.choice-link{color:#2563eb;font-size:12px;text-decoration:none}.choice-link:hover{text-decoration:underline}iframe{display:block;width:100%;height:600px;border:0;background:#f6f8fb}@media(max-width:980px){.choices{grid-template-columns:1fr}.choice iframe{height:520px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>音频试听模块 · 3 个布局方案</h1>
+    <p class="help">分别打开下方原型查看；正式实现时请选择 A、B 或 C。</p>
+    <div class="choices">
+      <section class="choice"><div class="choice-head"><span class="choice-title">A · 紧凑网格</span><a class="choice-link" href="option-1-grid.html">单独打开</a></div><iframe src="option-1-grid.html" title="方案 A 紧凑网格"></iframe></section>
+      <section class="choice"><div class="choice-head"><span class="choice-title">B · Agent 分组</span><a class="choice-link" href="option-2-agent-groups.html">单独打开</a></div><iframe src="option-2-agent-groups.html" title="方案 B Agent 分组"></iframe></section>
+      <section class="choice"><div class="choice-head"><span class="choice-title">C · 密集表格</span><a class="choice-link" href="option-3-table.html">单独打开</a></div><iframe src="option-3-table.html" title="方案 C 密集表格"></iframe></section>
+    </div>
+  </main>
+</body>
+</html>

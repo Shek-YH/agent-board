@@ -1,0 +1,517 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Better Auth identity tables. Business authorization data belongs in the
+// separate UserProfile and later domain models, not in this identity record.
+model User {
+  id            String        @id
+  name          String
+  email         String        @unique
+  emailVerified Boolean       @default(false)
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  profile       UserProfile?
+  agent         Agent?
+  entitlements  Entitlement[]
+  redemptionRequests RedemptionRequest[]
+  devices       Device[]
+  licenseLeases LicenseLease[]
+  securityEvents SecurityEvent[] @relation("SecurityEventUser")
+  resolvedSecurityEvents SecurityEvent[] @relation("SecurityEventResolver")
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  issuer                String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@unique([issuer, accountId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum AgentLedgerEntryType {
+  CREDIT
+  DEBIT
+  REFUND
+  ADJUSTMENT
+}
+
+// Business profile is intentionally separate from Better Auth's User table.
+model UserProfile {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  agentId   String?
+  role      UserRole   @default(USER)
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent     Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@map("user_profile")
+}
+
+model Agent {
+  id                String              @id @default(cuid())
+  userId            String              @unique
+  parentAgentId     String?
+  level             Int                 @default(1)
+  status            AgentStatus         @default(ACTIVE)
+  canCreateSubAgents Boolean            @default(false)
+  maxSubAgentDepth  Int?
+  planAllowlist     Json                @default("[]")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentAgent       Agent?              @relation("AgentHierarchy", fields: [parentAgentId], references: [id], onDelete: SetNull)
+  subAgents         Agent[]             @relation("AgentHierarchy")
+  scopedUsers       UserProfile[]
+  ledgerEntries     AgentLedgerEntry[]
+  securityEvents    SecurityEvent[]
+
+  @@index([parentAgentId])
+  @@index([status])
+  @@map("agent")
+}
+
+model AgentLedgerEntry {
+  id             String                @id @default(cuid())
+  agentId        String
+  type           AgentLedgerEntryType
+  amount         Int
+  balanceAfter   Int
+  reason         String
+  relatedBatchId String?
+  relatedCodeId  String?
+  operatorId     String?
+  createdAt      DateTime              @default(now())
+  agent          Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, createdAt])
+  @@index([relatedBatchId])
+  @@index([relatedCodeId])
+  @@map("agent_ledger_entry")
+}
+
+enum DeviceStatus {
+  PENDING
+  ACTIVE
+  STALE
+  REVOKED
+  BLOCKED
+}
+
+enum LicenseLeaseStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+model Device {
+  id                    String       @id @default(cuid())
+  userId                String
+  installationId        String
+  publicKey             String
+  fingerprintHash       String?
+  fingerprintSignalsHash Json?
+  fingerprintVersion    String?
+  deviceName            String?
+  os                    String?
+  osVersion             String?
+  appVersion            String?
+  firstSeenAt           DateTime
+  lastSeenAt            DateTime
+  lastIp                String?
+  status                DeviceStatus @default(PENDING)
+  trustedAt             DateTime?
+  revokedAt             DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseLeases         LicenseLease[]
+  securityEvents        SecurityEvent[]
+
+  @@unique([userId, installationId])
+  @@index([userId, status])
+  @@index([installationId])
+  @@map("device")
+}
+
+model LicenseLease {
+  id               String             @id @default(cuid())
+  userId           String
+  entitlementId    String
+  deviceId         String
+  instanceId       String
+  sessionId        String
+  status           LicenseLeaseStatus @default(ACTIVE)
+  sequence         Int                @default(0)
+  issuedAt         DateTime
+  expiresAt        DateTime
+  lastHeartbeatAt  DateTime
+  lastIp           String?
+  createdAt        DateTime           @default(now())
+  revokedAt        DateTime?
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entitlement      Entitlement        @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+  device           Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+  @@index([deviceId, status, expiresAt])
+  @@index([sessionId])
+  @@map("license_lease")
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  actorType       String
+  actorId         String
+  action          String
+  targetType      String
+  targetId        String?
+  beforeSanitized Json?
+  afterSanitized  Json?
+  requestId       String?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
+
+enum SecurityEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityEventStatus {
+  OPEN
+  RESOLVED
+}
+
+model SecurityEvent {
+  id                String                @id @default(cuid())
+  userId            String?
+  deviceId          String?
+  agentId           String?
+  type              String
+  severity          SecurityEventSeverity @default(MEDIUM)
+  ip                String?
+  metadataSanitized Json                  @default("{}")
+  status            SecurityEventStatus   @default(OPEN)
+  createdAt         DateTime              @default(now())
+  resolvedAt        DateTime?
+  resolvedBy        String?
+  user              User?                 @relation("SecurityEventUser", fields: [userId], references: [id], onDelete: SetNull)
+  device            Device?               @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  agent             Agent?                @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  resolvedByUser    User?                 @relation("SecurityEventResolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([deviceId, createdAt])
+  @@map("security_event")
+}
+
+enum ProductStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Product {
+  id            String          @id @default(cuid())
+  code          String          @unique
+  name          String
+  status        ProductStatus   @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  plans         Plan[]
+  entitlements  Entitlement[]
+  redemptionBatches RedemptionBatch[]
+  clientVersionPolicy ClientVersionPolicy?
+
+  @@map("product")
+}
+
+enum ClientVersionPolicyStatus {
+  ACTIVE
+  DISABLED
+}
+
+model ClientVersionPolicy {
+  id                String                    @id @default(cuid())
+  productId         String                    @unique
+  latestVersion     String
+  minimumVersion    String
+  forceUpgradeBelow String?
+  downloadUrl       String?
+  message           String?
+  status            ClientVersionPolicyStatus @default(ACTIVE)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, status])
+  @@map("client_version_policy")
+}
+
+enum PlanStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ConcurrencyPolicy {
+  REJECT
+  KICK_OLDEST
+}
+
+model Plan {
+  id                       String             @id @default(cuid())
+  productId                String
+  code                     String
+  name                     String
+  durationSeconds          Int?
+  isPermanent              Boolean            @default(false)
+  maxRegisteredDevices     Int                @default(1)
+  maxConcurrentDevices     Int                @default(1)
+  maxInstancesPerDevice   Int                @default(1)
+  heartbeatRequired        Boolean            @default(true)
+  heartbeatIntervalSeconds Int                @default(60)
+  leaseTtlSeconds          Int                @default(180)
+  offlineGraceSeconds      Int                @default(0)
+  deviceResetLimit         Int                @default(0)
+  deviceResetWindowDays    Int                @default(30)
+  concurrencyPolicy        ConcurrencyPolicy  @default(REJECT)
+  features                 Json               @default("{}")
+  agentCostCredits         Int                @default(0)
+  status                   PlanStatus         @default(ACTIVE)
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  product                  Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  entitlements             Entitlement[]
+  redemptionBatches        RedemptionBatch[]
+  redemptionCodes          RedemptionCode[]
+
+  @@unique([productId, code])
+  @@index([productId, status])
+  @@map("plan")
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+model Entitlement {
+  id               String             @id @default(cuid())
+  userId           String
+  productId        String
+  planId           String?
+  status           EntitlementStatus  @default(ACTIVE)
+  startsAt         DateTime
+  expiresAt        DateTime?
+  isPermanent      Boolean            @default(false)
+  suspendedAt      DateTime?
+  revokedAt        DateTime?
+  lastValidatedAt  DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product          Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  plan             Plan?              @relation(fields: [planId], references: [id], onDelete: Restrict)
+  grants           EntitlementGrant[]
+  licenseLeases    LicenseLease[]
+
+  @@unique([userId, productId])
+  @@index([userId, status])
+  @@index([expiresAt, status])
+  @@map("entitlement")
+}
+
+enum EntitlementGrantType {
+  DURATION
+  PERMANENT
+}
+
+enum EntitlementGrantSource {
+  REDEMPTION
+  ADMIN_GRANT
+  AGENT_GRANT
+  PROMOTION
+  COMPENSATION
+  MIGRATION
+}
+
+model EntitlementGrant {
+  id               String                @id @default(cuid())
+  entitlementId    String
+  type             EntitlementGrantType
+  durationSeconds  Int?
+  source           EntitlementGrantSource
+  redemptionCodeId String?
+  operatorId       String?
+  agentId          String?
+  oldExpiresAt     DateTime?
+  newExpiresAt     DateTime?
+  requestId        String
+  createdAt        DateTime              @default(now())
+  entitlement      Entitlement            @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+
+  @@index([entitlementId, createdAt])
+  @@index([requestId])
+  @@map("entitlement_grant")
+}
+
+enum RedemptionBatchStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model RedemptionBatch {
+  id           String                @id @default(cuid())
+  name         String
+  productId    String
+  planId       String
+  quantity     Int
+  ownerAgentId String?
+  createdBy    String
+  expiresAt    DateTime?
+  status       RedemptionBatchStatus @default(ACTIVE)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  product      Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  plan         Plan                  @relation(fields: [planId], references: [id], onDelete: Restrict)
+  codes        RedemptionCode[]
+
+  @@index([productId, createdAt])
+  @@index([planId, status])
+  @@map("redemption_batch")
+}
+
+enum RedemptionCodeStatus {
+  UNUSED
+  REDEEMED
+  REVOKED
+  EXPIRED
+}
+
+model RedemptionCode {
+  id               String               @id @default(cuid())
+  batchId          String
+  codeHash         String               @unique
+  codeLast4        String
+  planId           String
+  durationSeconds  Int?
+  status           RedemptionCodeStatus @default(UNUSED)
+  ownerAgentId     String?
+  createdBy        String
+  redeemedByUserId String?
+  redeemedAt       DateTime?
+  codeExpiresAt    DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  batch            RedemptionBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  plan             Plan                 @relation(fields: [planId], references: [id], onDelete: Restrict)
+  requests         RedemptionRequest[]
+
+  @@index([batchId, status])
+  @@index([planId, status])
+  @@map("redemption_code")
+}
+
+model RedemptionRequest {
+  id             String          @id @default(cuid())
+  requestId      String          @unique
+  userId         String
+  codeId         String
+  codeHash       String
+  entitlementId  String
+  grantId        String
+  response       Json
+  createdAt      DateTime        @default(now())
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code           RedemptionCode  @relation(fields: [codeId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("redemption_request")
+}
+
+enum AgentStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}

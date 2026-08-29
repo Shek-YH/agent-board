@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>试听模块方案 A · 紧凑网格</title>
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--line:#dfe5ec;--text:#172033;--muted:#718096;--accent:#2563eb;--danger:#c2413b}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+    .shell{width:min(980px,calc(100% - 32px));margin:28px auto}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:18px}
+    h1{font-size:20px;margin:0 0 5px}.desc{margin:0;color:var(--muted);font-size:12px}.badge{padding:5px 9px;border:1px solid #bfd2f8;border-radius:999px;background:#eef4ff;color:#2458b8;font-size:12px;white-space:nowrap}
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(23,32,51,.06);padding:16px}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+    .panel-title{font-weight:650}.panel-help{color:var(--muted);font-size:12px}.toolbar{display:flex;gap:8px}.btn{border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--text);padding:6px 9px;font:inherit;font-size:12px;cursor:pointer}.btn:hover{border-color:#9db6df;color:var(--accent)}
+    .sound-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sound-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;min-width:0;padding:9px;border:1px solid var(--line);border-radius:9px;background:#fff}.sound-card.selected{border-color:#8db0ef;background:#f5f8ff}
+    .sound-main{display:flex;align-items:center;gap:6px;min-width:0}.sound-main input{margin:0;flex:none}.dot{width:7px;height:7px;flex:none;border-radius:50%;background:#10a37f}.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.agent{display:block;color:var(--muted);font-size:10px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actions{display:flex;gap:4px}.actions .btn{padding:4px 6px;font-size:11px}.danger{color:var(--danger)}
+    .status{min-height:20px;margin-top:12px;color:var(--muted);font-size:12px}.note{margin-top:14px;padding:10px 12px;background:#f8fafc;border-left:3px solid #9db6df;color:var(--muted);font-size:12px}
+    @media(max-width:760px){.sound-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:560px){.shell{width:min(100% - 20px,480px);margin:16px auto}.top{display:block}.badge{display:inline-block;margin-top:10px}.sound-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:360px){.sound-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top"><div><h1>完成提示音设置</h1><p class="desc">方案 A：声音库优先，固定四列，音频卡片紧凑排列。</p></div><span class="badge">适合音频数量持续增加</span></div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="panel-title">龙安昀音色 · 8 个声音</div><div class="panel-help">选择声音后，可分配给左侧的 Agent。</div></div><div class="toolbar"><button class="btn">全部试听</button><button class="btn">上传</button></div></div>
+      <div class="sound-grid">
+        <div class="sound-card selected"><label class="sound-main"><input type="radio" name="sound" checked><span class="dot"></span><span class="name" title="claude龙安昀.mp3">claude龙安昀.mp3<span class="agent">当前：Claude Code</span></span></label><div class="actions"><button class="btn preview" data-audio="claude-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="codex龙安昀.mp3">codex龙安昀.mp3<span class="agent">当前：Codex</span></span></label><div class="actions"><button class="btn preview" data-audio="codex-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="marvis龙安昀.mp3">marvis龙安昀.mp3<span class="agent">当前：Marvis</span></span></label><div class="actions"><button class="btn preview" data-audio="marvis-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="zcode龙安昀.mp3">zcode龙安昀.mp3<span class="agent">当前：ZCODE</span></span></label><div class="actions"><button class="btn preview" data-audio="zcode-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="赫秘书龙安昀.mp3">赫秘书龙安昀.mp3<span class="agent">当前：Hermes</span></span></label><div class="actions"><button class="btn preview" data-audio="hermes-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="派龙安昀.mp3">派龙安昀.mp3<span class="agent">当前：Pi</span></span></label><div class="actions"><button class="btn preview" data-audio="pi-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="deepseek龙安昀.mp3">deepseek龙安昀.mp3<span class="agent">当前：DeepSeek</span></span></label><div class="actions"><button class="btn preview" data-audio="deepseek-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+        <div class="sound-card"><label class="sound-main"><input type="radio" name="sound"><span class="dot"></span><span class="name" title="workbuddy龙安昀.mp3">workbuddy龙安昀.mp3<span class="agent">当前：WorkBuddy</span></span></label><div class="actions"><button class="btn preview" data-audio="workbuddy-longanyun.mp3">试听</button><button class="btn danger">删</button></div></div>
+      </div>
+      <div class="status" id="status">当前选中：claude龙安昀.mp3</div>
+      <div class="note">优点：最接近你提出的“一个水平面放 3–4 个音频”，扫描和试听都快。代价：音频名称过长时会省略，需要悬停查看完整名称。</div>
+    </section>
+  </main>
+  <script>
+    const player = new Audio();
+    document.querySelectorAll('.preview').forEach((button) => button.addEventListener('click', () => {
+      player.src = '../../public/sounds/uploads/' + button.dataset.audio;
+      player.play().then(() => { document.querySelector('#status').textContent = '正在试听：' + button.closest('.sound-card').querySelector('.name').firstChild.textContent; }).catch(() => { document.querySelector('#status').textContent = '试听文件已定位：' + button.dataset.audio; });
+    }));
+    document.querySelectorAll('input[name="sound"]').forEach((input) => input.addEventListener('change', () => { document.querySelectorAll('.sound-card').forEach((card) => card.classList.toggle('selected', card.contains(input) && input.checked)); document.querySelector('#status').textContent = '当前已选择一个声音，可分配给目标 Agent'; }));
+  </script>
+</body>
+</html>

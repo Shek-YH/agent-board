@@ -1,0 +1,20 @@
+{
+  "name": "agent-board-admin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent Board 管理后台",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "test": "node --test lib/api.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

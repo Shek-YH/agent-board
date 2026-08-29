@@ -1,0 +1,37 @@
+{
+  "name": "agent-board-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent Board 云端鉴权与授权 API",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node apps/api/src/main.ts",
+    "start": "node dist/apps/api/src/main.js",
+    "test": "node --test apps/api/src/*.test.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "admin:promote": "node scripts/promote-user.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@better-auth/prisma-adapter": "^1.7.2",
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
+    "@nestjs/platform-express": "11.1.6",
+    "@prisma/client": "6.19.0",
+    "@thallesp/nestjs-better-auth": "2.7.0",
+    "better-auth": "1.7.2",
+    "express": "5.1.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3",
+    "@types/node": "24.3.0",
+    "prisma": "6.19.0",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.2"
+  }
+}
