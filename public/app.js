@@ -1,11 +1,19 @@
 'use strict';
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
+const sessionCardStacking = window.AgentBoardSessionStacking;
+let subagentStorage = null;
+try {
+  subagentStorage = window.localStorage;
+} catch {}
+
 const state = {
   agents: [], projects: [], active: [], agentsDef: {},
   project: '', q: '', range: 7, activeRange: 'day', activeProject: '',
   onlyUser: true,
   board: {}, agentIds: [], defaultAgentIds: [], colOrder: null,
+  subagentCardStyle: sessionCardStacking.loadSubagentCardStyle(subagentStorage),
+  expandedSubagentGroups: new Set(),
   // 实时活跃会话集合：由 SSE active 事件维护，渲染状态唯一权威来源
   liveRefs: new Set(),
   // Codex 线程/回合归并状态：与 liveRefs 分离，避免把所有状态压成二元值
@@ -904,7 +912,16 @@ function renderBoard() {
       cardsBox.appendChild(empty);
       continue;
     }
-    for (const s of list) cardsBox.appendChild(buildCard(s, key));
+    if (state.subagentCardStyle === 'stacked') {
+      const groups = sessionCardStacking.groupSessions(list);
+      for (const item of groups) {
+        cardsBox.appendChild(item.type === 'group'
+          ? buildSessionCardGroup(item, key)
+          : buildCard(item.session, key));
+      }
+    } else {
+      for (const s of list) cardsBox.appendChild(buildCard(s, key));
+    }
   }
 }
 
@@ -961,7 +978,49 @@ function applyStatusClass(el, status) {
   el.classList.add(statusClass(status));
 }
 
-function buildCard(s, colKey) {
+function syncSubagentGroupExpansion(rootRef) {
+  const expanded = state.expandedSubagentGroups.has(rootRef);
+  document.querySelectorAll('#board .session-card-group').forEach((group) => {
+    if (group.dataset.rootRef !== rootRef) return;
+    group.classList.toggle('is-expanded', expanded);
+    group.classList.toggle('is-stacked', !expanded);
+    const button = group.querySelector('.s-subagent-toggle');
+    if (!button) return;
+    const count = Number(button.dataset.childCount || 0);
+    const label = expanded ? `收拢 ${count} 个子代理` : `展开 ${count} 个子代理`;
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  });
+}
+
+function toggleSubagentGroup(rootRef) {
+  if (state.expandedSubagentGroups.has(rootRef)) state.expandedSubagentGroups.delete(rootRef);
+  else state.expandedSubagentGroups.add(rootRef);
+  syncSubagentGroupExpansion(rootRef);
+}
+
+function buildSessionCardGroup(group, colKey) {
+  const expanded = state.expandedSubagentGroups.has(group.root.id);
+  const childCount = group.children.length;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'session-card-group ' + (expanded ? 'is-expanded' : 'is-stacked');
+  wrapper.dataset.rootRef = group.root.id;
+  wrapper.appendChild(buildCard(group.root, colKey, { expanded, childCount }));
+
+  const children = document.createElement('div');
+  children.className = 'session-card-children';
+  for (const [index, child] of group.children.entries()) {
+    const childCard = buildCard(child, colKey);
+    childCard.classList.add('stack-child-card');
+    childCard.style.setProperty('--stack-index', String(index + 1));
+    children.appendChild(childCard);
+  }
+  wrapper.appendChild(children);
+  return wrapper;
+}
+
+function buildCard(s, colKey, groupContext = null) {
   const meta = agentMeta(s.agent);
   const def = state.agentsDef[s.agent] || {};
   // 状态唯一权威来源：liveRefs（SSE 实时维护），不用后端快照 s.status——
@@ -994,6 +1053,11 @@ function buildCard(s, colKey) {
   const iconHtml = def.icon
     ? `<img src="/icons/${esc(def.icon)}" alt="" style="width:18px;height:18px;object-fit:contain">`
     : `<span style="font-size:12px;font-weight:700;color:${meta.color}">${esc((meta.name||'?').charAt(0))}</span>`;
+  const subagentToggleHtml = groupContext
+    ? `<button type="button" class="s-subagent-toggle" data-child-count="${groupContext.childCount}" aria-label="${groupContext.expanded ? '收拢' : '展开'} ${groupContext.childCount} 个子代理" aria-expanded="${groupContext.expanded ? 'true' : 'false'}" title="${groupContext.expanded ? '收拢' : '展开'} ${groupContext.childCount} 个子代理">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>`
+    : '';
   card.innerHTML = `
     <div class="s-row1">
       ${topologyRoleMarkup(s)}
@@ -1018,9 +1082,11 @@ function buildCard(s, colKey) {
       <button type="button" class="s-jump" data-action="jump-session" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" aria-label="跳转到 ${esc(meta.name||s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
         ${iconHtml}
       </button>
-    </div>`;
+    </div>
+    ${subagentToggleHtml}`;
+  if (groupContext) card.classList.add('has-subagent-toggle', 'stack-main-card');
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss')) return;
+    if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss') || e.target.closest('.s-subagent-toggle')) return;
     openSession(s.id);
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
@@ -1047,6 +1113,10 @@ function buildCard(s, colKey) {
     dismissRecent(s.id);
     syncFlowDecor(s.id);
     toast('已恢复普通已完成样式');
+  });
+  card.querySelector('.s-subagent-toggle')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSubagentGroup(s.id);
   });
   return card;
 }
@@ -2013,6 +2083,17 @@ function openColManager() {
   const current = effectiveCols();
   const items = [...state.agentIds];
   let html = `<div class="pop-head">Agent 显示设置 <span style="opacity:.5;font-weight:400">（勾选显示，上下拖动顺序）</span></div>
+    <fieldset class="subagent-style-settings">
+      <legend>子代理卡片显示</legend>
+      <label class="subagent-style-option">
+        <input type="radio" name="subagent-card-style" value="flat" ${state.subagentCardStyle === 'flat' ? 'checked' : ''}>
+        <span class="subagent-style-copy"><span>平铺卡片</span><small>子代理按普通卡片平铺显示</small></span>
+      </label>
+      <label class="subagent-style-option">
+        <input type="radio" name="subagent-card-style" value="stacked" ${state.subagentCardStyle === 'stacked' ? 'checked' : ''}>
+        <span class="subagent-style-copy"><span>卡片对叠</span><small>子代理卡片叠放在父卡片下方</small></span>
+      </label>
+    </fieldset>
     <div style="padding:6px 8px;max-height:56vh;overflow-y:auto">`;
   for (const id of items) {
     const meta = id === 'all' ? { name: '全部', color: '#888780' } : agentMeta(id);
@@ -2032,6 +2113,14 @@ function openColManager() {
     </div>`;
   pop.innerHTML = html;
 
+  pop.querySelectorAll('input[name="subagent-card-style"]').forEach((radio) => radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    const style = sessionCardStacking.normalizeSubagentCardStyle(radio.value);
+    state.subagentCardStyle = sessionCardStacking.saveSubagentCardStyle(subagentStorage, style);
+    state.expandedSubagentGroups.clear();
+    renderBoard();
+  }));
+
   // 勾选 → 更新显示
   const applyCols = () => {
     const order = [];
@@ -2042,7 +2131,7 @@ function openColManager() {
       if (cb.checked) order.push(id);
     }
     state.colOrder = order;
-    saveColOrder(order);
+    try { saveColOrder(order); } catch {}
     renderBoard();
   };
   pop.querySelectorAll('.col-mgr-cb').forEach((cb) => cb.addEventListener('change', applyCols));
@@ -2074,7 +2163,10 @@ function openColManager() {
   pop.querySelector('#cols-reset').onclick = () => {
     // 恢复默认＝恢复到「探测为已安装或有历史数据」过滤后的默认列，不是恢复成全部 agent
     state.colOrder = null;
-    saveColOrder(['all', ...state.defaultAgentIds]);
+    sessionCardStacking.saveSubagentCardStyle(subagentStorage, 'flat');
+    state.subagentCardStyle = 'flat';
+    state.expandedSubagentGroups.clear();
+    try { saveColOrder(['all', ...state.defaultAgentIds]); } catch {}
     closePopover();
     loadBoard();
   };
