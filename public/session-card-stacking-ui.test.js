@@ -148,6 +148,14 @@ test('only grouped main cards expose an accessible toggle and expansion sync exc
   assert.match(cardClick, /e\.target\.closest\('\.s-subagent-toggle'\)/);
 });
 
+test('grouped session action rows place the subagent toggle between more and jump', () => {
+  const buildCardSource = app.slice(app.indexOf('function buildCard('));
+  const cardTemplate = buildCardSource.match(/card\.innerHTML = `[\s\S]*?`;/)?.[0] || '';
+  const actions = cardTemplate.match(/<div class="s-actions">[\s\S]*?<\/div>/)?.[0] || '';
+  assert.match(actions, /class="s-more"[\s\S]*?\$\{subagentToggleHtml\}[\s\S]*?class="s-jump"/);
+  assert.doesNotMatch(cardTemplate, /<\/div>\s*\$\{subagentToggleHtml\}`/);
+});
+
 test('toggleSubagentGroup updates both same-root columns and both accessibility states without touching another root', () => {
   const firstColumn = fakeGroup('root-1', 3);
   const secondColumn = fakeGroup('root-1', 3);
@@ -257,16 +265,16 @@ test('expanded groups restore full card spacing while retaining the existing car
 });
 
 test('subagent toggle is a focusable compact control with an expanded chevron state', () => {
-  assert.match(html, /\.s-subagent-toggle\{[^}]*position:absolute[^}]*top:[^}]*right:[^}]*width:24px[^}]*height:24px[^}]*border-radius:[^}]*border:/);
+  assert.match(html, /\.s-subagent-toggle\{[^}]*flex:0 0 auto[^}]*width:24px[^}]*height:24px[^}]*border-radius:[^}]*border:/);
   assert.match(html, /\.s-subagent-toggle:hover/);
   assert.match(html, /\.s-subagent-toggle:focus-visible/);
   assert.match(html, /\.s-subagent-toggle\s+svg\{[^}]*transition:transform/);
   assert.match(html, /\.session-card-group\.is-expanded\s+\.s-subagent-toggle\s+svg\{[^}]*transform:rotate\(180deg\)/);
-  assert.match(html, /\.has-subagent-toggle\s+\.s-row1\{[^}]*padding-right:/);
 });
 
-test('flow card stacking keeps the subagent toggle above the animated border contents', () => {
-  assert.match(html, /\.s-card\.flow-red>\.s-subagent-toggle,\.s-card\.flow-green>\.s-subagent-toggle\{[^}]*position:absolute[^}]*z-index:4/);
+test('flow card action rows remain above the animated border contents', () => {
+  assert.match(html, /\.s-card\.flow-red::before,\.s-card\.flow-green::before\{[^}]*z-index:2/);
+  assert.match(html, /\.s-actions\{[^}]*z-index:3/);
 });
 
 test('Agent display settings use compact selectable cards without inline option styles', () => {
