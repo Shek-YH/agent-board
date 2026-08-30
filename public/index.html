@@ -778,14 +778,18 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
     </section>
     <div class="ai-monitor-grid">
       <form class="ai-create" id="ai-create-form">
-        <h3>创建接管任务</h3>
+        <h3>创建 Suggest 工作流</h3>
         <div class="ai-form-body">
           <label>项目目录<input id="ai-project-path" required placeholder="例如 C:\\Projects\\demo"></label>
           <label>任务目标<textarea id="ai-goal" required placeholder="描述要完成的目标、验收条件或维护事项"></textarea></label>
+          <label>范围内<textarea id="ai-in-scope" placeholder="每行一项，例如：修改 API、补充测试"></textarea></label>
+          <label>范围外<textarea id="ai-out-of-scope" placeholder="每行一项，例如：不改数据库结构、不部署"></textarea></label>
+          <label>DoD（完成定义）<textarea id="ai-dod" required placeholder="每行一项，至少填写一条可验证的完成条件"></textarea></label>
+          <label>Evidence（证据要求）<textarea id="ai-evidence" placeholder="每行一项；留空时默认使用 DoD 描述"></textarea></label>
           <label>执行 Agent<select id="ai-agent"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="workbuddy">WorkBuddy</option></select></label>
           <label>接管范围<select id="ai-mode"><option value="project">单个项目 AI 接管</option><option value="global">全局 AI 接管策略</option></select></label>
-          <button class="btn primary" type="submit">创建 AI 工作流</button>
-          <div class="ai-hint">创建只生成草稿；执行前仍会检查项目类型、Git 状态、允许目录和当前控制权。未启用 headless 执行时不会启动 CLI。</div>
+          <button class="btn primary" type="submit">创建 Suggest 工作流</button>
+          <div class="ai-hint">Suggest Mode 只读取状态、生成下一步建议和 Evidence 回执，不自动发送、不启动执行 Agent。</div>
         </div>
       </form>
       <div class="ai-workflows"><h3>工作流</h3><div class="ai-workflow-list" id="ai-workflow-list"><div class="ai-empty">暂无 AI 工作流</div></div></div>

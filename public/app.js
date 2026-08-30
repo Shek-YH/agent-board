@@ -220,6 +220,9 @@ const ORCHESTRATION_STATUS_LABELS = {
   draft: '草稿', queued: '排队中', running: '执行中', waiting_user: '等待人工', verifying: '验收中',
   completed: '已完成', failed: '失败', paused: '已暂停',
 };
+const ORCHESTRATION_PROGRESS_LABELS = {
+  not_started: '未开始', in_progress: '进行中', completed: '已完成', blocked: '已阻塞',
+};
 const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维护', existing_unversioned: '未纳入 Git 的项目' };
 
 async function loadOrchestration() {
@@ -262,14 +265,25 @@ function renderAIMonitor() {
     const plan = workflow.executionPlan || {};
     const classification = workflow.classification || {};
     const status = workflow.status || 'draft';
-    const canRun = ['draft', 'queued', 'paused', 'failed'].includes(status) && workflow.controlOwner !== 'human';
+    const contract = workflow.runContract || {};
+    const goal = contract.goal || plan.goal || workflow.id;
+    const progress = workflow.progress || workflow.lastSuggestion?.progress || {};
+    const suggestion = workflow.lastSuggestion || {};
+    const canSuggest = status !== 'completed';
     const canTakeover = !['completed', 'paused'].includes(status) && workflow.controlOwner !== 'human';
     const actions = [];
-    if (canRun) actions.push(`<button class="btn primary ai-workflow-action" data-action="run" data-id="${esc(workflow.id)}">${status === 'failed' ? '重新排队' : '开始执行'}</button>`);
+    if (canSuggest) actions.push(`<button class="btn primary ai-workflow-action" data-action="suggest" data-id="${esc(workflow.id)}">生成下一步建议</button>`);
     if (canTakeover) actions.push(`<button class="btn ai-workflow-action" data-action="takeover" data-id="${esc(workflow.id)}">人工接管</button>`);
+    const dodTotal = Number.isInteger(progress.total) ? progress.total : (Array.isArray(contract.verify?.dod) ? contract.verify.dod.length : 0);
+    const dodPassed = Number.isInteger(progress.completed) ? progress.completed : 0;
+    const progressLabel = ORCHESTRATION_PROGRESS_LABELS[progress.status] || '未开始';
+    const suggestionText = suggestion.nextStep || suggestion.reason || '尚未生成建议';
     return `<article class="ai-workflow-card ${esc(status)}">
-      <div class="ai-workflow-top"><strong title="${esc(plan.goal || workflow.id)}">${esc(smartTitle(plan.goal || workflow.id, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
+      <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">Suggest-only</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
       <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')}</div>
+      <div class="ai-workflow-meta">进度：${esc(progressLabel)} · DoD ${esc(dodPassed)}/${esc(dodTotal)} · ${esc(progress.percent || 0)}%</div>
+      <div class="ai-workflow-meta">下一步建议：${esc(suggestionText)}</div>
+      ${suggestion.receipt?.generatedAt ? `<div class="ai-workflow-meta">最近回执：${esc(suggestion.receipt.generatedAt)}</div>` : ''}
       ${workflow.lastError ? `<div class="ai-workflow-error">${esc(workflow.lastError)}</div>` : ''}
       <div class="ai-workflow-actions">${actions.join('') || '<span class="ai-hint">当前状态无需操作</span>'}</div>
     </article>`;
@@ -364,12 +378,12 @@ function stopJarvisRecording() {
 }
 
 async function runOrchestrationAction(action, id) {
-  const endpoint = action === 'takeover' ? 'takeover' : 'run';
+  const endpoint = action === 'takeover' ? 'takeover' : 'suggest';
   try {
     await requestJson(`/api/orchestration/workflows/${encodeURIComponent(id)}/${endpoint}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     });
-    toast(action === 'takeover' ? '已人工接管，AI 工作流已暂停' : 'AI 工作流已进入执行队列');
+    toast(action === 'takeover' ? '已人工接管，AI 工作流已暂停' : '已生成下一步建议，未自动执行');
     await loadOrchestration();
   } catch (error) { toast(error.message || 'AI 工作流操作失败'); }
 }
@@ -386,11 +400,18 @@ $('jarvis-record').addEventListener('click', async () => {
   }
 });
 $('jarvis-project-path').addEventListener('input', (event) => localStorage.setItem('ab-jarvis-project', event.target.value.trim()));
+function contractLines(value) {
+  return String(value || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+}
 $('ai-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const dod = contractLines($('ai-dod').value);
+  if (!dod.length) { toast('请至少填写一条 DoD'); return; }
   const body = {
     projectPath: $('ai-project-path').value.trim(), goal: $('ai-goal').value.trim(),
-    agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human',
+    agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human', autopilotMode: 'suggest',
+    scope: { inScope: contractLines($('ai-in-scope').value), outOfScope: contractLines($('ai-out-of-scope').value) },
+    verify: { dod, evidence: contractLines($('ai-evidence').value) },
   };
   try {
     const data = await requestJson('/api/orchestration/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
