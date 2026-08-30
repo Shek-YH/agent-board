@@ -659,6 +659,7 @@ input,select,textarea{background:var(--input-background)}
 .theme-option-name{display:block;font-size:12px;font-weight:650;line-height:1.25}
 .theme-option-description{display:block;margin-top:2px;color:var(--muted-foreground);font-size:10px;line-height:1.35;overflow-wrap:anywhere}
 .theme-option-status{display:block;margin-top:2px;color:var(--accent);font-size:10px}
+.theme-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border)}
 html[data-theme-effect="crt"] body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:repeating-linear-gradient(to bottom,rgba(255,255,255,.035) 0,rgba(255,255,255,.035) 1px,transparent 1px,transparent 4px);opacity:.42;animation:theme-crt-scanline 8s linear infinite}
 html[data-theme-effect="gradient"] body::before,html[data-theme-effect="neon"] body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(circle at 15% 0%,var(--accent-background),transparent 42%),radial-gradient(circle at 85% 100%,var(--session-selected),transparent 38%);opacity:.48}
 html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn.primary:hover{box-shadow:0 0 0 1px var(--accent),0 0 18px var(--input-focus-ring)}

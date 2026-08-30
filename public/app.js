@@ -1201,6 +1201,7 @@ function openPopover(s, anchorEl) {
   });
 }
 function closePopover() {
+  if (state.popoverFor === 'theme-settings' && themeManager) themeManager.cancelPreview();
   document.querySelectorAll('.popover').forEach((n) => n.remove());
   state.popoverFor = null;
 }
@@ -1543,13 +1544,14 @@ async function openHiddenManager() {
 $('btn-hidden').onclick = openHiddenManager;
 
 /* ---------- 设置面板（集中入口） ---------- */
-function themeOptionMarkup(theme, selectedTheme, resolvedTheme) {
-  const selected = theme.id === selectedTheme;
+function themeOptionMarkup(theme, selectedTheme, resolvedTheme, previewTheme) {
+  const activeTheme = previewTheme || selectedTheme;
+  const selected = theme.id === activeTheme;
   const preview = theme.preview || {};
   const description = theme.id === 'system'
     ? `${theme.description} 当前：${resolvedTheme === 'dark' ? '深色' : '浅色'}`
     : theme.description;
-  const status = selected ? '<span class="theme-option-status">当前使用</span>' : '';
+  const status = selected ? `<span class="theme-option-status">${previewTheme ? '预览中' : '当前使用'}</span>` : '';
   return `<button type="button" class="theme-option${selected ? ' selected' : ''}" data-theme-id="${esc(theme.id)}" aria-pressed="${selected ? 'true' : 'false'}">
     <span class="theme-preview" aria-hidden="true" style="--preview-background:${esc(preview.background || 'var(--background)')};--preview-surface:${esc(preview.surface || 'var(--surface)')};--preview-primary:${esc(preview.primary || 'var(--primary)')}"></span>
     <span><span class="theme-option-name">${esc(theme.name)}</span><span class="theme-option-description">${esc(description || '')}</span>${status}</span>
@@ -1562,19 +1564,32 @@ function renderThemeSettings(pop) {
     return;
   }
   const selectedTheme = themeManager.getSelectedTheme();
+  const previewTheme = themeManager.getPreviewTheme();
   const resolvedTheme = themeManager.getResolvedTheme();
   const themes = themeManager.getAvailableThemes();
   pop.className = 'popover theme-settings';
   pop.innerHTML = `<div class="pop-head">主题设置</div>
     <div class="theme-settings-copy">选择 Agent Board 的界面主题，也可以跟随系统自动匹配浅色或深色模式。</div>
-    <div class="theme-options" role="group" aria-label="界面主题">${themes.map((theme) => themeOptionMarkup(theme, selectedTheme, resolvedTheme)).join('')}</div>`;
+    <div class="theme-options" role="group" aria-label="界面主题">${themes.map((theme) => themeOptionMarkup(theme, selectedTheme, resolvedTheme, previewTheme)).join('')}</div>
+    <div class="theme-actions">
+      <button type="button" class="btn" id="theme-cancel">取消</button>
+      <button type="button" class="btn primary" id="theme-apply">确定</button>
+    </div>`;
   pop.querySelectorAll('.theme-option').forEach((button) => {
     button.onclick = () => {
-      const snapshot = themeManager.setTheme(button.dataset.themeId);
+      themeManager.previewTheme(button.dataset.themeId);
       renderThemeSettings(pop);
-      toast(`已切换到${snapshot.selectedTheme === 'system' ? '跟随系统' : snapshot.theme.name}`);
     };
   });
+  pop.querySelector('#theme-cancel').onclick = () => {
+    themeManager.cancelPreview();
+    closePopover();
+  };
+  pop.querySelector('#theme-apply').onclick = () => {
+    const snapshot = themeManager.commitPreview();
+    closePopover();
+    toast(`已切换到${snapshot.selectedTheme === 'system' ? '跟随系统' : snapshot.theme.name}`);
+  };
 }
 
 function openThemeSettings() {
