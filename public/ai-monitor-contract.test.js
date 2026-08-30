@@ -72,3 +72,10 @@ test('AI monitor exposes commercial routing diagnostics, explainability, usage, 
   assert.match(app, /Receipt|回执/);
   assert.doesNotMatch(app, /JSON\.stringify\([^)]*(instruction|token)/);
 });
+
+test('AI monitor exposes read-only historical routing insights and workspace safety', () => {
+  assert.match(app, /routing\/insights/);
+  assert.match(app, /历史成功率|Historical success/);
+  assert.match(app, /Worktree|工作区/);
+  assert.match(app, /仅建议|read-only/);
+});

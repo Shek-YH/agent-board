@@ -1740,6 +1740,10 @@ function renderRoutingCommercialOverview(pop, overview) {
   const compatibility = diagnostics.compatibility || {};
   const catalog = diagnostics.catalog || {};
   const usage = overview?.usage || {};
+  const insights = overview?.insights || {};
+  const outcomes = insights.outcomes || {};
+  const recommendation = insights.recommendation || {};
+  const workspace = insights.workspace || {};
   const last = diagnostics.lastRoute || null;
   const receipt = overview?.receipt || null;
   const timeline = Array.isArray(overview?.auditTimeline) ? overview.auditTimeline : [];
@@ -1747,8 +1751,12 @@ function renderRoutingCommercialOverview(pop, overview) {
   const lastRoute = last
     ? `${routingValue(last.modelId, '未应用')} · ${routingValue(last.reasoningLevel, '未验证')} · ${routingReasonLabel(last.reasonCode)}`
     : '尚无路由记录';
+  const historicalProfiles = Array.isArray(outcomes.profiles) ? outcomes.profiles : [];
+  const recommendationText = recommendation.profile?.modelId
+    ? `${routingValue(recommendation.profile.modelId)} · ${routingValue(recommendation.profile.reasoningLevel, '未验证')} · ${routingReasonLabel(recommendation.reasonCode)}`
+    : recommendation.reasonCode || '暂无足够历史数据';
   pop.innerHTML = `<div class="pop-head">AI 路由详情</div>
-    <div class="routing-commerce-copy">只读诊断视图：当前 Turn 的 Profile 快照不会被中途改写；成本和配额没有真实数据源时明确标记为不可用。</div>
+    <div class="routing-commerce-copy">只读（read-only）诊断视图：当前 Turn 的 Profile 快照不会被中途改写；成本和配额没有真实数据源时明确标记为不可用。</div>
     <div class="routing-commerce-grid">
       <div class="routing-commerce-metric"><span>Compatibility</span><b class="${compatibility.supported ? 'ready' : 'warning'}">${compatibility.supported ? '支持' : '不支持'}</b><small>${esc(compatibility.reasonCode || 'UNKNOWN')}</small></div>
       <div class="routing-commerce-metric"><span>Catalog Diagnostics</span><b>${esc(catalogState)}</b><small>${esc(catalog.reasonCode || '—')} · ${esc(catalog.modelCount ?? 0)} 个模型</small></div>
@@ -1756,6 +1764,11 @@ function renderRoutingCommercialOverview(pop, overview) {
       <div class="routing-commerce-metric"><span>Quota / 配额</span><b>${usage.quota?.available ? '可用' : '不可用'}</b><small>${esc(usage.quota?.reasonCode || 'QUOTA_DATA_UNAVAILABLE')}</small></div>
     </div>
     <section class="routing-commerce-section"><strong>Routing Explainability</strong><div class="routing-commerce-detail">${esc(lastRoute)}</div></section>
+    <section class="routing-commerce-section"><strong>Historical success rate · Worktree</strong>
+      <div class="routing-commerce-detail">工作区：${workspace.safe ? '在允许范围内' : '不可验证或超出允许范围'} · ${esc(workspace.reasonCode || 'WORKSPACE_UNKNOWN')}</div>
+      <div class="routing-commerce-detail">历史尝试 ${esc(outcomes.totalAttempts ?? 0)} 次，成功 ${esc(outcomes.totalSuccesses ?? 0)} 次 · 只读建议：${esc(recommendationText)}</div>
+      ${historicalProfiles.length ? historicalProfiles.map((item) => `<div class="routing-audit-item"><span>${esc(item.modelId || '未命名')}</span><b>${esc(item.reasoningLevel || '未验证')}</b><span>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</span><em>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</em></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
+    </section>
     <section class="routing-commerce-section"><strong>Audit Timeline</strong>
       ${timeline.length ? timeline.map((item) => `<div class="routing-audit-item"><span>${esc(item.generatedAt || '未记录')}</span><b>${esc(item.event || 'routing')}</b><span>${esc(item.modelId || '未应用')} · ${esc(item.reasoningLevel || '未验证')}</span><em>${esc(routingReasonLabel(item.reasonCode))}</em></div>`).join('') : '<div class="routing-commerce-detail">暂无路由审计记录</div>'}
     </section>
@@ -1775,8 +1788,12 @@ async function openRoutingCommercialOverview(id) {
   pop.innerHTML = '<div class="pop-head">AI 路由详情</div><div class="routing-commerce-detail">正在读取 Catalog Diagnostics、Audit Timeline 和 Run Receipt…</div>';
   document.body.appendChild(pop);
   try {
-    const overview = await requestJson(`/api/orchestration/workflows/${encodeURIComponent(id)}/routing/overview`);
-    renderRoutingCommercialOverview(pop, overview);
+    const overviewUrl = `/api/orchestration/workflows/${encodeURIComponent(id)}/routing/overview`;
+    const insightsUrl = `/api/orchestration/workflows/${encodeURIComponent(id)}/routing/insights`;
+    const [overview, insights] = await Promise.all([
+      requestJson(overviewUrl), requestJson(insightsUrl),
+    ]);
+    renderRoutingCommercialOverview(pop, { ...overview, insights });
   } catch (error) {
     pop.innerHTML = `<div class="pop-head">AI 路由详情</div><div class="routing-commerce-error">读取失败：${esc(error.message || '服务暂不可用')}</div><div class="routing-commerce-actions"><button type="button" class="btn" id="routing-commerce-error-close">关闭</button></div>`;
     pop.querySelector('#routing-commerce-error-close').onclick = closePopover;
