@@ -557,6 +557,7 @@ function createVerifiedDispatchDependencies(agent) {
     writer,
     verifyDraft: (target, message) => writer.verifyDraft(target, message),
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
+    completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.implementation || null,
   };
 }
 
@@ -1082,6 +1083,7 @@ function sseBroadcast(event, data) {
 // 不再另起一套会话缓存。默认不允许 headless Agent 执行，需显式配置环境变量开启。
 const orchestration = createOrchestrationRuntime({
   workbuddyCliPath: resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentGuiExecutable('workbuddy') }),
+  verifiedDispatchDependencies: (agent) => createVerifiedDispatchDependencies(agent),
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
 });
 const jarvisVoice = createJarvisVoiceRuntime({ orchestration, env: process.env });
