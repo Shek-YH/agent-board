@@ -62,6 +62,11 @@ export class AdminUsersController {
     return this.users.setStatus(id, 'DISABLED', auditContext(request));
   }
 
+  @Post(':id/suspend')
+  suspend(@Param('id') id: string, @Req() request: any) {
+    return this.users.setStatus(id, 'SUSPENDED', auditContext(request));
+  }
+
   @Post(':id/enable')
   enable(@Param('id') id: string, @Req() request: any) {
     return this.users.setStatus(id, 'ACTIVE', auditContext(request));

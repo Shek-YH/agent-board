@@ -12,6 +12,8 @@ test('audit snapshots omit passwords, tokens, cookies, private keys, secrets, an
     cookie: 'do-not-store',
     devicePrivateKey: 'do-not-store',
     databaseSecret: 'do-not-store',
+    apiKey: 'do-not-store',
+    authorization: 'Bearer do-not-store',
     redemptionCode: 'ABCD-EFGH',
     nested: { status: 'ACTIVE', token: 'do-not-store' },
   });
@@ -77,11 +79,12 @@ test('audit service lists records with stable pagination and safe fields', async
     },
   };
 
-  const result = await createAuditService(database).list({ page: '2', pageSize: '5' });
+  const result = await createAuditService(database).list({ page: '2', pageSize: '5', targetId: 'user-1' });
 
   assert.equal(query.skip, 5);
   assert.equal(query.take, 5);
   assert.equal(query.orderBy.createdAt, 'desc');
+  assert.equal(query.where.targetId, 'user-1');
   assert.deepEqual(result.meta, { page: 2, pageSize: 5, total: 11 });
   assert.equal(result.items[0].beforeSanitized.status, 'ACTIVE');
   assert.equal('password' in result.items[0], false);

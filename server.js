@@ -1299,7 +1299,8 @@ const server = http.createServer(async (req, res) => {
     const stats = store.getStats();
     // 顶栏"活跃会话"用"现在 live"数（与 /api/board 的 liveRefs、前端卡片绿框一致），
     // 而不是 getRecentActive 的全部命中数（后者包括今天活过但已停下来的）。
-    // live 字段已统一为「最后真实消息 < 10 分钟」（lastMsgAt），不再被心跳保活顶起。
+    // live 字段与 getActive 同口径：最后真实消息时间窗，或 WorkBuddy SQLite 仍为 active；
+    // 普通心跳不再单独把会话顶起。
     stats.active = active.filter((s) => s.live).length;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ runtime: RUNTIME_IDENTITY, stats, agents, projects, active, agentsDef: AGENT_DEFS }));
@@ -1808,7 +1809,7 @@ const server = http.createServer(async (req, res) => {
     const probed = probeCache.data || {};
     const defaultAgentIds = [...agentIds].filter((id) => (probed[id] && probed[id].installed) || agentsWithData.has(id));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    // liveRefs：当前实时活跃的 session ref 集合（getActive 按 10 分钟窗口），供前端渲染状态用
+    // liveRefs：当前实时活跃的 session ref 集合（含 WorkBuddy 外部 active 状态），供前端渲染状态用
     res.end(JSON.stringify({
       groups, agentIds: [...agentIds], defaultAgentIds,
       liveRefs: store.getActive().map((a) => a.sessionRef),

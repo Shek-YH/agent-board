@@ -46,6 +46,18 @@ export default function PlansPage() {
     }
   }
 
+  async function toggleStatus(plan) {
+    try {
+      await apiRequest(`/v1/admin/plans/${plan.id}`, {
+        method: 'PATCH',
+        body: { status: plan.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' },
+      });
+      await load();
+    } catch (requestError) {
+      setError(requestError.code || requestError.message || '计划状态更新失败');
+    }
+  }
+
   return (
     <section>
       <div className="page-heading">
@@ -62,10 +74,10 @@ export default function PlansPage() {
       </form>
       <div className="table-card">
         <table>
-          <thead><tr><th>计划</th><th>产品</th><th>时长</th><th>设备限制</th><th>状态</th></tr></thead>
+          <thead><tr><th>计划</th><th>产品</th><th>时长</th><th>设备限制</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
-            {plans.items.length === 0 && <tr><td colSpan="5" className="empty-state">暂无计划</td></tr>}
-            {plans.items.map((plan) => <tr key={plan.id}><td><strong>{plan.code}</strong><small>{plan.name}</small></td><td>{plan.productId}</td><td>{plan.isPermanent ? '永久' : `${plan.durationSeconds} 秒`}</td><td>{plan.maxRegisteredDevices} 注册 / {plan.maxConcurrentDevices} 在线</td><td><span className="status-pill">{plan.status}</span></td></tr>)}
+            {plans.items.length === 0 && <tr><td colSpan="6" className="empty-state">暂无计划</td></tr>}
+            {plans.items.map((plan) => <tr key={plan.id}><td><strong>{plan.code}</strong><small>{plan.name}</small></td><td>{plan.productId}</td><td>{plan.isPermanent ? '永久' : `${plan.durationSeconds} 秒`}</td><td>{plan.maxRegisteredDevices} 注册 / {plan.maxConcurrentDevices} 在线</td><td><span className={`status-pill ${plan.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{plan.status}</span></td><td><button className="text-button" onClick={() => toggleStatus(plan)} type="button">{plan.status === 'ACTIVE' ? '禁用' : '启用'}</button></td></tr>)}
           </tbody>
         </table>
       </div>

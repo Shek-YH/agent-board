@@ -14,7 +14,7 @@ const USER_SELECT = {
 };
 
 const USER_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'AGENT', 'USER']);
-const USER_STATUSES = new Set(['ACTIVE', 'DISABLED']);
+const USER_STATUSES = new Set(['ACTIVE', 'SUSPENDED', 'DISABLED']);
 
 function positiveInteger(value, fallback, maximum) {
   const parsed = Number(value);
@@ -33,6 +33,7 @@ function normalizeUserQuery(query = {}) {
     pageSize: positiveInteger(query.pageSize, 20, 100),
     search: typeof query.search === 'string' ? query.search.trim() : '',
     status,
+    agentId: query.agentId == null || query.agentId === '' ? undefined : String(query.agentId).trim(),
   };
 }
 
@@ -61,6 +62,14 @@ function profileSnapshot(user) {
 function assertUserId(id) {
   if (typeof id !== 'string' || !id.trim()) {
     throw new BadRequestException({ code: 'INVALID_USER_ID' });
+  }
+}
+
+function assertRoleMutationAllowed(before, nextRole, context = {}) {
+  const actorRole = String(context.actorRole || 'ADMIN').toUpperCase();
+  const currentRole = before.profile?.role || 'USER';
+  if (actorRole !== 'SUPER_ADMIN' && (currentRole === 'SUPER_ADMIN' || nextRole === 'SUPER_ADMIN')) {
+    throw new BadRequestException({ code: 'SUPER_ADMIN_REQUIRED' });
   }
 }
 
@@ -120,6 +129,9 @@ class AdminUsersService {
     if (normalized.status) {
       where.profile = { is: { status: normalized.status } };
     }
+    if (normalized.agentId) {
+      where.profile = { is: { ...(where.profile?.is || {}), agentId: normalized.agentId } };
+    }
 
     const [items, total] = await Promise.all([
       this.database.user.findMany({
@@ -162,7 +174,7 @@ class AdminUsersService {
         create: { userId: id, role: before.profile?.role || 'USER', status: nextStatus },
         select: { role: true, status: true },
       });
-      if (nextStatus === 'DISABLED') {
+      if (nextStatus === 'SUSPENDED' || nextStatus === 'DISABLED') {
         const revokedAt = new Date();
         await transaction.licenseLease?.updateMany?.({
           where: { userId: id, status: 'ACTIVE' },
@@ -173,7 +185,11 @@ class AdminUsersService {
       const after = { ...before, profile };
       await this.audit.record({
         ...context,
-        action: nextStatus === 'DISABLED' ? 'USER_DISABLED' : 'USER_ENABLED',
+        action: nextStatus === 'DISABLED'
+          ? 'USER_DISABLED'
+          : nextStatus === 'SUSPENDED'
+            ? 'USER_SUSPENDED'
+            : 'USER_ENABLED',
         targetType: 'USER',
         targetId: id,
         before: profileSnapshot(before),
@@ -202,6 +218,9 @@ class AdminUsersService {
     return this.database.$transaction(async (transaction) => {
       const before = await transaction.user.findUnique({ where: { id }, select: USER_SELECT });
       if (!before) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
+      if (data.role || before.profile?.role === 'SUPER_ADMIN') {
+        assertRoleMutationAllowed(before, data.role, context);
+      }
 
       if (data.name) {
         await transaction.user.update({ where: { id }, data: { name: data.name } });

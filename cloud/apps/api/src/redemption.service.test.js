@@ -58,6 +58,21 @@ test('batch generation stores only an HMAC and returns the plaintext code once',
   assert.match(result.csv, new RegExp(`^code,codeLast4,codeExpiresAt\\r?\\n${plaintext},`));
 });
 
+test('activation code validation rejects used or unavailable codes and accepts an active code', async () => {
+  const database = {
+    redemptionCode: {
+      findUnique: async () => ({ codeHash: 'hash', status: 'UNUSED', codeExpiresAt: null, planId: 'plan-1' }),
+    },
+    plan: { findUnique: async () => ({ id: 'plan-1', productId: 'product-1', status: 'ACTIVE' }) },
+    product: { findUnique: async () => ({ id: 'product-1', status: 'ACTIVE' }) },
+  };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now);
+
+  const result = await service.validateCode('ABCD');
+
+  assert.deepEqual(result, { valid: true, planId: 'plan-1', productId: 'product-1' });
+});
+
 function makeRedeemDatabase(code, { onClaim, storedDurationSeconds = 2_592_000, planDurationSeconds = 2_592_000 } = {}) {
   let requestRecord = null;
   let claimCount = 0;
@@ -286,6 +301,36 @@ test('batch and code listings can be restricted to an agent data scope', async (
     { where: { ownerAgentId: { in: ['agent-a', 'agent-a1'] } }, orderBy: { createdAt: 'desc' } },
     { where: { ownerAgentId: { in: ['agent-a', 'agent-a1'] } }, orderBy: { createdAt: 'desc' } },
   ]);
+});
+
+test('code listings can filter redeemed codes by user', async () => {
+  let query;
+  const database = {
+    redemptionCode: { findMany: async (args) => { query = args; return []; } },
+  };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now);
+
+  await service.listCodes({ redeemedByUserId: 'user-1' });
+
+  assert.deepEqual(query, {
+    where: { redeemedByUserId: 'user-1' },
+    orderBy: { createdAt: 'desc' },
+  });
+});
+
+test('batch listings can filter batches owned by an agent', async () => {
+  let query;
+  const database = {
+    redemptionBatch: { findMany: async (args) => { query = args; return []; } },
+  };
+  const service = new RedemptionService(database, {}, {}, pepper, () => now);
+
+  await service.listBatches({ ownerAgentId: 'agent-1' });
+
+  assert.deepEqual(query, {
+    where: { ownerAgentId: 'agent-1' },
+    orderBy: { createdAt: 'desc' },
+  });
 });
 
 test('batch status filters reject unknown values', async () => {

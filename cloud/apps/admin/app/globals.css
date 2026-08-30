@@ -34,6 +34,7 @@ label { display: grid; gap: 7px; font-size: 13px; font-weight: 700; }
 input, select { min-height: 42px; padding: 0 12px; color: var(--ink); background: #fff; border: 1px solid #cbd5e1; border-radius: 9px; outline: 0; }
 input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15,118,110,.12); }
 .error-message { padding: 10px 12px; color: var(--danger); background: #fff1f0; border-radius: 8px; font-size: 13px; }
+.notice-message { padding: 10px 12px; color: #166534; background: #ecfdf5; border-radius: 8px; font-size: 13px; }
 
 .admin-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { display: flex; flex-direction: column; gap: 18px; padding: 28px 20px; color: #e6fffb; background: #12333a; }
@@ -43,6 +44,8 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
 .sidebar nav { display: grid; gap: 5px; margin-top: 24px; }
 .sidebar nav a { padding: 11px 12px; border-radius: 9px; color: #cce9e5; }
 .sidebar nav a:hover { color: #fff; background: rgba(255,255,255,.1); }
+.logout-button { align-self: start; padding: 0; color: #cce9e5; background: none; border: 0; font-weight: 700; }
+.logout-button:hover { color: #fff; }
 .back-link { margin-top: auto; color: #9dc3c0; }
 .admin-content { width: min(1180px, 100%); padding: 44px clamp(22px, 5vw, 68px); }
 .page-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 26px; }
@@ -75,8 +78,10 @@ td small { display: block; max-width: 220px; margin-top: 5px; color: var(--muted
 .status-pill { display: inline-flex; padding: 5px 9px; color: #166534; background: #dcfce7; border-radius: 999px; font-size: 12px; font-weight: 800; }
 .status-disabled { color: #991b1b; background: #fee2e2; }
 .text-button { padding: 0; color: var(--accent-dark); background: none; border: 0; font-weight: 800; }
+.table-action-button { margin-left: 12px; }
+.detail-actions { margin-top: 22px; }
 .empty-state { padding: 40px; color: var(--muted); text-align: center; }
-.table-footer { margin-top: 12px; font-size: 13px; }
+.table-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
 code { color: #334155; font-size: 12px; white-space: nowrap; }
 
 @media (max-width: 720px) {

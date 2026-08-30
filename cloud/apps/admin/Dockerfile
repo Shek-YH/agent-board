@@ -1,4 +1,4 @@
-FROM node:22-alpine AS dependencies
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS dependencies
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY . .
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=dependencies /app/node_modules ./node_modules

@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import LogoutButton from '../logout-button';
+
 export default function AgentLayout({ children }) {
   return (
     <div className="admin-shell agent-shell">
@@ -18,6 +20,7 @@ export default function AgentLayout({ children }) {
           <Link href="/agent/ledger">额度账本</Link>
           <Link href="/agent/profile">代理资料</Link>
         </nav>
+        <LogoutButton />
         <Link className="muted back-link" href="/">返回首页</Link>
       </aside>
       <main className="admin-content">{children}</main>

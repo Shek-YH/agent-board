@@ -34,6 +34,18 @@ export default function ProductsPage() {
     }
   }
 
+  async function toggleStatus(product) {
+    try {
+      await apiRequest(`/v1/admin/products/${product.id}`, {
+        method: 'PATCH',
+        body: { status: product.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' },
+      });
+      await loadProducts();
+    } catch (requestError) {
+      setError(requestError.code || requestError.message || '产品状态更新失败');
+    }
+  }
+
   return (
     <section>
       <div className="page-heading">
@@ -48,10 +60,10 @@ export default function ProductsPage() {
       </form>
       <div className="table-card">
         <table>
-          <thead><tr><th>Code</th><th>名称</th><th>状态</th><th>创建时间</th></tr></thead>
+          <thead><tr><th>Code</th><th>名称</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
           <tbody>
-            {products.items.length === 0 && <tr><td colSpan="4" className="empty-state">暂无产品</td></tr>}
-            {products.items.map((product) => <tr key={product.id}><td><strong>{product.code}</strong></td><td>{product.name}</td><td><span className="status-pill">{product.status}</span></td><td>{new Date(product.createdAt).toLocaleString('zh-CN')}</td></tr>)}
+            {products.items.length === 0 && <tr><td colSpan="5" className="empty-state">暂无产品</td></tr>}
+            {products.items.map((product) => <tr key={product.id}><td><strong>{product.code}</strong></td><td>{product.name}</td><td><span className={`status-pill ${product.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{product.status}</span></td><td>{new Date(product.createdAt).toLocaleString('zh-CN')}</td><td><button className="text-button" onClick={() => toggleStatus(product)} type="button">{product.status === 'ACTIVE' ? '禁用' : '启用'}</button></td></tr>)}
           </tbody>
         </table>
       </div>
