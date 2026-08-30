@@ -23,7 +23,12 @@
       if (dismissedRecent.has(ref) || liveRefs.has(ref) || now - completedAt > ttl) continue;
 
       const runtime = mapValue(runtimeStatuses, ref) || session.runtime_status;
-      const status = runtime?.state || session.status || (liveRefs.has(ref) ? 'running' : 'completed');
+      const rawStatus = runtime?.state || session.status;
+      // /api/board uses "done" for a non-live session; the selector's
+      // runtime vocabulary uses "completed" for the same terminal state.
+      const status = rawStatus === 'done'
+        ? 'completed'
+        : (rawStatus || (liveRefs.has(ref) ? 'running' : 'completed'));
       if (status !== 'completed') continue;
       if (!latest || completedAt > latest.completedAt) latest = { session, completedAt };
     }

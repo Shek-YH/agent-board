@@ -67,3 +67,44 @@ test('排除活跃、非完成、已读和过期 session，没有候选时返回
 
   assert.equal(result, null);
 });
+
+test('兼容后端 done 状态并选择未读完成的 DeepSeek 主会话', () => {
+  const { findLatestEligibleCompletion } = loadSelector();
+  const now = 10_000;
+  const main = {
+    id: 'deepseek:session-977cf312-2556-4838-bbda-8c382fed5111',
+    agent: 'deepseek', session_id: 'session-977cf312-2556-4838-bbda-8c382fed5111', status: 'done',
+  };
+  const child = {
+    id: 'deepseek:child-session', agent: 'deepseek', session_id: 'child-session', status: 'done',
+  };
+
+  const result = findLatestEligibleCompletion([main, child], {
+    now,
+    ttl: 2_000,
+    recentDone: new Map([[main.id, 9_500], [child.id, 9_400]]),
+    dismissedRecent: new Set(),
+    liveRefs: new Set(),
+    runtimeStatuses: new Map(),
+  });
+
+  assert.equal(result.session.id, main.id);
+});
+
+test('所有 Agent 的后端 done 状态都可进入 ALT+1 完成任务候选', () => {
+  const { findLatestEligibleCompletion } = loadSelector();
+  const agents = ['claude', 'codex', 'deepseek', 'hermes', 'marvis', 'pi', 'workbuddy', 'zcode'];
+
+  for (const agent of agents) {
+    const session = { id: `${agent}:completed`, agent, session_id: 'completed', status: 'done' };
+    const result = findLatestEligibleCompletion([session], {
+      now: 10_000,
+      ttl: 2_000,
+      recentDone: new Map([[session.id, 9_500]]),
+      dismissedRecent: new Set(),
+      liveRefs: new Set(),
+      runtimeStatuses: new Map(),
+    });
+    assert.equal(result?.session.id, session.id, agent);
+  }
+});
