@@ -2,6 +2,7 @@
 /* Agent Board 前端 v4：session 卡片 + 直连跳转 + 顶栏快捷图标 + 活跃时长统计 */
 
 const sessionCardStacking = window.AgentBoardSessionStacking;
+const themeManager = window.AgentBoardThemeManager;
 let subagentStorage = null;
 try {
   subagentStorage = window.localStorage;
@@ -1438,6 +1439,58 @@ async function openHiddenManager() {
 $('btn-hidden').onclick = openHiddenManager;
 
 /* ---------- 设置面板（集中入口） ---------- */
+function themeOptionMarkup(theme, selectedTheme, resolvedTheme) {
+  const selected = theme.id === selectedTheme;
+  const preview = theme.preview || {};
+  const description = theme.id === 'system'
+    ? `${theme.description} 当前：${resolvedTheme === 'dark' ? '深色' : '浅色'}`
+    : theme.description;
+  const status = selected ? '<span class="theme-option-status">当前使用</span>' : '';
+  return `<button type="button" class="theme-option${selected ? ' selected' : ''}" data-theme-id="${esc(theme.id)}" aria-pressed="${selected ? 'true' : 'false'}">
+    <span class="theme-preview" aria-hidden="true" style="--preview-background:${esc(preview.background || 'var(--background)')};--preview-surface:${esc(preview.surface || 'var(--surface)')};--preview-primary:${esc(preview.primary || 'var(--primary)')}"></span>
+    <span><span class="theme-option-name">${esc(theme.name)}</span><span class="theme-option-description">${esc(description || '')}</span>${status}</span>
+  </button>`;
+}
+
+function renderThemeSettings(pop) {
+  if (!themeManager) {
+    pop.innerHTML = '<div class="pop-head">主题设置</div><div class="theme-settings-copy">主题服务未加载，请重新打开应用。</div>';
+    return;
+  }
+  const selectedTheme = themeManager.getSelectedTheme();
+  const resolvedTheme = themeManager.getResolvedTheme();
+  const themes = themeManager.getAvailableThemes();
+  pop.className = 'popover theme-settings';
+  pop.innerHTML = `<div class="pop-head">主题设置</div>
+    <div class="theme-settings-copy">选择 Agent Board 的界面主题，也可以跟随系统自动匹配浅色或深色模式。</div>
+    <div class="theme-options" role="group" aria-label="界面主题">${themes.map((theme) => themeOptionMarkup(theme, selectedTheme, resolvedTheme)).join('')}</div>`;
+  pop.querySelectorAll('.theme-option').forEach((button) => {
+    button.onclick = () => {
+      const snapshot = themeManager.setTheme(button.dataset.themeId);
+      renderThemeSettings(pop);
+      toast(`已切换到${snapshot.selectedTheme === 'system' ? '跟随系统' : snapshot.theme.name}`);
+    };
+  });
+}
+
+function openThemeSettings() {
+  closePopover();
+  state.popoverFor = 'theme-settings';
+  const pop = document.createElement('div');
+  pop.className = 'popover theme-settings';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  document.body.appendChild(pop);
+  renderThemeSettings(pop);
+}
+
+if (themeManager) themeManager.subscribe(() => {
+  const pop = document.querySelector('.theme-settings');
+  if (pop && state.popoverFor === 'theme-settings') renderThemeSettings(pop);
+});
+
 function openSettingsHub() {
   closePopover();
   state.popoverFor = 'settings';
@@ -1454,13 +1507,13 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-account">账户与方案</button>
     <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-shortcut">快捷键设置</button>
-    <button class="pop-item" id="settings-skin" disabled>皮肤设置（开发中）</button>
+    <button class="pop-item" id="settings-theme">主题设置</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
   pop.querySelector('#settings-shortcut').onclick = openShortcutSettings;
-  // 皮肤设置本轮仍为占位（disabled，不接点击事件）。
+  pop.querySelector('#settings-theme').onclick = openThemeSettings;
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
