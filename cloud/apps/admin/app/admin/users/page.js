@@ -10,6 +10,8 @@ const roles = ['USER', 'AGENT', 'ADMIN', 'SUPER_ADMIN'];
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState({ items: [], meta: null });
+  const [filters, setFilters] = useState({ search: '', status: '', page: 1 });
+  const [draftFilters, setDraftFilters] = useState({ search: '', status: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '' });
@@ -17,7 +19,10 @@ export default function UsersPage() {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      setUsers(await apiRequest('/v1/admin/users'));
+      const params = new URLSearchParams({ page: String(filters.page), pageSize: '20' });
+      if (filters.search) params.set('search', filters.search);
+      if (filters.status) params.set('status', filters.status);
+      setUsers(await apiRequest(`/v1/admin/users?${params.toString()}`));
       setError('');
     } catch (requestError) {
       if (requestError.status === 401 || requestError.status === 403) {
@@ -28,7 +33,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [filters, router]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
@@ -38,9 +43,23 @@ export default function UsersPage() {
   }
 
   async function toggleStatus(user) {
-    const action = user.profile?.status === 'DISABLED' ? 'enable' : 'disable';
-    await apiRequest(`/v1/admin/users/${user.id}/${action}`, { method: 'POST' });
-    await loadUsers();
+    const currentStatus = user.profile?.status || 'ACTIVE';
+    const action = currentStatus === 'DISABLED' || currentStatus === 'SUSPENDED' ? 'enable' : 'disable';
+    try {
+      await apiRequest(`/v1/admin/users/${user.id}/${action}`, { method: 'POST' });
+      await loadUsers();
+    } catch (requestError) {
+      setError(requestError.code || requestError.message || '用户状态更新失败');
+    }
+  }
+
+  async function suspend(user) {
+    try {
+      await apiRequest(`/v1/admin/users/${user.id}/suspend`, { method: 'POST' });
+      await loadUsers();
+    } catch (requestError) {
+      setError(requestError.code || requestError.message || '用户暂停失败');
+    }
   }
 
   async function createUser(event) {
@@ -72,6 +91,11 @@ export default function UsersPage() {
         </div>
       </div>
       {error && <p className="error-message" role="alert">{error}</p>}
+      <form className="inline-form" onSubmit={(event) => { event.preventDefault(); setFilters({ ...draftFilters, page: 1 }); }}>
+        <input placeholder="搜索姓名或邮箱" value={draftFilters.search} onChange={(event) => setDraftFilters((current) => ({ ...current, search: event.target.value }))} />
+        <select value={draftFilters.status} onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}><option value="">全部状态</option><option>ACTIVE</option><option>SUSPENDED</option><option>DISABLED</option></select>
+        <button className="secondary-button" type="submit">搜索</button>
+      </form>
       <div className="table-card">
         <table>
           <thead>
@@ -82,21 +106,25 @@ export default function UsersPage() {
             {!loading && users.items.length === 0 && <tr><td colSpan="5" className="empty-state">暂无用户</td></tr>}
             {!loading && users.items.map((user) => (
               <tr key={user.id}>
-                <td><strong>{user.name}</strong><small>{user.id}</small></td>
+                <td><strong><a href={`/admin/users/${user.id}`}>{user.name}</a></strong><small>{user.id}</small></td>
                 <td>{user.email}</td>
                 <td>
                   <select value={user.profile?.role || 'USER'} onChange={(event) => updateRole(user, event.target.value)}>
                     {roles.map((role) => <option key={role}>{role}</option>)}
                   </select>
                 </td>
-                <td><span className={`status-pill ${user.profile?.status === 'DISABLED' ? 'status-disabled' : ''}`}>{user.profile?.status || 'ACTIVE'}</span></td>
-                <td><button className="text-button" onClick={() => toggleStatus(user)} type="button">{user.profile?.status === 'DISABLED' ? '启用' : '禁用'}</button></td>
+                <td><span className={`status-pill ${user.profile?.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{user.profile?.status || 'ACTIVE'}</span></td>
+                <td>
+                  {(user.profile?.status === 'DISABLED' || user.profile?.status === 'SUSPENDED')
+                    ? <button className="text-button" onClick={() => toggleStatus(user)} type="button">启用</button>
+                    : <><button className="text-button" onClick={() => suspend(user)} type="button">暂停</button><button className="text-button table-action-button" onClick={() => toggleStatus(user)} type="button">禁用</button></>}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {users.meta && <p className="muted table-footer">共 {users.meta.total} 个用户</p>}
+      {users.meta && <div className="table-footer"><span className="muted">第 {users.meta.page} 页，共 {users.meta.total} 个用户</span><span className="heading-actions"><button className="secondary-button" disabled={users.meta.page <= 1} onClick={() => setFilters((current) => ({ ...current, page: current.page - 1 }))} type="button">上一页</button><button className="secondary-button" disabled={users.meta.page * users.meta.pageSize >= users.meta.total} onClick={() => setFilters((current) => ({ ...current, page: current.page + 1 }))} type="button">下一页</button></span></div>}
     </section>
   );
 }

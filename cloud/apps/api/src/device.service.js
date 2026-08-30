@@ -95,6 +95,23 @@ function serializeDevice(device) {
   };
 }
 
+function serializeOnlineSession(lease) {
+  if (!lease) return null;
+  return {
+    id: lease.id,
+    userId: lease.userId,
+    entitlementId: lease.entitlementId,
+    deviceId: lease.deviceId,
+    instanceId: lease.instanceId,
+    sessionId: lease.sessionId,
+    status: lease.status,
+    issuedAt: lease.issuedAt,
+    expiresAt: lease.expiresAt,
+    lastHeartbeatAt: lease.lastHeartbeatAt,
+    lastIp: lease.lastIp,
+  };
+}
+
 class DeviceService {
   constructor(database, audit, clock = () => new Date(), securityEvents) {
     this.database = database;
@@ -123,6 +140,7 @@ class DeviceService {
       const user = await transaction.user.findUnique({ where: { id }, select: { id: true, profile: { select: { status: true } } } });
       if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
       if (user.profile?.status === 'DISABLED') bad('USER_DISABLED');
+      if (user.profile?.status === 'SUSPENDED') bad('USER_SUSPENDED');
 
       const existing = await transaction.device.findUnique({ where: { userId_installationId: { userId: id, installationId } } });
       if (existing) {
@@ -226,6 +244,93 @@ class DeviceService {
     return { items: devices.map(serializeDevice) };
   }
 
+  async listOnlineSessions(query = {}) {
+    const now = parseServerTime(this.clock());
+    const where = { status: 'ACTIVE', expiresAt: { gt: now } };
+    if (query.userId) where.userId = assertId(query.userId, 'INVALID_USER_ID');
+    if (query.deviceId) where.deviceId = assertId(query.deviceId, 'INVALID_DEVICE_ID');
+    const leases = await this.database.licenseLease.findMany({
+      where,
+      orderBy: { lastHeartbeatAt: 'desc' },
+      select: {
+        id: true,
+        userId: true,
+        entitlementId: true,
+        deviceId: true,
+        instanceId: true,
+        sessionId: true,
+        status: true,
+        issuedAt: true,
+        expiresAt: true,
+        lastHeartbeatAt: true,
+        lastIp: true,
+      },
+    });
+    return { items: leases.map(serializeOnlineSession) };
+  }
+
+  async reset(userId, deviceId, context = {}) {
+    const user = assertId(userId, 'INVALID_USER_ID');
+    const device = assertId(deviceId, 'INVALID_DEVICE_ID');
+    return this.resetDevice(user, device, context, false);
+  }
+
+  async adminReset(deviceId, context = {}) {
+    const device = assertId(deviceId, 'INVALID_DEVICE_ID');
+    return this.resetDevice(null, device, context, true);
+  }
+
+  async resetDevice(userId, deviceId, context, adminOverride) {
+    const now = parseServerTime(this.clock());
+    return this.database.$transaction(async (transaction) => {
+      const before = await transaction.device.findUnique({ where: { id: deviceId } });
+      if (!before || (userId && before.userId !== userId)) throw new NotFoundException({ code: 'DEVICE_NOT_FOUND' });
+      if (before.status === 'REVOKED') return serializeDevice(before);
+
+      if (!adminOverride) {
+        const entitlement = await transaction.entitlement.findFirst({
+          where: { userId, status: 'ACTIVE' },
+          include: { plan: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (!entitlement?.plan) throw new NotFoundException({ code: 'ENTITLEMENT_REQUIRED' });
+        const limit = Number(entitlement.plan.deviceResetLimit || 0);
+        const windowDays = Number(entitlement.plan.deviceResetWindowDays || 30);
+        const windowStart = new Date(now.getTime() - Math.max(1, windowDays) * 24 * 60 * 60 * 1000);
+        const recent = await transaction.deviceResetEvent.count({ where: { userId, createdAt: { gt: windowStart } } });
+        if (!Number.isInteger(limit) || limit < 0) bad('INVALID_DEVICE_RESET_POLICY');
+        if (recent >= limit) bad('DEVICE_RESET_LIMIT_REACHED');
+      }
+
+      const revokedAt = now;
+      const result = await transaction.device.updateMany({
+        where: { id: deviceId, ...(userId ? { userId } : {}), status: { in: REGISTERED_DEVICE_STATUSES } },
+        data: { status: 'REVOKED', revokedAt },
+      });
+      if (result.count !== 1) {
+        const current = await transaction.device.findUnique({ where: { id: deviceId } });
+        if (current?.status === 'REVOKED') return serializeDevice(current);
+        bad('DEVICE_NOT_AVAILABLE');
+      }
+      await transaction.licenseLease?.updateMany?.({
+        where: { deviceId, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revokedAt },
+      });
+      await transaction.deviceResetEvent.create({
+        data: { userId: before.userId, deviceId, actorId: context.actorId || null, type: adminOverride ? 'ADMIN_OVERRIDE' : 'USER' },
+      });
+      await this.audit?.record?.({
+        ...context,
+        action: adminOverride ? 'DEVICE_RESET_OVERRIDE' : 'DEVICE_RESET',
+        targetType: 'DEVICE',
+        targetId: deviceId,
+        before: { id: deviceId, userId: before.userId, status: before.status },
+        after: { id: deviceId, userId: before.userId, status: 'REVOKED', type: adminOverride ? 'ADMIN_OVERRIDE' : 'USER' },
+      }, transaction);
+      return serializeDevice({ ...before, status: 'REVOKED', revokedAt });
+    });
+  }
+
   async revoke(userId, deviceId, context = {}) {
     const user = assertId(userId, 'INVALID_USER_ID');
     const id = assertId(deviceId, 'INVALID_DEVICE_ID');
@@ -302,4 +407,5 @@ module.exports = {
   normalizePublicKey,
   serializeDevice,
   verifyDeviceSignature,
+  serializeOnlineSession,
 };

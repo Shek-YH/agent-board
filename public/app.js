@@ -482,7 +482,7 @@ async function openCodexThread(sessionId) {
   const threadId = extractCodexThreadId(sessionId);
   if (!threadId) {
     toast('Codex：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Codex 会话…');
   try {
@@ -491,12 +491,13 @@ async function openCodexThread(sessionId) {
       body: JSON.stringify({ threadId }),
     });
     toast(d.action === 'protocol-dispatched' ? 'Codex：已投递会话协议' : 'Codex：已打开指定会话');
-  } catch (error) { toast(`Codex：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Codex：${error.message || '请求失败'}`); return false; }
 }
 async function openWorkBuddySession(sessionId) {
   if (!sessionId) {
     toast('WorkBuddy：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 WorkBuddy 会话…');
   try {
@@ -505,26 +506,28 @@ async function openWorkBuddySession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'WorkBuddy：已发送启动请求，但未确认窗口' : 'WorkBuddy：已打开指定会话');
-  } catch (error) { toast(`WorkBuddy：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`WorkBuddy：${error.message || '请求失败'}`); return false; }
 }
 async function openMarvisSession(sessionId) {
   if (!sessionId) {
     toast('Marvis：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Marvis 会话…');
   try {
-    await requestJson('/api/open-marvis-session', {
+    const d = await requestJson('/api/open-marvis-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Marvis：已打开指定会话');
-  } catch (error) { toast(`Marvis：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Marvis：${error.message || '请求失败'}`); return false; }
 }
 async function openClaudeSession(sessionId) {
   if (!sessionId) {
     toast('Claude Code：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Claude Desktop 会话…');
   try {
@@ -533,26 +536,28 @@ async function openClaudeSession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'Claude Code：已发送请求，但未确认窗口' : 'Claude Code：已打开指定 Desktop 会话');
-  } catch (error) { toast(`Claude Code：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`Claude Code：${error.message || '请求失败'}`); return false; }
 }
 async function openZCodeSession(sessionId) {
   if (!sessionId) {
     toast('ZCode：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 ZCode 会话…');
   try {
-    await requestJson('/api/open-zcode-session', {
+    const d = await requestJson('/api/open-zcode-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('ZCode：已打开指定会话');
-  } catch (error) { toast(`ZCode：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`ZCode：${error.message || '请求失败'}`); return false; }
 }
 async function openDeepSeekSession(sessionId) {
   if (!sessionId) {
     toast('DeepSeek Harness：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 DeepSeek Harness 桌面端会话…');
   try {
@@ -561,35 +566,38 @@ async function openDeepSeekSession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'DeepSeek Harness：已发送请求，但未确认窗口' : 'DeepSeek Harness：已打开指定桌面端会话');
-  } catch (error) { toast(`DeepSeek Harness：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`DeepSeek Harness：${error.message || '请求失败'}`); return false; }
 }
 async function openPiAgentSession(sessionId) {
   if (!sessionId) {
     toast('Pi Agent：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Pi Agent Desktop 会话…');
   try {
-    await requestJson('/api/open-pi-agent-session', {
+    const d = await requestJson('/api/open-pi-agent-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Pi Agent：已打开指定桌面端会话');
-  } catch (error) { toast(`Pi Agent：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Pi Agent：${error.message || '请求失败'}`); return false; }
 }
 async function openHermesSession(sessionId) {
   if (!sessionId) {
     toast('Hermes Agent：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Hermes Desktop 会话…');
   try {
-    await requestJson('/api/open-hermes-session', {
+    const d = await requestJson('/api/open-hermes-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Hermes Agent：已打开指定 Desktop 会话');
-  } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); return false; }
 }
 function sessionNavigationId(s) {
   const syntheticChild = s?.session_role === 'child'
@@ -615,6 +623,29 @@ function jumpToAgentSession(s) {
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);
   return launchAgent(s.agent);
+}
+async function jumpToLatestCompleted() {
+  const sessions = Array.isArray(state.board.all)
+    ? state.board.all
+    : Object.values(state.board).flatMap((list) => Array.isArray(list) ? list : []);
+  const candidate = window.AgentBoardRecentCompletedJump.findLatestEligibleCompletion(sessions, {
+    recentDone: state.recentDone,
+    dismissedRecent: state.dismissedRecent,
+    liveRefs: state.liveRefs,
+    runtimeStatuses: state.runtimeStatuses,
+    ttl: RECENT_DONE_TTL,
+  });
+  if (!candidate) {
+    toast('暂无符合条件的已完成任务');
+    return false;
+  }
+
+  const jumped = await jumpToAgentSession(candidate.session);
+  if (jumped) {
+    dismissRecent(candidate.session.id);
+    syncFlowDecor(candidate.session.id);
+  }
+  return Boolean(jumped);
 }
 async function refreshRunStatus() {
   try {
@@ -1093,12 +1124,13 @@ function buildCard(s, colKey, groupContext = null) {
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
     e.stopPropagation();
-    jumpToAgentSession(s);
-    // 点击跳转 = 视为已读：若该卡是「刚完成」绿色流光状态，同步取消高亮
-    if (isRecentCompleted(s.id)) {
-      dismissRecent(s.id);
-      syncFlowDecor(s.id);
-    }
+    Promise.resolve(jumpToAgentSession(s)).then((jumped) => {
+      // 只有确认跳转成功，才把「刚完成」卡片标记为已读。
+      if (jumped && isRecentCompleted(s.id)) {
+        dismissRecent(s.id);
+        syncFlowDecor(s.id);
+      }
+    });
   });
   card.querySelector('.s-sid')?.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -1639,49 +1671,331 @@ function openSettingsHub() {
   pop.querySelector('#settings-launch').onclick = () => openLaunchOverridesManager();
 }
 
+function desktopCloudApi() {
+  const cloud = window.AgentBoardDesktop?.cloud;
+  return cloud && typeof cloud.getStatus === 'function' ? cloud : null;
+}
+
+function authErrorMessage(error, fallback = '操作失败') {
+  const code = error?.code || '';
+  const messages = {
+    AUTH_INVALID_CREDENTIALS: '邮箱或密码不正确',
+    USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: '该邮箱已注册，请直接登录',
+    INVALID_REDEMPTION_CODE: '激活码无效',
+    REDEMPTION_ALREADY_USED: '激活码已经使用过了',
+    REDEMPTION_EXPIRED: '激活码已过期',
+    REDEMPTION_REVOKED: '激活码已失效',
+    PLAN_DISABLED: '激活码对应的方案已停用',
+    PRODUCT_DISABLED: '激活码对应的产品已停用',
+    INVALID_USER_EMAIL: '请输入有效的邮箱地址',
+    INVALID_USER_PASSWORD: '密码至少需要 8 位',
+    CLOUD_NETWORK_UNAVAILABLE: '暂时无法连接云端，请检查网络后重试',
+    REGISTRATION_UNAVAILABLE: '注册服务暂不可用，请稍后重试',
+  };
+  return messages[code] || error?.message || fallback;
+}
+
+function renderDesktopAuthGate(gate, cloud, initialMessage = '') {
+  gate.innerHTML = `<div class="desktop-auth-shell">
+    <div class="desktop-auth-brand">
+      <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 5h16v14H4z" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+      <div><strong>Agent Board</strong><small>登录后开始使用</small></div>
+    </div>
+    <div class="desktop-auth-tabs" role="tablist">
+      <button class="desktop-auth-tab active" type="button" data-auth-view="login">登录</button>
+      <button class="desktop-auth-tab" type="button" data-auth-view="register">注册</button>
+    </div>
+    <form class="desktop-auth-form" id="desktop-auth-login">
+      <label>邮箱<input name="email" type="email" autocomplete="username" required placeholder="name@example.com"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码"></label>
+      <button class="btn primary desktop-auth-submit" type="submit">登录并进入 Agent Board</button>
+      <button class="btn" id="desktop-auth-forgot" type="button">忘记密码</button>
+    </form>
+    <form class="desktop-auth-form" id="desktop-auth-register" hidden>
+      <label>邮箱<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label>
+      <label>密码<input name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="至少 8 位"></label>
+      <label>确认密码<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required placeholder="再次输入密码"></label>
+      <label>激活码<input name="activationCode" autocomplete="off" required placeholder="请输入有效激活码"></label>
+      <button class="btn primary desktop-auth-submit" type="submit">验证激活码并注册</button>
+    </form>
+    <div class="desktop-auth-error" role="alert">${esc(initialMessage)}</div>
+    <div class="desktop-auth-help">注册必须填写激活码。激活码验证通过后才会创建账号。</div>
+  </div>`;
+  gate.hidden = false;
+  const errorNode = gate.querySelector('.desktop-auth-error');
+  const loginForm = gate.querySelector('#desktop-auth-login');
+  const registerForm = gate.querySelector('#desktop-auth-register');
+  const tabs = [...gate.querySelectorAll('.desktop-auth-tab')];
+  const setError = (message) => { errorNode.textContent = message || ''; };
+  const setBusy = (form, busy) => {
+    form.querySelectorAll('input,button').forEach((node) => { node.disabled = busy; });
+  };
+  const switchView = (view) => {
+    const register = view === 'register';
+    loginForm.hidden = register;
+    registerForm.hidden = !register;
+    tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.authView === view));
+    setError('');
+  };
+  tabs.forEach((tab) => { tab.onclick = () => switchView(tab.dataset.authView); });
+
+  const complete = () => {
+    if (typeof gate._authDone === 'function') gate._authDone();
+  };
+  loginForm.onsubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setBusy(loginForm, true);
+    try {
+      const result = await cloud.login(loginForm.elements.email.value, loginForm.elements.password.value);
+      if (result?.ok === false) throw result;
+      complete();
+    } catch (error) {
+      setError(authErrorMessage(error, '登录失败，请检查账号信息'));
+      setBusy(loginForm, false);
+    }
+  };
+  registerForm.onsubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (registerForm.elements.password.value !== registerForm.elements.passwordConfirm.value) {
+      setError('两次输入的密码不一致');
+      return;
+    }
+    setBusy(registerForm, true);
+    try {
+      if (typeof cloud.register !== 'function') throw { code: 'REGISTRATION_UNAVAILABLE' };
+      const result = await cloud.register(
+        registerForm.elements.email.value,
+        registerForm.elements.password.value,
+        registerForm.elements.activationCode.value,
+      );
+      if (result?.ok === false) throw result;
+      complete();
+    } catch (error) {
+      setError(authErrorMessage(error, '注册失败，请检查激活码和账号信息'));
+      setBusy(registerForm, false);
+    }
+  };
+  const forgotButton = gate.querySelector('#desktop-auth-forgot');
+  if (forgotButton && typeof cloud.requestPasswordReset === 'function') {
+    forgotButton.onclick = async () => {
+      const email = loginForm.elements.email.value.trim();
+      if (!email) { setError('请先填写邮箱'); return; }
+      forgotButton.disabled = true;
+      setError('正在发送重置邮件…');
+      try {
+        await cloud.requestPasswordReset(email);
+        setError('如果邮箱已注册，重置链接将发送到你的邮箱。');
+      } catch (error) {
+        setError(authErrorMessage(error, '发送失败，请稍后重试'));
+      } finally {
+        forgotButton.disabled = false;
+      }
+    };
+  } else if (forgotButton) {
+    forgotButton.remove();
+  }
+}
+
+async function ensureDesktopAuthentication() {
+  const cloud = desktopCloudApi();
+  if (!cloud) return true;
+  let status;
+  try {
+    status = await cloud.getStatus();
+  } catch (error) {
+    status = { configured: true, authenticated: false, errorMessage: authErrorMessage(error, '云端状态读取失败') };
+  }
+  if (!status?.configured || status.authenticated) return true;
+  const gate = $('desktop-auth-gate');
+  if (!gate) return true;
+  await new Promise((resolve) => {
+    gate._authDone = resolve;
+    renderDesktopAuthGate(gate, cloud, status.errorMessage || '请登录或注册后继续使用');
+  });
+  gate._authDone = null;
+  gate.hidden = true;
+  gate.innerHTML = '';
+  return true;
+}
+
+async function requestLocalAccount(path, options) {
+  const api = typeof requestJson === 'function'
+    ? requestJson
+    : async (url, options) => {
+      const response = await fetch(url, options);
+      const status = await response.json();
+      if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
+      return status;
+    };
+  return api(path, options);
+}
+
+async function fetchLocalAccountStatus() {
+  return requestLocalAccount('/api/account/status');
+}
+
 function renderAccountSettings(pop, status) {
   const head = '<div class="pop-head">账户与方案</div>';
   const bodyStyle = 'padding:14px 16px;color:var(--text2);font-size:13px;line-height:1.65';
+  const cloud = status.source === 'cloud' ? desktopCloudApi() : null;
   let body = '';
 
   if (status.state === 'unconfigured') {
     body = `<div style="${bodyStyle}">账号云服务尚未配置，本地单机功能可继续免费使用。</div>`;
+  } else if (status.state === 'unavailable' && cloud) {
+    body = `<div style="${bodyStyle}">云端授权服务当前不可用，本地单机功能可继续使用。<div style="margin-top:6px;color:var(--text3)">错误码：${esc(status.errorCode || 'UNKNOWN')}</div></div>`;
+  } else if (status.state === 'signed_out' && cloud) {
+    body = `<form id="account-login" style="${bodyStyle}">
+      <div style="margin-bottom:8px">登录云端账号以同步授权与设备状态。</div>
+      <label style="display:block;margin:8px 0 4px">邮箱</label>
+      <input name="email" type="email" autocomplete="username" required style="width:100%;box-sizing:border-box">
+      <label style="display:block;margin:8px 0 4px">密码</label>
+      <input name="password" type="password" autocomplete="current-password" required style="width:100%;box-sizing:border-box">
+      <div class="account-error" style="display:none;color:var(--danger);margin-top:8px"></div>
+      <button class="btn primary" type="submit" style="margin-top:12px;min-height:32px;padding:5px 12px;font-size:12px">登录</button>
+      ${typeof cloud?.requestPasswordReset === 'function' ? '<button class="btn" type="button" id="account-forgot" style="margin:12px 0 0 8px;min-height:32px;padding:5px 10px;font-size:12px">忘记密码</button>' : ''}
+    </form>`;
   } else if (status.state === 'active') {
     const account = status.account || {};
-    const expiresAt = Number(account.expiresAt);
-    const expiry = Number.isFinite(expiresAt) ? new Date(expiresAt).toLocaleString('zh-CN') : '未知';
-    const features = Array.isArray(status.features) && status.features.length
-      ? status.features.map((feature) => `<li>${esc(feature)}</li>`).join('')
+    const entitlement = status.entitlement || {};
+    const plan = entitlement.plan || {};
+    const expiresAt = entitlement.expiresAt || account.expiresAt;
+    const expiry = entitlement.isPermanent
+      ? '永久'
+      : expiresAt ? new Date(expiresAt).toLocaleString('zh-CN') : '未知';
+    const planName = account.plan || plan.name || plan.code || entitlement.planId || '已授权';
+    const featureEntries = status.features && typeof status.features === 'object' && !Array.isArray(status.features)
+      ? Object.entries(status.features).map(([key, value]) => `<li>${esc(key)}：${esc(value === true ? '已启用' : String(value))}</li>`).join('')
+      : Array.isArray(status.features) && status.features.length
+        ? status.features.map((feature) => `<li>${esc(feature)}</li>`).join('')
       : '<li>暂无额外权益</li>';
     body = `<div style="${bodyStyle}">
-      <div>当前方案：<strong>${esc(account.plan || '未知')}</strong></div>
+      <div>当前方案：<strong>${esc(planName)}</strong></div>
       <div>到期时间：${esc(expiry)}</div>
-      <div style="margin-top:6px">权益：</div><ul style="margin:2px 0 10px;padding-left:20px">${features}</ul>
+      <div style="margin-top:6px">权益：</div><ul style="margin:2px 0 10px;padding-left:20px">${featureEntries}</ul>
       <button class="btn" id="account-logout" style="min-height:32px;padding:5px 10px;font-size:12px">退出登录</button>
     </div>`;
+  } else if (status.state === 'offline' && cloud) {
+    const expiry = Number(status.validUntil);
+    body = `<div style="${bodyStyle}">
+      <div>当前处于离线宽限状态，联网后将自动恢复同步。</div>
+      <div style="margin-top:6px">离线授权至：${esc(Number.isFinite(expiry) ? new Date(expiry).toLocaleString('zh-CN') : '未知')}</div>
+      <button class="btn" id="account-logout" style="margin-top:12px;min-height:32px;padding:5px 10px;font-size:12px">退出登录</button>
+    </div>`;
+  } else if (status.state === 'free' && cloud) {
+    body = `<form id="account-redeem" style="${bodyStyle}">
+      <div>当前账号尚未激活授权。兑换授权码后可启用云端方案。</div>
+      <label style="display:block;margin:10px 0 4px">授权码</label>
+      <input name="code" autocomplete="off" required style="width:100%;box-sizing:border-box">
+      <div class="account-error" style="display:none;color:var(--danger);margin-top:8px"></div>
+      <button class="btn primary" type="submit" style="margin-top:12px;min-height:32px;padding:5px 12px;font-size:12px">兑换并激活</button>
+      <button class="btn" type="button" id="account-logout" style="margin:12px 0 0 8px;min-height:32px;padding:5px 10px;font-size:12px">退出登录</button>
+    </form>`;
   } else {
-    const action = status.hasCachedToken
+    const action = status.hasCachedToken || status.authenticated
       ? '<button class="btn" id="account-logout" style="min-height:32px;padding:5px 10px;font-size:12px">清除本地登录缓存</button>'
       : '';
     body = `<div style="${bodyStyle}"><div>当前为免费方案，本地单机功能可继续免费使用。</div><div style="margin-top:10px">${action}</div></div>`;
   }
 
   pop.innerHTML = head + body;
+  const loginForm = pop.querySelector('#account-login');
+  if (loginForm && cloud) {
+    loginForm.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = loginForm.querySelector('button[type="submit"]');
+      const errorNode = loginForm.querySelector('.account-error');
+      button.disabled = true;
+      errorNode.style.display = 'none';
+      try {
+        const result = await cloud.login(loginForm.elements.email.value, loginForm.elements.password.value);
+        if (result?.ok === false) throw new Error(result.message || '登录失败');
+        let next = await cloud.getStatus();
+        if (next.state === 'active') {
+          const acquired = await cloud.acquire();
+          if (acquired?.ok === false) toast('登录成功，但设备租约暂未建立：' + (acquired.message || '请稍后重试'));
+          next = await cloud.getStatus();
+        }
+        renderAccountSettings(pop, { ...next, source: 'cloud' });
+        toast('登录成功');
+      } catch (error) {
+        errorNode.textContent = error.message || '登录失败';
+        errorNode.style.display = 'block';
+        button.disabled = false;
+      }
+    };
+  }
+  const forgotButton = pop.querySelector('#account-forgot');
+  if (forgotButton && cloud) {
+    forgotButton.onclick = () => {
+      pop.innerHTML = head + `<form id="account-forgot-form" style="${bodyStyle}">
+        <div style="margin-bottom:8px">输入账号邮箱，我们会发送密码重置链接。</div>
+        <label style="display:block;margin:8px 0 4px">邮箱</label>
+        <input name="email" type="email" autocomplete="email" required style="width:100%;box-sizing:border-box">
+        <div class="account-error" style="display:none;color:var(--danger);margin-top:8px"></div>
+        <button class="btn primary" type="submit" style="margin-top:12px;min-height:32px;padding:5px 12px;font-size:12px">发送重置链接</button>
+        <button class="btn" type="button" id="account-forgot-back" style="margin:12px 0 0 8px;min-height:32px;padding:5px 10px;font-size:12px">返回登录</button>
+      </form>`;
+      const form = pop.querySelector('#account-forgot-form');
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const button = form.querySelector('button[type="submit"]');
+        const errorNode = form.querySelector('.account-error');
+        button.disabled = true;
+        errorNode.style.display = 'none';
+        try {
+          await cloud.requestPasswordReset(form.elements.email.value);
+          form.innerHTML = '<div>如果邮箱已注册，重置链接将发送到你的邮箱。</div><button class="btn" type="button" id="account-forgot-back" style="margin-top:12px;min-height:32px;padding:5px 10px;font-size:12px">返回登录</button>';
+          pop.querySelector('#account-forgot-back').onclick = () => renderAccountSettings(pop, { state: 'signed_out', source: 'cloud' });
+        } catch (error) {
+          errorNode.textContent = error.message || '发送失败';
+          errorNode.style.display = 'block';
+          button.disabled = false;
+        }
+      };
+      pop.querySelector('#account-forgot-back').onclick = () => renderAccountSettings(pop, { state: 'signed_out', source: 'cloud' });
+    };
+  }
+
+  const redeemForm = pop.querySelector('#account-redeem');
+  if (redeemForm && cloud) {
+    redeemForm.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = redeemForm.querySelector('button[type="submit"]');
+      const errorNode = redeemForm.querySelector('.account-error');
+      button.disabled = true;
+      errorNode.style.display = 'none';
+      try {
+        const result = await cloud.redeem(redeemForm.elements.code.value);
+        if (result?.ok === false) throw new Error(result.message || '兑换失败');
+        let next = await cloud.getStatus();
+        if (next.state === 'active') {
+          const acquired = await cloud.acquire();
+          if (acquired?.ok === false) toast('授权已兑换，但设备租约暂未建立：' + (acquired.message || '请稍后重试'));
+          next = await cloud.getStatus();
+        }
+        renderAccountSettings(pop, { ...next, source: 'cloud' });
+        toast('授权兑换成功');
+      } catch (error) {
+        errorNode.textContent = error.message || '兑换失败';
+        errorNode.style.display = 'block';
+        button.disabled = false;
+      }
+    };
+  }
+
   const logoutButton = pop.querySelector('#account-logout');
   if (!logoutButton) return;
   logoutButton.onclick = async () => {
     logoutButton.disabled = true;
     try {
-      const api = typeof requestJson === 'function'
-        ? requestJson
-        : async (url, options) => {
-          const response = await fetch(url, options);
-          const next = await response.json();
-          if (!response.ok || next.error) throw new Error(next.error || ('HTTP ' + response.status));
-          return next;
-        };
-      const next = await api('/api/account/logout', { method: 'POST' });
-      renderAccountSettings(pop, next);
+      const next = cloud
+        ? await cloud.logout()
+        : await requestLocalAccount('/api/account/logout', { method: 'POST' });
+      if (next?.ok === false) throw new Error(next.message || '操作失败');
+      renderAccountSettings(pop, cloud ? { ...next, source: 'cloud' } : next);
       toast('已清除本地登录缓存');
     } catch (error) {
       logoutButton.disabled = false;
@@ -1704,16 +2018,15 @@ async function openAccountSettings() {
   pop.innerHTML = '<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载中…</div>';
 
   try {
-    const api = typeof requestJson === 'function'
-      ? requestJson
-      : async (url, options) => {
-        const response = await fetch(url, options);
-        const status = await response.json();
-        if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
-        return status;
-      };
-    const status = await api('/api/account/status');
-    renderAccountSettings(pop, status);
+    const cloud = desktopCloudApi();
+    if (cloud) {
+      const cloudStatus = await cloud.getStatus();
+      if (cloudStatus.state !== 'unconfigured') {
+        renderAccountSettings(pop, { ...cloudStatus, source: 'cloud' });
+        return;
+      }
+    }
+    renderAccountSettings(pop, { ...(await fetchLocalAccountStatus()), source: 'local' });
   } catch (error) {
     pop.innerHTML = `<div class="pop-head">账户与方案</div><div style="padding:16px;color:var(--text3);font-size:13px">加载失败：${esc(error.message || '请求失败')}</div>`;
   }
@@ -1902,88 +2215,106 @@ async function openSoundSettings() {
 }
 
 const DEFAULT_AGENT_BOARD_SHORTCUT = 'Alt+`';
+const DEFAULT_AGENT_BOARD_JUMP_SHORTCUT = 'Alt+1';
+const SHORTCUT_SETTING_DEFS = [
+  {
+    kind: 'activateApp', inputId: 'shortcut-input', recordId: 'shortcut-record',
+    resetId: 'shortcut-reset', saveId: 'shortcut-save', statusId: 'shortcut-status',
+    title: '激活 Agent Board 到前台', help: '在任意应用中按下该组合键，可显示并聚焦 Agent Board 窗口。',
+    ariaLabel: 'Agent Board 激活快捷键', defaultValue: DEFAULT_AGENT_BOARD_SHORTCUT,
+  },
+  {
+    kind: 'jumpToLatestCompleted', inputId: 'jump-shortcut-input', recordId: 'jump-shortcut-record',
+    resetId: 'jump-shortcut-reset', saveId: 'jump-shortcut-save', statusId: 'jump-shortcut-status',
+    title: '跳转到最近完成任务', help: '在任意应用中按下该组合键，可打开最新完成且未读的 Agent 任务。',
+    ariaLabel: '最近完成任务跳转快捷键', defaultValue: DEFAULT_AGENT_BOARD_JUMP_SHORTCUT,
+  },
+];
 
 function renderShortcutSettings(pop, settings, bridge) {
-  const current = settings?.shortcut || DEFAULT_AGENT_BOARD_SHORTCUT;
-  const active = settings?.activeShortcut;
   const unavailable = !bridge;
-  pop.innerHTML = `<div class="pop-head">快捷键设置</div>
-    <div class="shortcut-settings">
-      <div class="shortcut-title">激活 Agent Board 到前台</div>
-      <div class="shortcut-help">在任意应用中按下该组合键，可显示并聚焦 Agent Board 窗口。</div>
+  pop.innerHTML = `<div class="pop-head">快捷键设置</div>${SHORTCUT_SETTING_DEFS.map((def) => {
+    const current = settings?.[def.kind] || (def.kind === 'activateApp' ? settings?.shortcut : '') || def.defaultValue;
+    const active = settings?.[def.kind === 'activateApp' ? 'activeShortcut' : 'activeJumpToLatestCompleted'];
+    return `<div class="shortcut-settings" data-shortcut-kind="${def.kind}">
+      <div class="shortcut-title">${def.title}</div>
+      <div class="shortcut-help">${def.help}</div>
       <div class="shortcut-row">
-        <input id="shortcut-input" class="shortcut-input" value="${esc(current)}" readonly aria-label="Agent Board 激活快捷键" ${unavailable ? 'disabled' : ''}>
-        <button class="btn" id="shortcut-record" type="button" ${unavailable ? 'disabled' : ''}>录入快捷键</button>
+        <input id="${def.inputId}" class="shortcut-input" value="${esc(current)}" readonly aria-label="${def.ariaLabel}" ${unavailable ? 'disabled' : ''}>
+        <button class="btn" id="${def.recordId}" type="button" ${unavailable ? 'disabled' : ''}>录入快捷键</button>
       </div>
-      <div class="shortcut-status" id="shortcut-status">${unavailable ? '快捷键仅在桌面版中可用。' : active === current ? '当前快捷键已启用。' : '当前快捷键尚未成功注册，请重新录入。'}</div>
+      <div class="shortcut-status" id="${def.statusId}">${unavailable ? '快捷键仅在桌面版中可用。' : active === current ? '当前快捷键已启用。' : '当前快捷键尚未成功注册，请重新录入。'}</div>
       <div class="shortcut-actions">
-        <button class="btn" id="shortcut-reset" type="button" ${unavailable ? 'disabled' : ''}>恢复默认（${esc(DEFAULT_AGENT_BOARD_SHORTCUT)}）</button>
-        <button class="btn primary" id="shortcut-save" type="button" ${unavailable ? 'disabled' : ''}>保存快捷键</button>
+        <button class="btn" id="${def.resetId}" type="button" ${unavailable ? 'disabled' : ''}>恢复默认（${esc(def.defaultValue)}）</button>
+        <button class="btn primary" id="${def.saveId}" type="button" ${unavailable ? 'disabled' : ''}>保存快捷键</button>
       </div>
     </div>`;
+  }).join('')}`;
   if (unavailable) return;
 
-  const input = pop.querySelector('#shortcut-input');
-  const recordButton = pop.querySelector('#shortcut-record');
-  const resetButton = pop.querySelector('#shortcut-reset');
-  const saveButton = pop.querySelector('#shortcut-save');
-  const status = pop.querySelector('#shortcut-status');
-  let recording = false;
-  let candidate = current;
+  for (const def of SHORTCUT_SETTING_DEFS) {
+    const input = pop.querySelector('#' + def.inputId);
+    const recordButton = pop.querySelector('#' + def.recordId);
+    const resetButton = pop.querySelector('#' + def.resetId);
+    const saveButton = pop.querySelector('#' + def.saveId);
+    const status = pop.querySelector('#' + def.statusId);
+    let recording = false;
+    let candidate = input.value;
 
-  const setStatus = (message, error = false) => {
-    status.textContent = message;
-    status.classList.toggle('error', error);
-  };
-  const persist = async (shortcut, successMessage) => {
-    saveButton.disabled = true;
-    resetButton.disabled = true;
-    try {
-      const result = await bridge.setShortcutSettings(shortcut);
-      if (!result?.ok) {
-        setStatus(result?.error || '快捷键保存失败。', true);
+    const setStatus = (message, error = false) => {
+      status.textContent = message;
+      status.classList.toggle('error', error);
+    };
+    const persist = async (shortcut, successMessage) => {
+      saveButton.disabled = true;
+      resetButton.disabled = true;
+      try {
+        const result = await bridge.setShortcutSettings(shortcut, def.kind);
+        if (!result?.ok) {
+          setStatus(result?.error || '快捷键保存失败。', true);
+          return;
+        }
+        candidate = result[def.kind] || shortcut;
+        input.value = candidate;
+        setStatus(successMessage || '快捷键已保存。');
+        toast('快捷键设置已保存');
+      } catch (error) {
+        setStatus(error.message || '快捷键保存失败。', true);
+      } finally {
+        saveButton.disabled = false;
+        resetButton.disabled = false;
+      }
+    };
+
+    recordButton.onclick = (event) => {
+      event.stopPropagation();
+      recording = true;
+      input.focus();
+      setStatus('请按下包含 Alt、Ctrl、Shift 或 Win 的组合键…');
+    };
+    input.onkeydown = (event) => {
+      if (!recording) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const next = window.AgentBoardShortcutUtils.acceleratorFromKeyboardEvent(event);
+      if (!next) {
+        setStatus('请至少包含一个修饰键和一个普通按键。', true);
         return;
       }
-      candidate = result.shortcut || shortcut;
-      input.value = candidate;
-      setStatus(successMessage || '快捷键已保存。');
-      toast('快捷键设置已保存');
-    } catch (error) {
-      setStatus(error.message || '快捷键保存失败。', true);
-    } finally {
-      saveButton.disabled = false;
-      resetButton.disabled = false;
-    }
-  };
-
-  recordButton.onclick = (event) => {
-    event.stopPropagation();
-    recording = true;
-    input.focus();
-    setStatus('请按下包含 Alt、Ctrl、Shift 或 Win 的组合键…');
-  };
-  input.onkeydown = (event) => {
-    if (!recording) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const next = window.AgentBoardShortcutUtils.acceleratorFromKeyboardEvent(event);
-    if (!next) {
-      setStatus('请至少包含一个修饰键和一个普通按键。', true);
-      return;
-    }
-    recording = false;
-    candidate = next;
-    input.value = next;
-    setStatus('快捷键已录入，点击“保存快捷键”后生效。');
-  };
-  saveButton.onclick = (event) => {
-    event.stopPropagation();
-    persist(candidate);
-  };
-  resetButton.onclick = (event) => {
-    event.stopPropagation();
-    persist(DEFAULT_AGENT_BOARD_SHORTCUT, '已恢复并启用默认快捷键 Alt+`。');
-  };
+      recording = false;
+      candidate = next;
+      input.value = next;
+      setStatus('快捷键已录入，点击“保存快捷键”后生效。');
+    };
+    saveButton.onclick = (event) => {
+      event.stopPropagation();
+      persist(candidate);
+    };
+    resetButton.onclick = (event) => {
+      event.stopPropagation();
+      persist(def.defaultValue, `已恢复并启用默认快捷键 ${def.defaultValue}。`);
+    };
+  }
 }
 
 async function openShortcutSettings() {
@@ -2641,8 +2972,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
+function registerDesktopJumpShortcut() {
+  const desktop = window.AgentBoardDesktop;
+  if (typeof desktop?.onJumpToLatestCompleted !== 'function') return;
+  desktop.onJumpToLatestCompleted(() => { void jumpToLatestCompleted(); });
+}
+
 /* ---------- 启动 ---------- */
+registerDesktopJumpShortcut();
 (async () => {
+  await ensureDesktopAuthentication();
   loadRecentDone();
   await loadState();
   await loadBoard();

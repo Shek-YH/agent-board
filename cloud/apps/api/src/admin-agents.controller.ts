@@ -40,6 +40,16 @@ export class AdminAgentsController {
     return this.agents.update(id, changes, auditContext(request));
   }
 
+  @Get(':id/move-preview')
+  previewMove(@Param('id') id: string, @Query('parentAgentId') parentAgentId?: string) {
+    return this.agents.previewMove(id, parentAgentId || null);
+  }
+
+  @Get(':id/ledger')
+  listLedger(@Param('id') id: string, @Query() query: Record<string, unknown>) {
+    return this.agents.listLedger(id, query);
+  }
+
   @Post(':id/ledger-adjustment')
   adjustLedger(@Param('id') id: string, @Body() input: Record<string, unknown>, @Req() request: any) {
     return this.agents.adjustLedger(id, input, auditContext(request));

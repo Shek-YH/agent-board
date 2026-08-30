@@ -11,6 +11,7 @@ const {
   shell,
   globalShortcut,
   ipcMain,
+  safeStorage,
 } = require('electron');
 const { resolveDesktopPaths } = require('./paths');
 const { findAvailablePort } = require('./port');
@@ -25,6 +26,12 @@ const {
   loadShortcutSettings,
   saveShortcutSettings,
 } = require('./shortcut-settings');
+const { createSecureStore } = require('./secure-store');
+const { CloudLicenseClient } = require('./cloud-license-client');
+const { isLiteBuild, shouldConfigureCloud, resolveCloudConfig } = require('./build-profile');
+
+const packageMetadata = require('../package.json');
+const liteMode = isLiteBuild(packageMetadata);
 
 let mainWindow = null;
 let tray = null;
@@ -32,9 +39,17 @@ let backend = null;
 let backendContext = null;
 let localUrl = '';
 let quitting = false;
+let cloudClient = null;
+let cloudSetupError = null;
+const LATEST_COMPLETED_JUMP_CHANNEL = 'shortcut:jump-latest-completed';
+let pendingLatestCompletedJump = false;
 const shortcutController = createGlobalShortcutController({
   globalShortcut,
   onActivate: showMainWindow,
+});
+const latestCompletedShortcutController = createGlobalShortcutController({
+  globalShortcut,
+  onActivate: requestLatestCompletedJump,
 });
 
 function logPath() {
@@ -55,6 +70,22 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+function notifyLatestCompletedJump() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) return false;
+  try {
+    mainWindow.webContents.send(LATEST_COMPLETED_JUMP_CHANNEL);
+    return true;
+  } catch (error) {
+    writeDesktopLog(`最近完成任务快捷键通知失败：${error.message || '未知错误'}`);
+    return false;
+  }
+}
+
+function requestLatestCompletedJump() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  pendingLatestCompletedJump = !notifyLatestCompletedJump();
 }
 
 function isLocalUrl(url) {
@@ -94,6 +125,10 @@ function createMainWindow() {
       event.preventDefault();
       openExternalSafely(url);
     }
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!pendingLatestCompletedJump) return;
+    pendingLatestCompletedJump = !notifyLatestCompletedJump();
   });
   mainWindow.once('ready-to-show', () => showMainWindow());
   mainWindow.on('close', (event) => {
@@ -150,6 +185,7 @@ async function restartBackend() {
 }
 
 async function startApplication() {
+  configureCloudClient();
   const paths = resolveDesktopPaths({
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -168,10 +204,133 @@ async function startApplication() {
   registerConfiguredShortcut();
 }
 
+function configureCloudClient() {
+  const cloudConfig = resolveCloudConfig({ metadata: packageMetadata, env: process.env });
+  if (!shouldConfigureCloud({ liteMode, baseUrl: cloudConfig.baseUrl })) return;
+  try {
+    const secureStore = createSecureStore({
+      safeStorage,
+      filePath: path.join(app.getPath('userData'), 'cloud-auth.bin'),
+    });
+    cloudClient = new CloudLicenseClient({
+      baseUrl: cloudConfig.baseUrl,
+      secureStore,
+      productId: cloudConfig.productId,
+      appVersion: app.getVersion(),
+      licensePublicKey: cloudConfig.licensePublicKey,
+    });
+    cloudSetupError = null;
+  } catch (error) {
+    cloudClient = null;
+    cloudSetupError = error?.code || 'SECURE_STORAGE_UNAVAILABLE';
+    writeDesktopLog(`云端授权初始化失败：${error?.message || '未知错误'}`);
+  }
+}
+
+function cloudError(error) {
+  return {
+    ok: false,
+    code: error?.code || 'CLOUD_REQUEST_FAILED',
+    message: error?.message || '云端授权操作失败',
+  };
+}
+
+function cloudStatusFallback() {
+  if (cloudSetupError) {
+    return { state: 'unavailable', configured: true, authenticated: false, features: [], errorCode: cloudSetupError };
+  }
+  return { state: 'unconfigured', configured: false, authenticated: false, features: [] };
+}
+
+ipcMain.handle('cloud:status', async () => {
+  if (!cloudClient) return cloudStatusFallback();
+  try {
+    return await cloudClient.getStatus();
+  } catch (error) {
+    return { state: 'unavailable', configured: true, authenticated: false, features: [], errorCode: error?.code || 'CLOUD_STATUS_FAILED' };
+  }
+});
+
+ipcMain.handle('cloud:login', async (_event, input = {}) => {
+  if (!cloudClient) return cloudError(new Error('Cloud authorization is not configured'));
+  try {
+    return { ok: true, ...(await cloudClient.login(input.email, input.password)) };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:register', async (_event, input = {}) => {
+  if (!cloudClient) return cloudError(new Error('Cloud authorization is not configured'));
+  try {
+    return { ok: true, ...(await cloudClient.register(input.email, input.password, input.activationCode)) };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:forgot-password', async (_event, input = {}) => {
+  if (!cloudClient) return cloudError(new Error('Cloud authorization is not configured'));
+  try {
+    return { ok: true, ...(await cloudClient.requestPasswordReset(input.email)) };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:logout', async () => {
+  if (!cloudClient) return cloudStatusFallback();
+  try {
+    return await cloudClient.logout();
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:redeem', async (_event, input = {}) => {
+  if (!cloudClient) return cloudError(new Error('Cloud authorization is not configured'));
+  try {
+    return { ok: true, ...(await cloudClient.redeem(input.code)) };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:acquire', async () => {
+  if (!cloudClient) return cloudError(new Error('Cloud authorization is not configured'));
+  try {
+    const result = await cloudClient.acquire();
+    const heartbeatIntervalSeconds = Number(result.limits?.heartbeatIntervalSeconds);
+    cloudClient.startHeartbeat(result.lease, {
+      intervalMs: Number.isFinite(heartbeatIntervalSeconds) ? heartbeatIntervalSeconds * 1000 : 60_000,
+      onError: (error) => writeDesktopLog(`云端授权心跳失败：${error?.code || error?.message || '未知错误'}`),
+    });
+    return { ok: true, lease: result.lease || null, clientVersionPolicy: result.clientVersionPolicy || null };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
+ipcMain.handle('cloud:release', async () => {
+  if (!cloudClient) return cloudStatusFallback();
+  try {
+    await cloudClient.releaseActiveLease();
+    return { ok: true };
+  } catch (error) {
+    return cloudError(error);
+  }
+});
+
 function registerConfiguredShortcut() {
   const settings = loadShortcutSettings();
-  const result = shortcutController.apply(settings.activateApp);
-  if (!result.ok) writeDesktopLog(`全局快捷键注册失败：${result.error}`);
+  const activateResult = shortcutController.apply(settings.activateApp);
+  if (!activateResult.ok) writeDesktopLog(`全局快捷键注册失败：${activateResult.error}`);
+  if (settings.jumpToLatestCompleted === settings.activateApp) {
+    writeDesktopLog('最近完成任务快捷键注册失败：不能与 Agent Board 激活快捷键相同');
+    return;
+  }
+  const jumpResult = latestCompletedShortcutController.apply(settings.jumpToLatestCompleted);
+  if (!jumpResult.ok) writeDesktopLog(`最近完成任务快捷键注册失败：${jumpResult.error}`);
 }
 
 ipcMain.handle('shortcut:get', () => {
@@ -180,22 +339,37 @@ ipcMain.handle('shortcut:get', () => {
     ok: true,
     shortcut: settings.activateApp,
     activeShortcut: shortcutController.current,
+    jumpToLatestCompleted: settings.jumpToLatestCompleted,
+    activeJumpToLatestCompleted: latestCompletedShortcutController.current,
   };
 });
 
-ipcMain.handle('shortcut:set', (_event, shortcut) => {
-  const previous = shortcutController.current || loadShortcutSettings().activateApp;
-  const applied = shortcutController.apply(shortcut);
+ipcMain.handle('shortcut:set', (_event, input) => {
+  const kind = input && typeof input === 'object' && input.kind === 'jumpToLatestCompleted'
+    ? 'jumpToLatestCompleted'
+    : 'activateApp';
+  const shortcut = typeof input === 'string' ? input : input?.shortcut;
+  const settings = loadShortcutSettings();
+  const otherKind = kind === 'activateApp' ? 'jumpToLatestCompleted' : 'activateApp';
+  const next = typeof shortcut === 'string' ? shortcut.trim() : '';
+  if (next && next === (settings[otherKind] || '')) {
+    return { ok: false, error: '两个快捷键不能使用同一组合键', accelerator: settings[kind] };
+  }
+  const controller = kind === 'activateApp' ? shortcutController : latestCompletedShortcutController;
+  const previous = controller.current || settings[kind];
+  const applied = controller.apply(shortcut);
   if (!applied.ok) return applied;
   try {
-    const saved = saveShortcutSettings(applied.accelerator);
+    const saved = saveShortcutSettings({ ...settings, [kind]: applied.accelerator });
     return {
       ok: true,
       shortcut: saved.activateApp,
       activeShortcut: shortcutController.current,
+      jumpToLatestCompleted: saved.jumpToLatestCompleted,
+      activeJumpToLatestCompleted: latestCompletedShortcutController.current,
     };
   } catch (error) {
-    shortcutController.apply(previous);
+    controller.apply(previous);
     return { ok: false, error: `保存快捷键失败：${error.message || '未知错误'}`, accelerator: previous };
   }
 });
@@ -203,6 +377,12 @@ ipcMain.handle('shortcut:set', (_event, shortcut) => {
 async function quitApplication() {
   if (quitting) return;
   quitting = true;
+  if (cloudClient) {
+    await Promise.race([
+      cloudClient.releaseActiveLease(),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  }
   await stopBackend(backend?.child);
   if (tray) tray.destroy();
   app.quit();
@@ -234,7 +414,10 @@ if (!gotLock) {
       quitApplication().catch(showStartupError);
     }
   });
-  app.on('will-quit', () => shortcutController.dispose());
+  app.on('will-quit', () => {
+    shortcutController.dispose();
+    latestCompletedShortcutController.dispose();
+  });
   app.on('window-all-closed', (event) => event.preventDefault());
   app.whenReady().then(startApplication).catch(showStartupError);
 }

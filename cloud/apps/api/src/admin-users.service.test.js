@@ -48,6 +48,20 @@ test('admin user listing applies pagination and case-insensitive search', async 
   });
 });
 
+test('admin user listing can filter users assigned to an agent', async () => {
+  let query;
+  const database = {
+    user: {
+      findMany: async (args) => { query = args; return []; },
+      count: async () => 0,
+    },
+  };
+
+  await new AdminUsersService(database, {}).list({ agentId: 'agent-1', status: 'ACTIVE' });
+
+  assert.deepEqual(query.where.profile, { is: { status: 'ACTIVE', agentId: 'agent-1' } });
+});
+
 test('disabling a user updates profile status and writes an audit record', async () => {
   const auditRecords = [];
   const revokedLeases = [];
@@ -103,6 +117,48 @@ test('disabling a user updates profile status and writes an audit record', async
   assert.deepEqual(auditRecords[0].after, { status: 'DISABLED', role: 'USER' });
 });
 
+test('suspending a user uses the PRD user state and revokes active access', async () => {
+  const auditRecords = [];
+  const revokedLeases = [];
+  const deletedSessions = [];
+  const database = {
+    user: {
+      findUnique: async () => ({
+        id: 'user-1',
+        name: 'Alice',
+        email: 'alice@example.com',
+        emailVerified: true,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-02T00:00:00Z'),
+        profile: { role: 'USER', status: 'ACTIVE' },
+      }),
+    },
+    userProfile: {
+      upsert: async ({ create, update }) => ({ role: create?.role || 'USER', status: update.status }),
+    },
+    licenseLease: {
+      updateMany: async ({ where, data }) => { revokedLeases.push({ where, data }); return { count: 1 }; },
+    },
+    session: {
+      deleteMany: async ({ where }) => { deletedSessions.push(where); return { count: 1 }; },
+    },
+    $transaction: async (callback) => callback(database),
+  };
+  const audit = { record: async (record) => auditRecords.push(record) };
+
+  const result = await new AdminUsersService(database, audit).setStatus(
+    'user-1',
+    'SUSPENDED',
+    { actorId: 'admin-1', requestId: 'request-suspend' },
+  );
+
+  assert.equal(result.profile.status, 'SUSPENDED');
+  assert.deepEqual(revokedLeases[0].where, { userId: 'user-1', status: 'ACTIVE' });
+  assert.deepEqual(deletedSessions, [{ userId: 'user-1' }]);
+  assert.equal(auditRecords[0].action, 'USER_SUSPENDED');
+  assert.deepEqual(auditRecords[0].after, { status: 'SUSPENDED', role: 'USER' });
+});
+
 test('creating a user delegates password handling to Better Auth and audits only safe fields', async () => {
   let signUpBody;
   const auditRecords = [];
@@ -153,4 +209,39 @@ test('creating a user delegates password handling to Better Auth and audits only
     status: 'ACTIVE',
   });
   assert.equal(JSON.stringify(auditRecords).includes('correct-horse'), false);
+});
+
+test('an ADMIN cannot promote a user to SUPER_ADMIN', async () => {
+  const database = {
+    user: {
+      findUnique: async () => ({
+        id: 'user-1', name: 'Alice', email: 'alice@example.com', emailVerified: true,
+        createdAt: new Date(), updatedAt: new Date(), profile: { role: 'USER', status: 'ACTIVE' },
+      }),
+    },
+    $transaction: async (callback) => callback(database),
+  };
+
+  await assert.rejects(
+    new AdminUsersService(database, {}).update('user-1', { role: 'SUPER_ADMIN' }, { actorRole: 'ADMIN' }),
+    (error) => error?.getResponse?.().code === 'SUPER_ADMIN_REQUIRED',
+  );
+});
+
+test('an ADMIN cannot edit a SUPER_ADMIN profile without changing its role', async () => {
+  const database = {
+    user: {
+      findUnique: async () => ({
+        id: 'user-1', name: 'Alice', email: 'alice@example.com', emailVerified: true,
+        createdAt: new Date(), updatedAt: new Date(), profile: { role: 'SUPER_ADMIN', status: 'ACTIVE' },
+      }),
+      update: async () => { throw new Error('must not update a super admin'); },
+    },
+    $transaction: async (callback) => callback(database),
+  };
+
+  await assert.rejects(
+    new AdminUsersService(database, {}).update('user-1', { name: 'Changed' }, { actorRole: 'ADMIN' }),
+    (error) => error?.getResponse?.().code === 'SUPER_ADMIN_REQUIRED',
+  );
 });

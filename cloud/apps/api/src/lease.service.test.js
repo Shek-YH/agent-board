@@ -156,9 +156,25 @@ test('KICK_OLDEST revokes the oldest device lease before creating a new one', as
 
   assert.equal(state.leases.get(first.lease.id).status, 'REVOKED');
   assert.equal(second.lease.status, 'ACTIVE');
+  assert.equal(state.auditRecords.some((record) => record.action === 'LEASE_KICKED_OLDEST'), true);
   await assert.rejects(
     service.heartbeat('user-1', request(firstKeys.privateKey, { ...baseRequest('device-1', 'instance-1', 'session-1'), leaseId: first.lease.id, sequence: 1 })),
     (error) => error?.getResponse?.().code === 'LEASE_REVOKED',
+  );
+});
+
+test('ASK_USER reports a concurrency decision instead of silently selecting a lease', async () => {
+  const state = makeDatabase({ maxConcurrentDevices: 1, concurrencyPolicy: 'ASK_USER' });
+  const firstKeys = keyPair();
+  const secondKeys = keyPair();
+  addDevice(state, 'device-1', firstKeys);
+  addDevice(state, 'device-2', secondKeys);
+  const service = new LeaseService(state.database, state.audit, () => now);
+
+  await service.acquire('user-1', request(firstKeys.privateKey, baseRequest('device-1', 'instance-1', 'session-1')));
+  await assert.rejects(
+    service.acquire('user-1', request(secondKeys.privateKey, baseRequest('device-2', 'instance-2', 'session-2'))),
+    (error) => error?.getResponse?.().code === 'CONCURRENT_DEVICE_LIMIT' && error?.getResponse?.().details?.policy === 'ASK_USER',
   );
 });
 
@@ -194,6 +210,8 @@ test('disabled users and expired entitlements cannot acquire or renew a lease', 
   await assert.rejects(service.acquire('user-1', input), (error) => error?.getResponse?.().code === 'ENTITLEMENT_EXPIRED');
   state.entitlement.expiresAt = new Date('2026-09-28T12:00:00.000Z');
   const acquired = await service.acquire('user-1', input);
+  state.user.profile.status = 'SUSPENDED';
+  await assert.rejects(service.acquire('user-1', input), (error) => error?.getResponse?.().code === 'USER_SUSPENDED');
   state.user.profile.status = 'DISABLED';
   const heartbeat = request(keys.privateKey, { ...baseRequest('device-1', 'instance-1', 'session-1'), leaseId: acquired.lease.id, sequence: 1 });
   await assert.rejects(service.heartbeat('user-1', heartbeat), (error) => error?.getResponse?.().code === 'USER_DISABLED');

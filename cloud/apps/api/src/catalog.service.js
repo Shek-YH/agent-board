@@ -4,7 +4,7 @@ const { BadRequestException, NotFoundException } = require('@nestjs/common');
 
 const PRODUCT_STATUSES = new Set(['ACTIVE', 'DISABLED']);
 const PLAN_STATUSES = new Set(['ACTIVE', 'DISABLED']);
-const CONCURRENCY_POLICIES = new Set(['REJECT', 'KICK_OLDEST']);
+const CONCURRENCY_POLICIES = new Set(['DENY_NEW', 'REJECT', 'KICK_OLDEST', 'ASK_USER']);
 
 function bad(code) {
   throw new BadRequestException({ code });
@@ -173,7 +173,7 @@ class CatalogService {
       offlineGraceSeconds: integer(input.offlineGraceSeconds, 0, { minimum: 0 }),
       deviceResetLimit: integer(input.deviceResetLimit, 0, { minimum: 0 }),
       deviceResetWindowDays: integer(input.deviceResetWindowDays, 30, { minimum: 1 }),
-      concurrencyPolicy: status(input.concurrencyPolicy, CONCURRENCY_POLICIES, 'REJECT', 'INVALID_CONCURRENCY_POLICY'),
+      concurrencyPolicy: status(input.concurrencyPolicy, CONCURRENCY_POLICIES, 'DENY_NEW', 'INVALID_CONCURRENCY_POLICY'),
       features: plainFeatures(input.features),
       agentCostCredits: integer(input.agentCostCredits, 0, { minimum: 0 }),
       status: status(input.status, PLAN_STATUSES, 'ACTIVE', 'INVALID_PLAN_STATUS'),

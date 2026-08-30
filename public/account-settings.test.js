@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
-const start = source.indexOf('function renderAccountSettings');
+const start = source.indexOf('function desktopCloudApi');
 const end = source.indexOf('\n// 每个 agent 默认', start);
 
 function createPopover() {
@@ -24,9 +24,10 @@ function createPopover() {
   };
 }
 
-function loadAccountSettings(fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({}) })) {
+function loadAccountSettings(fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({}) }), cloud = null) {
   const popovers = [];
   const context = {
+    window: cloud ? { AgentBoardDesktop: { cloud } } : {},
     closePopover() {},
     document: {
       body: { appendChild(pop) { popovers.push(pop); } },
@@ -91,4 +92,29 @@ test('账户页从本地 API 加载状态，并在退出登录后重渲染', asy
   assert.equal(calls[1].url, '/api/account/logout');
   assert.equal(calls[1].options.method, 'POST');
   assert.equal(pop.button, null);
+});
+
+test('桌面账户页提供云端登录、兑换和离线状态入口', () => {
+  const cloud = {
+    getStatus: async () => ({ state: 'signed_out' }),
+    login: async () => ({ ok: true }),
+    requestPasswordReset: async () => ({ requested: true }),
+    redeem: async () => ({ ok: true }),
+    acquire: async () => ({ ok: true }),
+    logout: async () => ({ state: 'signed_out' }),
+  };
+  const { renderAccountSettings } = loadAccountSettings(undefined, cloud);
+  const pop = createPopover();
+
+  renderAccountSettings(pop, { state: 'signed_out', source: 'cloud' });
+  assert.match(pop.innerHTML, /id="account-login"/);
+  assert.match(pop.innerHTML, /登录云端账号/);
+  assert.match(pop.innerHTML, /忘记密码/);
+
+  renderAccountSettings(pop, { state: 'free', source: 'cloud' });
+  assert.match(pop.innerHTML, /id="account-redeem"/);
+  assert.match(pop.innerHTML, /兑换并激活/);
+
+  renderAccountSettings(pop, { state: 'offline', source: 'cloud', validUntil: 2_000 });
+  assert.match(pop.innerHTML, /离线宽限状态/);
 });
