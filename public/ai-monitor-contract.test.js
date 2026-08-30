@@ -61,3 +61,14 @@ test('AI monitor exposes Model Routing settings and renders safe route summaries
   assert.match(app, /manualPin/);
   assert.doesNotMatch(app, /JSON\.stringify\([^)]*prompt/);
 });
+
+test('AI monitor exposes commercial routing diagnostics, explainability, usage, and receipt views', () => {
+  assert.match(app, /routing-details/);
+  assert.match(app, /routing\/overview/);
+  assert.match(app, /Audit Timeline|路由时间线/);
+  assert.match(app, /Catalog Diagnostics|Catalog 诊断/);
+  assert.match(app, /Cost|成本/);
+  assert.match(app, /Quota|配额/);
+  assert.match(app, /Receipt|回执/);
+  assert.doesNotMatch(app, /JSON\.stringify\([^)]*(instruction|token)/);
+});

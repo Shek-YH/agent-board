@@ -516,6 +516,17 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
  .routing-settings-form input,.routing-settings-form select{width:100%;min-height:36px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--card);outline:none;font-size:12px}
  .routing-settings-form .routing-checkbox{flex-direction:row;align-items:center;gap:7px}.routing-checkbox input{width:auto;min-height:auto}
  .routing-settings-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:3px}
+ .routing-commerce{width:min(500px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:10px}
+ .routing-commerce-copy,.routing-commerce-detail{padding:3px 4px;color:var(--text3);font-size:11px;line-height:1.5}
+ .routing-commerce-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:5px 0 9px}
+ .routing-commerce-metric{display:flex;min-height:62px;flex-direction:column;gap:2px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--accent-bg)}
+ .routing-commerce-metric span,.routing-commerce-metric small{color:var(--text3);font-size:10px}.routing-commerce-metric b{font-size:12px;color:var(--text2)}
+ .routing-commerce-metric b.ready{color:#15803D}.routing-commerce-metric b.warning{color:#B45309}
+ .routing-commerce-section{margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
+ .routing-commerce-section>strong{display:block;margin-bottom:4px;color:var(--text2);font-size:11px}
+ .routing-audit-item{display:grid;grid-template-columns:auto auto 1fr;gap:4px 8px;padding:6px 0;border-top:1px solid var(--border);font-size:10px;color:var(--text3)}
+ .routing-audit-item:first-of-type{border-top:0}.routing-audit-item b{color:var(--text2)}.routing-audit-item em{grid-column:2 / -1;color:var(--text3);font-style:normal}
+ .routing-commerce-actions{display:flex;justify-content:flex-end;margin-top:9px}.routing-commerce-error{padding:12px 4px;color:#B91C1C;font-size:12px}
  .ai-workflow-actions .btn{min-height:30px;padding:5px 9px;font-size:11px}
  .ai-empty{padding:18px 14px;color:var(--text3);font-size:12px;text-align:center}
  .ai-capability-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px}
