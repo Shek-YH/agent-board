@@ -11,6 +11,8 @@ const {
   shell,
   globalShortcut,
   ipcMain,
+  safeStorage,
+  Notification,
 } = require('electron');
 const { resolveDesktopPaths } = require('./paths');
 const { findAvailablePort } = require('./port');
@@ -246,6 +248,27 @@ ipcMain.handle('shortcut:set', (_event, input) => {
     return { ok: false, error: `保存快捷键失败：${error.message || '未知错误'}`, accelerator: previous };
   }
 });
+
+function showWorkBuddyCompletionNotification(input = {}) {
+  if (!Notification || (typeof Notification.isSupported === 'function' && !Notification.isSupported())) return false;
+  const rawSessionId = typeof input === 'string' ? input : input?.sessionId;
+  const sessionId = String(rawSessionId || '').replace(/[\r\n]/g, ' ').slice(0, 80);
+  try {
+    const notification = new Notification({
+      title: 'WorkBuddy 已完成',
+      body: sessionId ? `会话 ${sessionId} 已完成` : '有一个 WorkBuddy 会话已完成',
+      silent: false,
+    });
+    notification.on('click', showMainWindow);
+    notification.show();
+    return true;
+  } catch (error) {
+    writeDesktopLog(`WorkBuddy 系统通知失败：${error.message || '未知错误'}`);
+    return false;
+  }
+}
+
+ipcMain.handle('notification:completion', (_event, input) => showWorkBuddyCompletionNotification(input));
 
 async function quitApplication() {
   if (quitting) return;

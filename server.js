@@ -34,6 +34,14 @@ const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const { buildRuntimeIdentity } = require('./lib/runtime-identity');
 const { getDataDir, getConfigDir } = require('./lib/runtime-paths');
+const {
+  DEFAULT_HOOK_PATH,
+  authorizeHookRequest,
+  createHookAuth,
+  createHookUrl,
+  readJsonBody,
+  writeHookConfig,
+} = require('./lib/workbuddy-http');
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
@@ -58,8 +66,11 @@ const detectionCatalog = require('./lib/agent-detection-catalog');
 const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
 
 const PORT = Number(process.env.AB_PORT || 4876);
+const WORKBUDDY_HTTP_AUTH = createHookAuth();
+const WORKBUDDY_HTTP_CONFIG_PATH = path.join(getDataDir(), 'workbuddy', 'http-hook.json');
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
+const WORKBUDDY_STATUS_SCAN_INTERVAL_MS = 1000;
 const RUNTIME_IDENTITY = buildRuntimeIdentity({
   serverRoot: __dirname,
   serverEntry: __filename,
@@ -77,6 +88,12 @@ if (!writeRuntimeMarker(RUNTIME_IDENTITY, { dataDir: RUNTIME_IDENTITY.dataDir })
   console.warn('[runtime] 无法写入运行 marker，watchdog 将退化为端口探测');
 }
 process.on('exit', () => clearRuntimeMarker(RUNTIME_IDENTITY, { dataDir: RUNTIME_IDENTITY.dataDir }));
+if (!writeHookConfig(WORKBUDDY_HTTP_CONFIG_PATH, {
+  url: createHookUrl({ port: PORT, path: DEFAULT_HOOK_PATH }),
+  token: WORKBUDDY_HTTP_AUTH.token,
+})) {
+  console.warn('[workbuddy] 无法写入 HTTP Hook 配置，command Hook 将回退 spool');
+}
 
 // ---------- Agent 可扩展配置表 ----------
 // 新增 agent：加一条定义即可（proc=进程名用于激活；scheme=URL协议用于冷启动拉起；launch=备选启动命令；icon=public/icons 下的图标文件）
@@ -1013,6 +1030,21 @@ function updateCollectorHealth(agent, patch) {
   collectorHealth.set(agent, { ...previous, ...patch });
 }
 
+updateCollectorHealth('workbuddy', {
+  plugin: workbuddy.getPluginHealth(),
+  statusSpoolPaths: workbuddy.STATUS_SPOOL_PATHS,
+  statusCapabilities: workbuddy.getStatusCapabilities(),
+  httpHook: {
+    enabled: true,
+    host: '127.0.0.1',
+    path: DEFAULT_HOOK_PATH,
+    url: createHookUrl({ port: PORT, path: DEFAULT_HOOK_PATH }),
+    authenticated: true,
+    tokenSource: WORKBUDDY_HTTP_AUTH.source,
+    configPath: WORKBUDDY_HTTP_CONFIG_PATH,
+  },
+});
+
 function getCollectorHealth() {
   return Object.fromEntries([...collectorHealth.entries()].map(([agent, value]) => [agent, {
     ...value,
@@ -1079,6 +1111,48 @@ function sseBroadcast(event, data) {
   }
 }
 
+function broadcastWorkBuddyActive() {
+  sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
+}
+
+// 官方 hook 的完成/失败事件走独立 SSE，前端现有 active 差异检测继续负责流光和提示音。
+// completion payload 只包含生命周期结构字段，不包含 prompt、回复或工具输入输出。
+workbuddy.setStatusEventListeners({
+  onCompletion: (event) => {
+    sseBroadcast('completion', event);
+    broadcastWorkBuddyActive();
+  },
+  onFailure: (event) => {
+    sseBroadcast('failure', event);
+    broadcastWorkBuddyActive();
+  },
+});
+
+function scanWorkBuddyStatus({ baseline = false } = {}) {
+  try {
+    const result = workbuddy.scanStatusEvents(store, { baseline });
+    updateCollectorHealth('workbuddy', {
+      statusSpoolPaths: workbuddy.STATUS_SPOOL_PATHS,
+      statusSpoolReadable: result.readable,
+      statusCapabilities: result.capabilities,
+      statusEventCount: result.eventCount,
+      lastStatusEventAt: result.eventCount ? new Date().toISOString() : null,
+      plugin: workbuddy.getPluginHealth(),
+      lastError: null,
+    });
+    // 事件本身可能只改变 waiting/running 状态，不能只在完成时刷新 liveRefs。
+    if ((result.eventCount || result.staleCount) && !baseline) broadcastWorkBuddyActive();
+    return result;
+  } catch (error) {
+    updateCollectorHealth('workbuddy', {
+      statusSpoolPaths: workbuddy.STATUS_SPOOL_PATHS,
+      plugin: workbuddy.getPluginHealth(),
+      lastError: error.message,
+    });
+    return { eventCount: 0, staleCount: 0, readable: false, states: [], completions: [], failures: [] };
+  }
+}
+
 // 人工监控和 AI 监控共用这一个工作流状态源；AI 面板只负责展示/发起编排请求，
 // 不再另起一套会话缓存。默认不允许 headless Agent 执行，需显式配置环境变量开启。
 const orchestration = createOrchestrationRuntime({
@@ -1091,6 +1165,7 @@ orchestration.jarvisVoice = jarvisVoice;
 
 // ---------- 采集调度 ----------
 let isScanning = false;
+let baselineWorkBuddyStatusScan = false;
 const SCAN_DAYS = 30;          // 首次只扫近 30 天，老文件由增量/rescan 补齐
 const BIG_FILE = 2 * 1024 * 1024;   // 大于 2MB 的文件只取末尾（最近消息）
 async function scanAll({ full = false } = {}) {
@@ -1190,6 +1265,7 @@ async function scanAll({ full = false } = {}) {
     }
   } catch (e) { console.error('[codex] session_index 同步失败:', e.message); }
   try { workbuddy.scanHeartbeats(store); } catch { /* ignore */ }
+  scanWorkBuddyStatus({ baseline: baselineWorkBuddyStatusScan });
   isScanning = false;
   for (const a of ADAPTERS) {
     updateCollectorHealth(a.ID, {
@@ -1250,6 +1326,11 @@ function startWatchers() {
     snapshots.set(a.ID, watcher.snapshotTree(a.ROOT, () => true));
     stops.push(watcher.watchTree(a.ROOT, (p) => pollChanged(a, [p])));
   }
+  // 官方 hook spool 是 Agent Board 自己的数据源，不属于 WorkBuddy 项目目录；
+  // 目录存在时用 fs.watch 降低完成延迟，尚未创建时由 5s 状态重扫兜底。
+  stops.push(workbuddy.watchStatusSpool(() => {
+    if (!isScanning) scanWorkBuddyStatus();
+  }));
   // fs.watch 是低延迟加速器，定时快照是跨 Windows/macOS 文件系统、目录晚创建、
   // WAL/原子替换和偶发丢事件时的正确性兜底。这里不要求 ROOT 在启动时已经存在。
   const reconcileTimer = setInterval(() => {
@@ -1272,6 +1353,11 @@ function startWatchers() {
       workbuddy.scanHeartbeats(store);
     } catch { /* ignore */ }
   }, 5000);
+  // Hook spool 事件量很低，1s stat/offset reconcile 能覆盖目录晚创建、fs.watch 丢事件和轮转，
+  // 同时把完成状态传播控制在用户可感知的低延迟内。
+  const statusTimer = setInterval(() => {
+    if (!isScanning) scanWorkBuddyStatus();
+  }, WORKBUDDY_STATUS_SCAN_INTERVAL_MS);
   // Codex 的重命名写入 ~/.codex/session_index.jsonl，而不是 rollout 日志；
   // 轻量 stat 轮询能在文件变化后及时把最新标题同步到看板。
   const codexTitleTimer = setInterval(() => {
@@ -1335,7 +1421,7 @@ function startWatchers() {
   // 进程全无 = 该 agent 一定不在运行 → 提前结束「进行中」（不必等满 10 分钟）。
   // 只在进程名精确确认的 agent 上启用（进程名匹配不全时宁可保守不判，避免误伤正在运行的会话）。
   const procTimer = setInterval(checkAgentProcesses, 30 * 1000);
-  return () => { for (const s of stops) s(); clearInterval(reconcileTimer); clearInterval(hbTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(hermesTimer); clearInterval(deskTimer); clearInterval(procTimer); };
+  return () => { for (const s of stops) s(); clearInterval(reconcileTimer); clearInterval(hbTimer); clearInterval(statusTimer); clearInterval(codexTitleTimer); clearInterval(dsTimer); clearInterval(zcTimer); clearInterval(hermesTimer); clearInterval(deskTimer); clearInterval(procTimer); };
 }
 
 // CLI agent 进程名 → 进程检查。仅收录已实测确认的进程名；匹配不到进程
@@ -1487,6 +1573,32 @@ const server = http.createServer(async (req, res) => {
       const status = Number(error.statusCode) || 400;
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.message || 'orchestration request failed' }));
+    }
+    return;
+  }
+
+  // 官方 HTTP Hook：仅监听 loopback，并要求随机/外部配置 Bearer token；spool 仍作为恢复兜底。
+  if (pathname === DEFAULT_HOOK_PATH && req.method === 'POST') {
+    if (!authorizeHookRequest(req, WORKBUDDY_HTTP_AUTH.token)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized WorkBuddy hook' }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const result = workbuddy.ingestStatusEvents(store, [body]);
+      updateCollectorHealth('workbuddy', {
+        statusCapabilities: result.capabilities,
+        lastStatusEventAt: result.eventCount ? new Date().toISOString() : null,
+        lastError: null,
+      });
+      if (result.eventCount || result.staleCount) broadcastWorkBuddyActive();
+      res.writeHead(202, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, accepted: result.eventCount }));
+    } catch (error) {
+      const status = Number(error.statusCode) === 413 ? 413 : 400;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: status === 413 ? 'WorkBuddy hook payload too large' : 'Invalid WorkBuddy hook payload' }));
     }
     return;
   }
@@ -2480,6 +2592,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function runStartupTasks() {
+  baselineWorkBuddyStatusScan = true;
   try {
     await scanAll();
     // 让首轮扫描完成后的 HTTP 请求先被处理，再执行兼容性维护任务。
@@ -2498,6 +2611,8 @@ async function runStartupTasks() {
     } catch { /* ignore */ }
   } catch (error) {
     console.error('[startup] 后台初始化失败:', error.message);
+  } finally {
+    baselineWorkBuddyStatusScan = false;
   }
 }
 

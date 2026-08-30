@@ -1,0 +1,7 @@
+{
+  "name": "agent-board-workbuddy",
+  "version": "1.0.0",
+  "description": "Privacy-safe WorkBuddy lifecycle bridge for Agent Board.",
+  "license": "UNLICENSED",
+  "hooks": "./hooks/hooks.json"
+}
