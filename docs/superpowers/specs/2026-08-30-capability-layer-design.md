@@ -58,12 +58,6 @@ Registry 只做能力编排和声明，不复制底层逻辑：
       supported: true,
       implementation: { write: Function, send: Function },
       source: 'uia'
-    },
-    modelSelector: {
-      name: 'modelSelector',
-      supported: false,
-      implementation: null,
-      reason: 'Slice 3.5 尚未接入'
     }
   }
 }
@@ -89,7 +83,7 @@ Contract 只允许已知名称。`supported: true` 必须有非空实现；`supp
 - `sessionActivator`：接收已解析目标，返回现有 activation result。
 - `conversationReader`：保留现有 Adapter 的扫描对象，不改变 `scanAll/poll` 参数。
 - `identityVerifier`：接收目标并返回现有 UIA identity evidence。
-- `messageWriter`：保留现有 `{ write, send }` 方法。
+- `messageWriter`：保留现有 `{ write, send }` 方法；Codex/Hermes 的 Registry binding 额外组合现有 `verifyDraft`，供 Verified Dispatch 使用。
 - `deliveryVerifier`：保留现有 `{ snapshot, verify }` 方法。
 - `completionDetector`：保留现有 Adapter 的完成事件解析/状态入口，以 capability binding 形式登记，不新造第二套检测器。
 
