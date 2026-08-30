@@ -12,7 +12,7 @@ const soundSettings = require('./lib/sound-settings');
 const detect = require('./lib/detect');
 const launchLib = require('./lib/launch');
 const { buildLaunchTargets, selectLaunchTarget, resolveLaunchRequest } = require('./lib/launch-targets');
-const { buildCodexDeepLink } = require('./lib/codex-deep-link');
+const { buildCodexDeepLink, extractCodexThreadId } = require('./lib/codex-deep-link');
 const { buildWorkBuddyDeepLink } = require('./lib/workbuddy-deep-link');
 const { buildDeepSeekDesktopDeepLink } = require('./lib/deepseek-desktop-deep-link');
 const { buildPiAgentDesktopDeepLink } = require('./lib/pi-agent-deep-link');
@@ -34,6 +34,7 @@ const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const { buildRuntimeIdentity } = require('./lib/runtime-identity');
 const { getDataDir, getConfigDir } = require('./lib/runtime-paths');
+const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
@@ -44,6 +45,12 @@ const marvis = require('./lib/adapters/marvis');
 const zcode = require('./lib/adapters/zcode');
 const pi = require('./lib/adapters/pi');
 const hermes = require('./lib/adapters/hermes');
+const { dispatchVerifiedMessage } = require('./lib/verified-dispatch');
+const { createCodexWriter, verifyCodexDraft, verifyCodexDesktopSession } = require('./lib/codex-desktop-uia');
+const { createHermesWriter, verifyHermesDraft, verifyHermesDesktopSession } = require('./lib/hermes-desktop-uia');
+const { createCodexDeliveryReader } = require('./lib/codex-delivery');
+const { createHermesDeliveryReader } = require('./lib/hermes-delivery');
+const { enrichVerifiedTarget } = require('./lib/verified-dispatch-target');
 const detectionCatalog = require('./lib/agent-detection-catalog');
 const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
 
@@ -461,6 +468,101 @@ async function launchHermesThenFocus() {
     : null;
   if (windowVerified === false) throw new Error('Hermes Desktop 主窗口未确认出现');
   return { ...launch, windowVerified };
+}
+
+function verifiedHermesSessionId(target) {
+  const ref = String(target && target.sessionRef || '');
+  return ref.startsWith('hermes:') ? ref.slice('hermes:'.length) : '';
+}
+
+// Verified Dispatch 只复用已有桌面激活入口；会话身份仍由 UIA verifier 在激活前后确认。
+async function activateVerifiedSession(target) {
+  if (!target || !['codex', 'hermes'].includes(target.agent)) {
+    return { ok: false, code: 'UNSUPPORTED_AGENT', reason: 'Slice 0 只支持 Codex Desktop 与 Hermes Desktop' };
+  }
+  if (target.agent === 'codex') {
+    const threadId = extractCodexThreadId(String(target.sessionRef || ''));
+    if (!threadId) return { ok: false, code: 'TARGET_ANCHOR_MISSING', reason: 'Codex target 缺少 thread ID' };
+    const deepLink = buildCodexDeepLink(threadId);
+    const result = await launchSchemeTargetPromise(deepLink);
+    return { ok: true, ...(result || {}), action: 'protocol-dispatched', deepLink, threadId };
+  }
+
+  const sessionId = verifiedHermesSessionId(target);
+  if (!sessionId) return { ok: false, code: 'TARGET_ANCHOR_MISSING', reason: 'Hermes target 缺少 session ID' };
+  const launch = await launchHermesThenFocus();
+  const deepLink = buildHermesDesktopDeepLink(sessionId);
+  const desktopExe = resolveHermesDesktopExe();
+  if (process.platform === 'win32' && !fs.existsSync(desktopExe)) {
+    return { ok: false, code: 'ACTIVATION_FAILED', reason: `未找到 Hermes Desktop：${desktopExe}` };
+  }
+  const deepLinkResult = process.platform === 'win32'
+    ? await launchDetachedTargetPromise(desktopExe, [deepLink])
+    : await launchSchemeTargetPromise(deepLink);
+  return {
+    ok: true,
+    ...launch,
+    ...(deepLinkResult || {}),
+    action: 'launch-then-focus-then-locate',
+    deepLink,
+    sessionId,
+  };
+}
+
+function resolveVerifiedSession(request) {
+  const resolution = store.resolveSessionControlTarget({
+    agent: request.agent,
+    project: request.project,
+    sessionRef: request.sessionRef,
+  });
+  if (resolution.status !== 'resolved') return resolution;
+  const target = enrichVerifiedTarget(request, resolution);
+  if (!target) {
+    return {
+      ...resolution,
+      status: 'blocked',
+      target: null,
+      reason: '严格解析结果缺少可验证的 Agent/项目身份候选',
+    };
+  }
+  return { ...resolution, target, candidates: [target] };
+}
+
+function createVerifiedDispatchDependencies(agent) {
+  if (agent === 'codex') {
+    const writer = createCodexWriter();
+    const deliveryReader = createCodexDeliveryReader();
+    return {
+      resolveSession: resolveVerifiedSession,
+      verifySession: (target) => verifyCodexDesktopSession(target),
+      activateSession: activateVerifiedSession,
+      captureDeliverySnapshot: (target) => deliveryReader.snapshot(target),
+      writer,
+      verifyDraft: (target, message) => verifyCodexDraft(target, message),
+      verifyDelivery: (target, message, context) => deliveryReader.verify(target, message, context),
+    };
+  }
+  if (agent === 'hermes') {
+    const writer = createHermesWriter();
+    const deliveryReader = createHermesDeliveryReader();
+    return {
+      resolveSession: resolveVerifiedSession,
+      verifySession: (target) => verifyHermesDesktopSession(target),
+      activateSession: activateVerifiedSession,
+      captureDeliverySnapshot: (target) => deliveryReader.snapshot(target),
+      writer,
+      verifyDraft: (target, message) => verifyHermesDraft(target, message),
+      verifyDelivery: (target, message, context) => deliveryReader.verify(target, message, context),
+    };
+  }
+  return null;
+}
+
+function verifiedDispatchHttpStatus(result) {
+  if (result && result.ok) return 200;
+  if (result && result.status === 'reconciliation_required') return 202;
+  if (result && result.status === 'blocked') return 409;
+  return 400;
 }
 
 // 窗口激活：手动桌面端优先；没有指定目标时保留原有默认启动/激活逻辑。
@@ -1281,6 +1383,8 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       scanning: isScanning,
       runtime: RUNTIME_IDENTITY,
+      sourcePathsConfig: getSourcePathsConfigPath(),
+      sourcePaths: SOURCE_PATHS,
       collectors: getCollectorHealth(),
       sseClients: sseClients.size,
       checkedAt: new Date().toISOString(),
@@ -1395,6 +1499,45 @@ const server = http.createServer(async (req, res) => {
       const badInput = error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError || error.statusCode === 413;
       res.writeHead(error.statusCode === 413 ? 413 : (badInput ? 400 : 500), { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.statusCode === 413 ? 'Audio upload is too large' : (badInput ? 'Invalid sound enabled state' : 'Unable to save sound enabled state') }));
+    }
+    return;
+  }
+
+  // Slice 0 Verified Dispatch：只接受明确的 agent/project/sessionRef/message，
+  // 所有身份、UIA、快照和送达证据均由 fail-closed 编排器串联。
+  if (pathname === '/api/verified-dispatch' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const request = {
+        agent: String(body && body.agent || '').trim().toLowerCase(),
+        project: String(body && body.project || '').trim(),
+        sessionRef: String(body && body.sessionRef || '').trim(),
+        message: String(body && body.message == null ? '' : body && body.message || ''),
+      };
+      if (!request.agent || (!request.sessionRef && !request.project) || !request.message.trim()) {
+        const error = new Error('verified dispatch 需要 agent、sessionRef/project 至少一个和非空 message');
+        error.statusCode = 400;
+        throw error;
+      }
+      const dependencies = createVerifiedDispatchDependencies(request.agent);
+      if (!dependencies) {
+        const error = new Error('Slice 0 只支持 Codex Desktop 与 Hermes Desktop');
+        error.statusCode = 400;
+        throw error;
+      }
+      const result = await dispatchVerifiedMessage(request, dependencies);
+      res.writeHead(verifiedDispatchHttpStatus(result), { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      const status = e.statusCode === 400 ? 400 : 500;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: false,
+        status: 'failed',
+        phase: 'PREPARE',
+        failure: { code: status === 400 ? 'INVALID_REQUEST' : 'DISPATCH_ROUTE_FAILED', reason: e.message || 'verified dispatch failed' },
+        reconciliationRequired: false,
+      }));
     }
     return;
   }

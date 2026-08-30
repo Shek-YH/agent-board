@@ -1134,7 +1134,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
-  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents')) closePopover();
+  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents') && !e.target.closest('#btn-logout')) closePopover();
 });
 
 /* ---------- 详情抽屉 ---------- */
@@ -1470,6 +1470,7 @@ async function openHiddenManager() {
   } catch (error) { pop.innerHTML = `<div style="padding:12px;color:var(--text3)">加载失败：${esc(error.message || '请求失败')}</div>`; }
 }
 $('btn-hidden').onclick = openHiddenManager;
+$('btn-logout').onclick = logoutFromBoard;
 
 /* ---------- 设置面板（集中入口） ---------- */
 function themeOptionMarkup(theme, selectedTheme, resolvedTheme, previewTheme) {
@@ -1694,6 +1695,19 @@ function renderDesktopAuthGate(gate, cloud, initialMessage = '') {
   }
 }
 
+async function showDesktopAuthenticationGate(cloud, message) {
+  const gate = $('desktop-auth-gate');
+  if (!gate) return false;
+  await new Promise((resolve) => {
+    gate._authDone = resolve;
+    renderDesktopAuthGate(gate, cloud, message);
+  });
+  gate._authDone = null;
+  gate.hidden = true;
+  gate.innerHTML = '';
+  return true;
+}
+
 async function ensureDesktopAuthentication() {
   const cloud = desktopCloudApi();
   if (!cloud) return true;
@@ -1704,16 +1718,31 @@ async function ensureDesktopAuthentication() {
     status = { configured: true, authenticated: false, errorMessage: authErrorMessage(error, '云端状态读取失败') };
   }
   if (!status?.configured || status.authenticated) return true;
-  const gate = $('desktop-auth-gate');
-  if (!gate) return true;
-  await new Promise((resolve) => {
-    gate._authDone = resolve;
-    renderDesktopAuthGate(gate, cloud, status.errorMessage || '请登录或注册后继续使用');
-  });
-  gate._authDone = null;
-  gate.hidden = true;
-  gate.innerHTML = '';
+  await showDesktopAuthenticationGate(cloud, status.errorMessage || '请登录或注册后继续使用');
   return true;
+}
+
+async function logoutFromBoard() {
+  const cloud = desktopCloudApi();
+  const button = $('btn-logout');
+  if (!cloud) {
+    toast('当前运行环境未配置登录服务');
+    return;
+  }
+  if (button) button.disabled = true;
+  let logoutError = null;
+  try {
+    const result = await cloud.logout();
+    if (result?.ok === false) throw result;
+  } catch (error) {
+    // cloud.logout 会在 finally 中清理本地令牌；即使云端同步失败，也必须回到登录界面。
+    logoutError = error;
+  }
+  closePopover();
+  const shown = await showDesktopAuthenticationGate(cloud, '已退出登录，请重新登录');
+  if (logoutError) toast(`已清除本地登录状态，但云端同步失败：${authErrorMessage(logoutError, '请稍后重试')}`);
+  else if (!shown) toast('退出成功，但登录界面不可用');
+  if (button) button.disabled = false;
 }
 
 async function requestLocalAccount(path, options) {
