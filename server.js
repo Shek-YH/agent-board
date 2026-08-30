@@ -576,6 +576,8 @@ function createVerifiedDispatchDependencies(agent) {
     writer,
     verifyDraft: (target, message) => writer.verifyDraft(target, message),
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
+    verifyDeliveryFingerprint: typeof delivery.verifyFingerprint === 'function'
+      ? (target, fingerprint, context) => delivery.verifyFingerprint(target, fingerprint, context) : null,
     completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.implementation || null,
   };
 }

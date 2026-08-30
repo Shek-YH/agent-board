@@ -72,6 +72,15 @@ test('AI monitor exposes routing capability controls and safe catalog actions', 
   assert.match(app, /Model Discovery|模型发现/);
 });
 
+test('AI monitor shows high-level Agent capability boundaries', () => {
+  assert.match(html, /id="ai-agent-capability-list"/);
+  assert.match(app, /\/api\/capabilities/);
+  assert.match(app, /Session Auto/);
+  assert.match(app, /Conversation Read/);
+  assert.match(app, /Verified Send/);
+  assert.match(app, /completionDetector/);
+});
+
 test('AI monitor exposes provider readiness without rendering credentials', () => {
   assert.match(html, /id="ai-provider-config"/);
   assert.match(app, /providerConfig/);

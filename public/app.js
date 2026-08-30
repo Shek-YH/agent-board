@@ -30,7 +30,7 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   monitorMode: 'manual',
-  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null },
+  orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null },
 };
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
@@ -233,11 +233,14 @@ const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维�
 async function loadOrchestration() {
   try {
     const data = await requestJson('/api/orchestration/state');
-    let routingCatalog = null;
-    try { routingCatalog = await requestJson('/api/orchestration/routing/catalog'); } catch { /* state remains useful without catalog */ }
+    const [routingCatalog, capabilityData] = await Promise.all([
+      requestJson('/api/orchestration/routing/catalog').catch(() => null),
+      requestJson('/api/capabilities').catch(() => null),
+    ]);
     state.orchestration = {
       workflows: Array.isArray(data.workflows) ? data.workflows : [],
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
+      agentCapabilities: Array.isArray(capabilityData?.items) ? capabilityData.items : [],
       headlessEnabled: data.headlessEnabled === true,
       jarvisVoice: data.jarvisVoice || null,
       providerConfig: data.providerConfig || null,
@@ -271,6 +274,29 @@ function renderAIMonitor() {
     const item = capabilities[slot] || {};
     return `<div class="ai-capability"><b>${esc(label)}</b><span class="${item.available ? 'ready' : 'missing'}">${item.available ? `可用 · ${esc(item.providerName || item.provider || '')}` : '未配置'}</span></div>`;
   }).join('');
+  const agentCapabilityBox = $('ai-agent-capability-list');
+  if (agentCapabilityBox) {
+    const capabilityLabels = [
+      ['sessionAuto', 'Session Auto', ['sessionLocator', 'sessionActivator', 'identityVerifier', 'messageWriter', 'deliveryVerifier', 'completionDetector']],
+      ['conversationReader', 'Conversation Read', ['conversationReader']],
+      ['completion', 'Completion', ['completionDetector']],
+      ['verifiedSend', 'Verified Send', ['identityVerifier', 'messageWriter', 'deliveryVerifier']],
+    ];
+    const routeLabels = [
+      ['modelDiscovery', 'Model Discovery'], ['modelSwitch', 'Model Switch'], ['reasoningControl', 'Reasoning'],
+    ];
+    const items = Array.isArray(data.agentCapabilities) ? data.agentCapabilities : [];
+    const mark = (value) => `<span class="${value ? 'ready' : 'missing'}">${value ? '✓' : '✕'}</span>`;
+    agentCapabilityBox.innerHTML = items.length ? items.map((entry) => {
+      const agent = entry && entry.agentId ? String(entry.agentId) : '';
+      const capabilities = entry && entry.capabilities && typeof entry.capabilities === 'object' ? entry.capabilities : {};
+      const supported = (name) => capabilities[name]?.supported === true;
+      const route = data.routingCapabilities?.[agent] || {};
+      const highLevel = capabilityLabels.map(([, label, names]) => `${label} ${mark(names.every(supported))}`);
+      const routing = routeLabels.map(([name, label]) => `${label} ${mark(route[name] === true)}`);
+      return `<div class="ai-agent-capability-card"><strong>${esc(agent)}</strong><span>${highLevel.join('</span><span>')}</span><span>${routing.join('</span><span>')}</span></div>`;
+    }).join('') : '<div class="ai-routing-status">暂无能力注册表；请检查后端连接。</div>';
+  }
   const routingCapabilityBox = $('ai-routing-capability-list');
   if (routingCapabilityBox) {
     const routingCapabilities = data.routingCapabilities || {};

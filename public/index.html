@@ -513,6 +513,9 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
  .ai-routing-capability-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:0 12px 12px}
  .ai-routing-capability-card{padding:8px;border:1px solid var(--border);border-radius:7px;font-size:11px;background:var(--accent-bg)}
  .ai-routing-capability-card strong{display:block;margin-bottom:5px}.ai-routing-capability-card span{color:var(--text3);margin-right:8px}.ai-routing-capability-card .ready{color:#15803D}.ai-routing-capability-card .missing{color:var(--text3)}
+ .ai-agent-capability-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:0 12px 12px}
+ .ai-agent-capability-card{padding:8px;border:1px solid var(--border);border-radius:7px;font-size:11px;background:var(--card)}
+ .ai-agent-capability-card strong{display:block;margin-bottom:5px}.ai-agent-capability-card span{color:var(--text3);margin-right:8px;line-height:1.8}.ai-agent-capability-card .ready{color:#15803D}.ai-agent-capability-card .missing{color:var(--text3)}
  .ai-route-summary{margin:6px 0 8px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:var(--accent-bg);color:var(--text2);font-size:11px;line-height:1.45}
  .routing-settings{min-width:min(370px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:10px}
  .routing-settings-copy{padding:2px 4px 9px;color:var(--text3);font-size:11px;line-height:1.5}
@@ -847,7 +850,7 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
       </form>
       <div class="ai-workflows"><h3>工作流</h3><div class="ai-workflow-list" id="ai-workflow-list"><div class="ai-empty">暂无 AI 工作流</div></div></div>
     </div>
-    <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div><div class="ai-routing-capability-list" id="ai-routing-capability-list"></div><div class="ai-provider-config" id="ai-provider-config"></div></div>
+    <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div><div class="ai-agent-capability-list" id="ai-agent-capability-list"></div><div class="ai-routing-capability-list" id="ai-routing-capability-list"></div><div class="ai-provider-config" id="ai-provider-config"></div></div>
   </section>
 </div>
 
