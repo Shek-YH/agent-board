@@ -139,16 +139,48 @@ test('Theme Migration 兼容旧字符串、旧别名和嵌套 theme 配置', () 
   assert.equal(JSON.stringify(api.migrateThemeSettings({ selected: 'unknown-theme', version: 1 })), JSON.stringify({ selected: 'system', version: 1 }));
 });
 
+test('Theme Manager 预览主题不持久化，取消恢复原主题，确定后才提交', () => {
+  const api = loadThemeApi();
+  const document = createDocument();
+  const storage = createStorage({ 'agent-board-theme': JSON.stringify({ selected: 'dark', version: 1 }) });
+  const manager = api.createThemeManager({ document, storage, matchMedia: () => createMediaQuery(false) });
+
+  manager.initialize();
+  const preview = manager.previewTheme('miami');
+  assert.equal(preview.selectedTheme, 'dark');
+  assert.equal(preview.previewTheme, 'miami');
+  assert.equal(preview.resolvedTheme, 'miami');
+  assert.equal(document.documentElement.dataset.theme, 'miami');
+  assert.equal(JSON.parse(storage.read('agent-board-theme')).selected, 'dark');
+
+  manager.cancelPreview();
+  assert.equal(manager.getSelectedTheme(), 'dark');
+  assert.equal(manager.getPreviewTheme(), null);
+  assert.equal(manager.getResolvedTheme(), 'dark');
+  assert.equal(document.documentElement.dataset.theme, 'dark');
+
+  manager.previewTheme('crt-green');
+  const committed = manager.commitPreview();
+  assert.equal(committed.selectedTheme, 'crt-green');
+  assert.equal(committed.previewTheme, null);
+  assert.equal(JSON.parse(storage.read('agent-board-theme')).selected, 'crt-green');
+});
+
 test('设置面板从 Theme Registry 渲染可访问的主题按钮，并交给 Manager 切换', () => {
   assert.match(appSource, /function openThemeSettings\(\)/);
   assert.match(appSource, /getAvailableThemes\(\)/);
   assert.match(appSource, /aria-pressed/);
-  assert.match(appSource, /themeManager\.setTheme\(/);
+  assert.match(appSource, /themeManager\.previewTheme\(/);
+  assert.match(appSource, /themeManager\.commitPreview\(/);
+  assert.match(appSource, /themeManager\.cancelPreview\(/);
+  assert.match(appSource, /id="theme-apply"/);
+  assert.match(appSource, /id="theme-cancel"/);
   assert.match(appSource, /settings-theme/);
   assert.doesNotMatch(appSource, /settings-theme[\s\S]{0,200}document\.documentElement/);
   assert.match(appSource, /id="settings-theme"/);
   assert.doesNotMatch(appSource, /id="settings-skin"[^>]*disabled/);
   assert.match(htmlSource, /\.theme-option\{/);
+  assert.match(htmlSource, /\.theme-actions\{/);
   assert.match(htmlSource, /prefers-reduced-motion/);
 });
 

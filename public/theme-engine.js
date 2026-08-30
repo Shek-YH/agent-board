@@ -226,6 +226,7 @@
     const logger = options.logger || (root.console || { warn() {} });
     const nativeAdapter = options.nativeAdapter || null;
     let selectedTheme = SYSTEM_THEME_ID;
+    let previewThemeId = null;
     let resolvedTheme = 'light';
     let mediaQuery = null;
     let mediaListener = null;
@@ -243,7 +244,7 @@
     }
     function getSnapshot() {
       const theme = getTheme(resolvedTheme) || getTheme('dark');
-      return { selectedTheme, resolvedTheme, theme, effects: clone(theme.effects) };
+      return { selectedTheme, previewTheme: previewThemeId, resolvedTheme, theme, effects: clone(theme.effects) };
     }
     function notify() {
       const snapshot = getSnapshot();
@@ -259,13 +260,14 @@
       } catch (error) { logger.warn?.('[Theme] Native Adapter Failure', error); }
     }
     function applyTheme(shouldNotify = true) {
-      resolvedTheme = resolveTheme(selectedTheme, systemIsDark());
+      resolvedTheme = resolveTheme(previewThemeId || selectedTheme, systemIsDark());
       const theme = getTheme(resolvedTheme) || getTheme('dark');
       resolvedTheme = theme.id;
       const rootElement = documentRef?.documentElement;
       if (rootElement) {
         rootElement.dataset.theme = theme.id;
         rootElement.dataset.themeSelected = selectedTheme;
+        rootElement.dataset.themePreview = previewThemeId || '';
         rootElement.dataset.themeEffect = effectName(theme);
         rootElement.dataset.themeScheme = theme.scheme;
         if (rootElement.style) {
@@ -289,13 +291,16 @@
       if (matchMedia) {
         try {
           mediaQuery = matchMedia('(prefers-color-scheme: dark)');
-          mediaListener = () => { if (selectedTheme === SYSTEM_THEME_ID) applyTheme(true); };
+          mediaListener = () => {
+            if (selectedTheme === SYSTEM_THEME_ID || previewThemeId === SYSTEM_THEME_ID) applyTheme(true);
+          };
           if (typeof mediaQuery.addEventListener === 'function') mediaQuery.addEventListener('change', mediaListener);
           else mediaQuery.addListener?.(mediaListener);
         } catch (error) { logger.warn?.('[Theme] System Observer Failure', error); }
       }
       const raw = safeGet(STORAGE_KEY);
       const rawSelected = raw ? extractSelected((() => { try { return JSON.parse(raw); } catch { return raw; } })()) : SYSTEM_THEME_ID;
+      previewThemeId = null;
       selectedTheme = normalizeThemeId(rawSelected);
       if (rawSelected && selectedTheme !== String(rawSelected).trim().toLowerCase() && selectedTheme === SYSTEM_THEME_ID) logger.warn?.(`[Theme] Unknown Theme: ${rawSelected}; fallback to system`);
       if (raw) safeSet(STORAGE_KEY, { selected: selectedTheme, version: THEME_SCHEMA_VERSION });
@@ -305,8 +310,28 @@
       const requested = String(id || '').trim().toLowerCase();
       const next = normalizeThemeId(requested);
       if (next === SYSTEM_THEME_ID && requested !== SYSTEM_THEME_ID && requested !== '') logger.warn?.(`[Theme] Unknown Theme: ${id}; fallback to system`);
+      previewThemeId = null;
       selectedTheme = next;
       safeSet(STORAGE_KEY, { selected: selectedTheme, version: THEME_SCHEMA_VERSION });
+      return applyTheme(true);
+    }
+    function previewTheme(id) {
+      const requested = String(id || '').trim().toLowerCase();
+      const next = normalizeThemeId(requested);
+      if (next === SYSTEM_THEME_ID && requested !== SYSTEM_THEME_ID && requested !== '') logger.warn?.(`[Theme] Unknown Theme: ${id}; fallback to system`);
+      previewThemeId = next;
+      return applyTheme(true);
+    }
+    function commitPreview() {
+      if (previewThemeId === null) return getSnapshot();
+      selectedTheme = previewThemeId;
+      previewThemeId = null;
+      safeSet(STORAGE_KEY, { selected: selectedTheme, version: THEME_SCHEMA_VERSION });
+      return applyTheme(true);
+    }
+    function cancelPreview() {
+      if (previewThemeId === null) return getSnapshot();
+      previewThemeId = null;
       return applyTheme(true);
     }
     function subscribe(listener) {
@@ -319,6 +344,7 @@
         if (typeof mediaQuery.removeEventListener === 'function') mediaQuery.removeEventListener('change', mediaListener);
         else mediaQuery.removeListener?.(mediaListener);
       }
+      previewThemeId = null;
       listeners.clear();
       initialized = false;
     }
@@ -326,10 +352,14 @@
     return {
       initialize,
       getSelectedTheme: () => selectedTheme,
+      getPreviewTheme: () => previewThemeId,
       getResolvedTheme: () => resolvedTheme,
       getTheme,
       getAvailableThemes: () => [...getAvailableThemes(), systemThemeOption],
       setTheme,
+      previewTheme,
+      commitPreview,
+      cancelPreview,
       subscribe,
       destroy,
     };
