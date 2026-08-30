@@ -24,9 +24,6 @@ test('loadConfig normalizes the cloud API environment', () => {
     betterAuthSecret: VALID_ENV.BETTER_AUTH_SECRET,
     betterAuthUrl: VALID_ENV.BETTER_AUTH_URL,
     redemptionPepper: VALID_ENV.REDEMPTION_PEPPER,
-    registrationMode: 'OPEN',
-    passwordResetWebhookUrl: null,
-    passwordResetWebhookSecret: null,
     licenseSigningPrivateKey: null,
     licenseSigningKeyId: 'primary',
     adminOrigin: VALID_ENV.ADMIN_ORIGIN,
@@ -47,74 +44,11 @@ test('loadConfig rejects missing secrets without echoing their values', () => {
   );
 });
 
-test('loadConfig parses the registration mode and rejects invalid values', () => {
-  assert.equal(loadConfig({ ...VALID_ENV, REGISTRATION_MODE: 'invite_only' }).registrationMode, 'INVITE_ONLY');
-  assert.throws(
-    () => loadConfig({ ...VALID_ENV, REGISTRATION_MODE: 'sometimes' }),
-    (error) => error instanceof ConfigurationError && /REGISTRATION_MODE/.test(error.message),
-  );
-});
-
 test('loadConfig rejects weak production auth secrets', () => {
   assert.throws(
-    () => loadConfig({
-      ...VALID_ENV,
-      NODE_ENV: 'production',
-      BETTER_AUTH_SECRET: 'short',
-      LICENSE_SIGNING_PRIVATE_KEY: 'configured-for-this-validation-case',
-      PASSWORD_RESET_WEBHOOK_URL: 'https://mailer.example.com/password-reset',
-      PASSWORD_RESET_WEBHOOK_SECRET: 'production-password-reset-secret-that-is-long-enough',
-    }),
+    () => loadConfig({ ...VALID_ENV, NODE_ENV: 'production', BETTER_AUTH_SECRET: 'short' }),
     /BETTER_AUTH_SECRET.*32/i,
   );
-});
-
-test('loadConfig rejects production without the offline grant signing key', () => {
-  const productionEnv = {
-    ...VALID_ENV,
-    NODE_ENV: 'production',
-    BETTER_AUTH_SECRET: 'production-auth-secret-that-is-at-least-32-characters-long',
-    REDEMPTION_PEPPER: 'production-redemption-pepper-that-is-at-least-32-characters',
-    BETTER_AUTH_URL: 'https://api.example.com',
-    ADMIN_ORIGIN: 'https://admin.example.com',
-    TRUSTED_ORIGINS: 'https://admin.example.com',
-  };
-  assert.throws(
-    () => loadConfig(productionEnv),
-    (error) => error instanceof ConfigurationError && /LICENSE_SIGNING_PRIVATE_KEY/.test(error.message),
-  );
-});
-
-test('loadConfig requires a signed password reset delivery webhook in production', () => {
-  const productionEnv = {
-    ...VALID_ENV,
-    NODE_ENV: 'production',
-    BETTER_AUTH_SECRET: 'production-auth-secret-that-is-at-least-32-characters-long',
-    REDEMPTION_PEPPER: 'production-redemption-pepper-that-is-at-least-32-characters',
-    LICENSE_SIGNING_PRIVATE_KEY: 'configured-for-this-validation-case',
-    BETTER_AUTH_URL: 'https://api.example.com',
-    ADMIN_ORIGIN: 'https://admin.example.com',
-    TRUSTED_ORIGINS: 'https://admin.example.com',
-  };
-  assert.throws(
-    () => loadConfig(productionEnv),
-    (error) => error instanceof ConfigurationError && /PASSWORD_RESET_WEBHOOK/.test(error.message),
-  );
-});
-
-test('loadConfig validates a password reset webhook without exposing its secret', () => {
-  const config = loadConfig({
-    ...VALID_ENV,
-    PASSWORD_RESET_WEBHOOK_URL: 'https://mailer.example.test/password-reset',
-    PASSWORD_RESET_WEBHOOK_SECRET: 'test-password-reset-secret',
-  });
-
-  assert.equal(config.passwordResetWebhookUrl, 'https://mailer.example.test/password-reset');
-  assert.equal(config.passwordResetWebhookSecret, 'test-password-reset-secret');
-  const safe = toSafeConfig(config);
-  assert.equal('passwordResetWebhookUrl' in safe, false);
-  assert.equal('passwordResetWebhookSecret' in safe, false);
-  assert.doesNotMatch(JSON.stringify(safe), /test-password-reset-secret/);
 });
 
 test('loadConfig rejects a missing redemption pepper', () => {

@@ -5,14 +5,13 @@ import { useRouter } from 'next/navigation';
 
 import { apiRequest } from '../../../lib/api';
 
-const emptyForm = { productId: '', latestVersion: '', minimumVersion: '', forceUpgradeBelow: '', downloadUrl: '', message: '', status: 'ACTIVE' };
+const emptyForm = { productId: '', latestVersion: '', minimumVersion: '', forceUpgradeBelow: '', downloadUrl: '', message: '' };
 
 export default function VersionPoliciesPage() {
   const router = useRouter();
   const [products, setProducts] = useState({ items: [] });
   const [policies, setPolicies] = useState({ items: [] });
   const [form, setForm] = useState(emptyForm);
-  const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -33,14 +32,13 @@ export default function VersionPoliciesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function savePolicy(event) {
+  async function createPolicy(event) {
     event.preventDefault();
     try {
-      await apiRequest(editingId ? `/v1/admin/version-policies/${editingId}` : '/v1/admin/version-policies', {
-        method: editingId ? 'PATCH' : 'POST',
+      await apiRequest('/v1/admin/version-policies', {
+        method: 'POST',
         body: { ...form, forceUpgradeBelow: form.forceUpgradeBelow || null, downloadUrl: form.downloadUrl || null, message: form.message || null },
       });
-      setEditingId(null);
       setForm((current) => ({ ...emptyForm, productId: current.productId }));
       await load();
     } catch (requestError) {
@@ -48,45 +46,19 @@ export default function VersionPoliciesPage() {
     }
   }
 
-  function editPolicy(policy) {
-    setEditingId(policy.id);
-    setForm({
-      productId: policy.productId,
-      latestVersion: policy.latestVersion,
-      minimumVersion: policy.minimumVersion,
-      forceUpgradeBelow: policy.forceUpgradeBelow || '',
-      downloadUrl: policy.downloadUrl || '',
-      message: policy.message || '',
-      status: policy.status,
-    });
-  }
-
-  async function toggleStatus(policy) {
-    try {
-      await apiRequest(`/v1/admin/version-policies/${policy.id}`, { method: 'PATCH', body: { status: policy.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' } });
-      await load();
-    } catch (requestError) {
-      setError(requestError.code || requestError.message || '版本策略状态更新失败');
-    }
-  }
-
   return <section>
     <div className="page-heading"><div><span className="eyebrow">CLIENT POLICY</span><h1>版本策略</h1><p className="muted">最低版本会阻止新 Lease，升级提示由云端策略下发。</p></div><button className="secondary-button" onClick={load} type="button">刷新</button></div>
     {error && <p className="error-message" role="alert">{error}</p>}
-    <form className="inline-form" onSubmit={savePolicy}>
-      <select disabled={Boolean(editingId)} required value={form.productId} onChange={(event) => setForm({ ...form, productId: event.target.value })}><option value="">选择产品</option>{products.items.map((product) => <option key={product.id} value={product.id}>{product.code}</option>)}</select>
+    <form className="inline-form" onSubmit={createPolicy}>
+      <select required value={form.productId} onChange={(event) => setForm({ ...form, productId: event.target.value })}><option value="">选择产品</option>{products.items.map((product) => <option key={product.id} value={product.id}>{product.code}</option>)}</select>
       <input required placeholder="最新版本" value={form.latestVersion} onChange={(event) => setForm({ ...form, latestVersion: event.target.value })} />
       <input required placeholder="最低版本" value={form.minimumVersion} onChange={(event) => setForm({ ...form, minimumVersion: event.target.value })} />
       <input placeholder="强制升级低于" value={form.forceUpgradeBelow} onChange={(event) => setForm({ ...form, forceUpgradeBelow: event.target.value })} />
-      <input placeholder="下载地址（可选）" value={form.downloadUrl} onChange={(event) => setForm({ ...form, downloadUrl: event.target.value })} />
-      <input placeholder="升级提示（可选）" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} />
-      {editingId && <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>ACTIVE</option><option>DISABLED</option></select>}
-      <button className="primary-button" type="submit">{editingId ? '保存策略' : '创建策略'}</button>
-      {editingId && <button className="secondary-button" onClick={() => { setEditingId(null); setForm(emptyForm); }} type="button">取消编辑</button>}
+      <button className="primary-button" type="submit">创建策略</button>
     </form>
-    <div className="table-card"><table><thead><tr><th>产品</th><th>最新</th><th>最低</th><th>强制升级低于</th><th>状态</th><th>下载地址</th><th>操作</th></tr></thead><tbody>
-      {policies.items.length === 0 && <tr><td colSpan="7" className="empty-state">暂无版本策略</td></tr>}
-      {policies.items.map((policy) => <tr key={policy.id}><td>{policy.productId}</td><td>{policy.latestVersion}</td><td>{policy.minimumVersion}</td><td>{policy.forceUpgradeBelow || '—'}</td><td><span className="status-pill">{policy.status}</span></td><td>{policy.downloadUrl || '—'}</td><td><button className="text-button" onClick={() => editPolicy(policy)} type="button">编辑</button><button className="text-button table-action-button" onClick={() => toggleStatus(policy)} type="button">{policy.status === 'ACTIVE' ? '禁用' : '启用'}</button></td></tr>)}
+    <div className="table-card"><table><thead><tr><th>产品</th><th>最新</th><th>最低</th><th>强制升级低于</th><th>状态</th><th>下载地址</th></tr></thead><tbody>
+      {policies.items.length === 0 && <tr><td colSpan="6" className="empty-state">暂无版本策略</td></tr>}
+      {policies.items.map((policy) => <tr key={policy.id}><td>{policy.productId}</td><td>{policy.latestVersion}</td><td>{policy.minimumVersion}</td><td>{policy.forceUpgradeBelow || '—'}</td><td><span className="status-pill">{policy.status}</span></td><td>{policy.downloadUrl || '—'}</td></tr>)}
     </tbody></table></div>
   </section>;
 }

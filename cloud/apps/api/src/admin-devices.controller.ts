@@ -29,9 +29,4 @@ export class AdminDevicesController {
   revoke(@Param('id') id: string, @Req() request: any) {
     return this.devices.adminRevoke(id, auditContext(request));
   }
-
-  @Post(':id/reset')
-  reset(@Param('id') id: string, @Req() request: any) {
-    return this.devices.adminReset(id, auditContext(request));
-  }
 }

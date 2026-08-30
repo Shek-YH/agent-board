@@ -18,7 +18,6 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   sessions      Session[]
-  desktopRefreshTokens DesktopRefreshToken[]
   accounts      Account[]
   profile       UserProfile?
   agent         Agent?
@@ -45,27 +44,6 @@ model Session {
 
   @@index([userId])
   @@map("session")
-}
-
-model DesktopRefreshToken {
-  id                String   @id @default(cuid())
-  sessionId         String
-  userId            String
-  deviceId          String?
-  familyId          String
-  tokenHash         String   @unique
-  expiresAt         DateTime
-  rotatedAt         DateTime?
-  revokedAt         DateTime?
-  reuseDetectedAt   DateTime?
-  createdAt         DateTime @default(now())
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device            Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-
-  @@index([familyId])
-  @@index([userId, revokedAt, expiresAt])
-  @@index([deviceId])
-  @@map("desktop_refresh_token")
 }
 
 model Account {
@@ -111,7 +89,6 @@ enum UserRole {
 
 enum UserStatus {
   ACTIVE
-  SUSPENDED
   DISABLED
 }
 
@@ -216,26 +193,12 @@ model Device {
   updatedAt             DateTime     @updatedAt
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   licenseLeases         LicenseLease[]
-  desktopRefreshTokens  DesktopRefreshToken[]
   securityEvents        SecurityEvent[]
 
   @@unique([userId, installationId])
   @@index([userId, status])
   @@index([installationId])
   @@map("device")
-}
-
-model DeviceResetEvent {
-  id        String   @id @default(cuid())
-  userId    String
-  deviceId  String
-  actorId   String?
-  type      String
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-  @@index([deviceId, createdAt])
-  @@map("device_reset_event")
 }
 
 model LicenseLease {
@@ -368,10 +331,8 @@ enum PlanStatus {
 }
 
 enum ConcurrencyPolicy {
-  DENY_NEW
   REJECT
   KICK_OLDEST
-  ASK_USER
 }
 
 model Plan {
@@ -390,7 +351,7 @@ model Plan {
   offlineGraceSeconds      Int                @default(0)
   deviceResetLimit         Int                @default(0)
   deviceResetWindowDays    Int                @default(30)
-  concurrencyPolicy        ConcurrencyPolicy  @default(DENY_NEW)
+  concurrencyPolicy        ConcurrencyPolicy  @default(REJECT)
   features                 Json               @default("{}")
   agentCostCredits         Int                @default(0)
   status                   PlanStatus         @default(ACTIVE)
@@ -536,7 +497,7 @@ model RedemptionRequest {
   id             String          @id @default(cuid())
   requestId      String          @unique
   userId         String
-  codeId         String             @unique
+  codeId         String
   codeHash       String
   entitlementId  String
   grantId        String

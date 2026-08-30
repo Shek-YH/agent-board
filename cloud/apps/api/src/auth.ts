@@ -5,21 +5,18 @@ import { loadConfig } from './config.js';
 import { buildAuthConfig } from './auth-config.js';
 import { prisma } from './database.js';
 import { ensureUserProfile } from './user-profile.js';
-import { bearer } from 'better-auth/plugins/bearer';
 
 const config = loadConfig();
-const authConfig = buildAuthConfig(config);
 
 export const auth = betterAuth({
-  ...authConfig,
+  ...buildAuthConfig(config),
   basePath: '/v1/auth',
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
   advanced: {
     database: { joins: true },
     useSecureCookies: config.nodeEnv === 'production',
   },
-  emailAndPassword: { ...authConfig.emailAndPassword, enabled: true },
-  plugins: [bearer()],
+  emailAndPassword: { enabled: true },
   databaseHooks: {
     user: {
       create: {

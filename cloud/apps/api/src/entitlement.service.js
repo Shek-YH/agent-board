@@ -37,7 +37,7 @@ function positiveDuration(value) {
 
 function serializeEntitlement(entitlement) {
   if (!entitlement) return null;
-  const serialized = {
+  return {
     id: entitlement.id,
     userId: entitlement.userId,
     productId: entitlement.productId,
@@ -52,8 +52,6 @@ function serializeEntitlement(entitlement) {
     createdAt: entitlement.createdAt,
     updatedAt: entitlement.updatedAt,
   };
-  if (Array.isArray(entitlement.grants)) serialized.grants = entitlement.grants.map(serializeGrant);
-  return serialized;
 }
 
 function serializeGrant(grant) {
@@ -126,7 +124,6 @@ class EntitlementService {
       });
       if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
       if (user.profile?.status === 'DISABLED') bad('USER_DISABLED');
-      if (user.profile?.status === 'SUSPENDED') bad('USER_SUSPENDED');
 
       const product = await transaction.product.findUnique({ where: { id: input.productId } });
       if (!product) throw new NotFoundException({ code: 'PRODUCT_NOT_FOUND' });
@@ -213,42 +210,6 @@ class EntitlementService {
     return serializeEntitlement(entitlement);
   }
 
-  async setStatus(id, status, context = {}) {
-    assertId(id, 'INVALID_ENTITLEMENT_ID');
-    const nextStatus = String(status || '').toUpperCase();
-    if (!['ACTIVE', 'SUSPENDED', 'REVOKED'].includes(nextStatus)) bad('INVALID_ENTITLEMENT_STATUS');
-    const now = toDate(this.clock());
-    return this.database.$transaction(async (transaction) => {
-      const before = await transaction.entitlement.findUnique({ where: { id } });
-      if (!before) throw new NotFoundException({ code: 'ENTITLEMENT_NOT_FOUND' });
-      if (before.status === 'REVOKED' && nextStatus !== 'REVOKED') bad('ENTITLEMENT_REVOKED');
-      if (before.status === nextStatus) return serializeEntitlement(before);
-      const entitlement = await transaction.entitlement.update({
-        where: { id },
-        data: {
-          status: nextStatus,
-          suspendedAt: nextStatus === 'SUSPENDED' ? now : null,
-          revokedAt: nextStatus === 'REVOKED' ? now : null,
-        },
-      });
-      if (nextStatus !== 'ACTIVE') {
-        await transaction.licenseLease?.updateMany?.({
-          where: { entitlementId: id, status: 'ACTIVE' },
-          data: { status: 'REVOKED', revokedAt: now },
-        });
-      }
-      await this.audit?.record?.({
-        ...context,
-        action: nextStatus === 'REVOKED' ? 'ENTITLEMENT_REVOKED' : nextStatus === 'SUSPENDED' ? 'ENTITLEMENT_SUSPENDED' : 'ENTITLEMENT_REACTIVATED',
-        targetType: 'ENTITLEMENT',
-        targetId: id,
-        before: grantSnapshot(before),
-        after: grantSnapshot(entitlement),
-      }, transaction);
-      return serializeEntitlement(entitlement);
-    });
-  }
-
   async list(query = {}) {
     const page = Math.max(1, Number.isInteger(Number(query.page)) ? Number(query.page) : 1);
     const pageSize = Math.min(100, Math.max(1, Number.isInteger(Number(query.pageSize)) ? Number(query.pageSize) : 20));
@@ -260,17 +221,13 @@ class EntitlementService {
       if (!ENTITLEMENT_STATUSES.has(status)) bad('INVALID_ENTITLEMENT_STATUS');
       where.status = status;
     }
-    const findMany = {
-      where,
-      orderBy: { updatedAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    };
-    if (query.includeHistory === true || query.includeHistory === 'true') {
-      findMany.include = { grants: { orderBy: { createdAt: 'desc' } } };
-    }
     const [items, total] = await Promise.all([
-      this.database.entitlement.findMany(findMany),
+      this.database.entitlement.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
       this.database.entitlement.count({ where }),
     ]);
     return {

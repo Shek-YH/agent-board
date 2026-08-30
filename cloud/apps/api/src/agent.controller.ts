@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 
 import { AgentGuard } from './agent.guard.js';
 import { AgentService } from './agent.service.js';
@@ -101,11 +101,6 @@ export class AgentController {
     const profile = await this.database.userProfile.findUnique({ where: { userId }, select: { agentId: true } });
     if (!profile?.agentId) throw new ForbiddenException({ code: 'AGENT_USER_NOT_IN_SCOPE' });
     await this.agents.assertInScope(request.agent.id, profile.agentId);
-    if (typeof input.planId !== 'string' || !input.planId.trim()) throw new BadRequestException({ code: 'INVALID_PLAN_ID' });
-    const grantContext = { ...context(request), source: 'AGENT_GRANT' };
-    return this.database.$transaction(async (transaction) => {
-      await this.agents.chargeForGrantInTransaction(transaction, request.agent.id, input.planId, grantContext);
-      return this.entitlements.grantToUserInTransaction(transaction, userId, input, grantContext);
-    }, { isolationLevel: 'Serializable' });
+    return this.entitlements.grantToUser(userId, input, { ...context(request), source: 'AGENT_GRANT' });
   }
 }

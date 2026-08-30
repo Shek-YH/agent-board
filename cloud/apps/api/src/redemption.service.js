@@ -186,7 +186,7 @@ class RedemptionService {
         after: { ...serializeBatch(batch), codeCount: quantity },
       }, transaction);
       return { batch: serializeBatch(batch), codes, csv };
-    }, { isolationLevel: 'Serializable' });
+    });
   }
 
   async redeem(userId, input = {}, context = {}) {
@@ -214,7 +214,6 @@ class RedemptionService {
         });
         if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
         if (user.profile?.status === 'DISABLED') bad('USER_DISABLED');
-        if (user.profile?.status === 'SUSPENDED') bad('USER_SUSPENDED');
 
         const stored = await transaction.redemptionCode.findUnique({ where: { codeHash } });
         if (!stored) bad('INVALID_REDEMPTION_CODE');
@@ -319,27 +318,6 @@ class RedemptionService {
     }
   }
 
-  async validateCode(input) {
-    const code = normalizeCode(input);
-    const codeHash = hashRedemptionCode(code, this.pepper);
-    const stored = await this.database.redemptionCode.findUnique({ where: { codeHash } });
-    if (!stored) bad('INVALID_REDEMPTION_CODE');
-    if (stored.status === 'REDEEMED') bad('REDEMPTION_ALREADY_USED');
-    if (stored.status === 'REVOKED') bad('REDEMPTION_REVOKED');
-    if (stored.status === 'EXPIRED') bad('REDEMPTION_EXPIRED');
-    if (!CODE_STATUSES.has(stored.status)) bad('INVALID_REDEMPTION_CODE');
-    const now = parseDate(this.clock(), 'INVALID_SERVER_TIME');
-    if (stored.codeExpiresAt && parseDate(stored.codeExpiresAt, 'INVALID_CODE_EXPIRY') <= now) bad('REDEMPTION_EXPIRED');
-
-    const plan = stored.plan || await this.database.plan.findUnique({ where: { id: stored.planId } });
-    if (!plan) throw new NotFoundException({ code: 'PLAN_NOT_FOUND' });
-    if (plan.status !== 'ACTIVE') bad('PLAN_DISABLED');
-    const product = plan.product || await this.database.product.findUnique({ where: { id: plan.productId } });
-    if (!product) throw new NotFoundException({ code: 'PRODUCT_NOT_FOUND' });
-    if (product.status !== 'ACTIVE') bad('PRODUCT_DISABLED');
-    return { valid: true, planId: plan.id, productId: plan.productId };
-  }
-
   async listBatches(query = {}) {
     const where = {};
     if (query.status) {
@@ -349,9 +327,6 @@ class RedemptionService {
     }
     if (Array.isArray(query.ownerAgentIds)) {
       where.ownerAgentId = { in: query.ownerAgentIds.map((id) => String(id)).filter(Boolean) };
-    } else if (query.ownerAgentId) {
-      assertId(query.ownerAgentId, 'INVALID_AGENT_ID');
-      where.ownerAgentId = String(query.ownerAgentId);
     }
     const batches = await this.database.redemptionBatch.findMany({
       where,
@@ -363,10 +338,6 @@ class RedemptionService {
   async listCodes(query = {}) {
     const where = {};
     if (query.batchId) where.batchId = String(query.batchId);
-    if (query.redeemedByUserId) {
-      assertId(query.redeemedByUserId, 'INVALID_USER_ID');
-      where.redeemedByUserId = String(query.redeemedByUserId);
-    }
     if (Array.isArray(query.ownerAgentIds)) {
       where.ownerAgentId = { in: query.ownerAgentIds.map((id) => String(id)).filter(Boolean) };
     }

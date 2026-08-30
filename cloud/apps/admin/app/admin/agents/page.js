@@ -106,7 +106,7 @@ export default function AgentsPage() {
     <div className="table-card"><table><thead><tr><th>代理</th><th>上级</th><th>层级</th><th>状态</th><th>创建下级</th><th>操作</th></tr></thead><tbody>
       {loading && <tr><td colSpan="6" className="empty-state">加载中…</td></tr>}
       {!loading && agents.items.length === 0 && <tr><td colSpan="6" className="empty-state">暂无代理</td></tr>}
-      {!loading && agents.items.map((agent) => <tr key={agent.id}><td><strong><a href={`/admin/agents/${agent.id}`}>{agent.id}</a></strong><small>{agent.userId}</small></td><td>{agent.parentAgentId || '—'}</td><td>{agent.level}</td><td><span className={`status-pill ${agent.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{agent.status}</span></td><td>{agent.canCreateSubAgents ? '允许' : '禁止'}</td><td><button className="text-button" type="button" onClick={() => toggle(agent)}>{agent.canCreateSubAgents ? '禁止创建' : '允许创建'}</button></td></tr>)}
+      {!loading && agents.items.map((agent) => <tr key={agent.id}><td><strong>{agent.id}</strong><small>{agent.userId}</small></td><td>{agent.parentAgentId || '—'}</td><td>{agent.level}</td><td><span className={`status-pill ${agent.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{agent.status}</span></td><td>{agent.canCreateSubAgents ? '允许' : '禁止'}</td><td><button className="text-button" type="button" onClick={() => toggle(agent)}>{agent.canCreateSubAgents ? '禁止创建' : '允许创建'}</button></td></tr>)}
     </tbody></table></div>
   </section>;
 }

@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY apps ./apps
 COPY prisma ./prisma
 RUN npx prisma generate && npm run build
 
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim
+FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/package*.json ./

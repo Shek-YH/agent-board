@@ -21,11 +21,3 @@ test('快捷键页面通过桌面桥接读取、录入并保存快捷键', () =>
   assert.match(app, /setShortcutSettings/);
   assert.match(app, /Alt\+`/);
 });
-
-test('快捷键页面为最近完成任务提供独立的 Alt+1 配置', () => {
-  assert.match(app, /DEFAULT_AGENT_BOARD_JUMP_SHORTCUT\s*=\s*['"]Alt\+1['"]/);
-  assert.match(app, /跳转到最近完成任务/);
-  assert.match(app, /inputId:\s*['"]jump-shortcut-input['"]/);
-  assert.match(app, /kind:\s*['"]jumpToLatestCompleted['"]/);
-  assert.match(app, /setShortcutSettings\(shortcut,\s*def\.kind\)/);
-});

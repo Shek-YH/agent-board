@@ -1,6 +1,6 @@
 'use strict';
 
-const FORBIDDEN_AUDIT_KEYS = /^(password|pass|access[_-]?token|refresh[_-]?token|token|cookie|authorization|api[_-]?key|device[_-]?private[_-]?key|private[_-]?key|database[_-]?(url|secret)|secret|code|redemption[_-]?code)$/i;
+const FORBIDDEN_AUDIT_KEYS = /^(password|pass|access[_-]?token|refresh[_-]?token|token|cookie|device[_-]?private[_-]?key|private[_-]?key|database[_-]?(url|secret)|secret|code|redemption[_-]?code)$/i;
 const AUDIT_SELECT = {
   id: true,
   actorType: true,
@@ -42,7 +42,6 @@ function normalizeAuditQuery(query = {}) {
     actorId: typeof query.actorId === 'string' ? query.actorId.trim() : '',
     action: typeof query.action === 'string' ? query.action.trim() : '',
     targetType: typeof query.targetType === 'string' ? query.targetType.trim() : '',
-    targetId: typeof query.targetId === 'string' ? query.targetId.trim() : '',
   };
 }
 
@@ -83,7 +82,6 @@ function createAuditService(database) {
       if (normalized.actorId) where.actorId = normalized.actorId;
       if (normalized.action) where.action = normalized.action;
       if (normalized.targetType) where.targetType = normalized.targetType;
-      if (normalized.targetId) where.targetId = normalized.targetId;
 
       const [records, total] = await Promise.all([
         database.auditLog.findMany({

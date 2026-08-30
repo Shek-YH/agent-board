@@ -12,7 +12,6 @@ function createMemoryDatabase() {
   ]);
   const profiles = new Map([...users.keys()].map((userId) => [userId, { userId, role: 'USER', status: 'ACTIVE', agentId: null }]));
   const agents = new Map();
-  const plans = new Map([['plan-1', { id: 'plan-1', status: 'ACTIVE', agentCostCredits: 30 }]]);
   const entries = [];
   let nextAgentId = 0;
   let nextEntryId = 0;
@@ -55,9 +54,6 @@ function createMemoryDatabase() {
         return row;
       },
     },
-    plan: {
-      findUnique: async ({ where }) => plans.get(where.id) || null,
-    },
     agentLedgerEntry: {
       findFirst: async ({ where }) => [...entries].filter((entry) => entry.agentId === where.agentId).at(-1) || null,
       findMany: async ({ where }) => [...entries].filter((entry) => entry.agentId === where.agentId).reverse(),
@@ -88,38 +84,6 @@ test('Agent hierarchy assigns levels and prevents moving an ancestor below its d
   assert.equal(grandchild.level, 3);
   await assert.rejects(
     service.update(root.id, { parentAgentId: grandchild.id }, { actorId: 'admin-1', requestId: 'request-cycle' }),
-    (error) => error?.getResponse?.().code === 'AGENT_HIERARCHY_CYCLE',
-  );
-});
-
-test('agent parent move preview reports subtree level changes without mutating the tree', async () => {
-  const { database } = createMemoryDatabase();
-  const { service, root, child, grandchild } = await createTree(database);
-  const other = await service.create({ userId: 'user-other', canCreateSubAgents: true }, { actorId: 'admin-1' });
-
-  const preview = await service.previewMove(child.id, other.id);
-
-  assert.deepEqual(preview, {
-    agentId: child.id,
-    currentParentAgentId: root.id,
-    proposedParentAgentId: other.id,
-    currentLevel: 2,
-    proposedLevel: 2,
-    affectedAgents: [
-      { id: child.id, currentLevel: 2, proposedLevel: 2 },
-      { id: grandchild.id, currentLevel: 3, proposedLevel: 3 },
-    ],
-  });
-  assert.equal((await service.getById(child.id)).parentAgentId, root.id);
-  assert.equal((await service.getById(grandchild.id)).parentAgentId, child.id);
-});
-
-test('agent parent move preview rejects cycles before any mutation', async () => {
-  const { database } = createMemoryDatabase();
-  const { service, root, grandchild } = await createTree(database);
-
-  await assert.rejects(
-    service.previewMove(root.id, grandchild.id),
     (error) => error?.getResponse?.().code === 'AGENT_HIERARCHY_CYCLE',
   );
 });
@@ -189,24 +153,4 @@ test('admin can assign a normal user to an agent scope without changing the immu
 
   assert.deepEqual(result, { userId: 'user-other', agentId: agent.id, role: 'USER', status: 'ACTIVE' });
   assert.equal(profiles.get('user-other').agentId, agent.id);
-});
-
-test('agent grant preparation enforces plan allowlist and charges the immutable ledger in one transaction', async () => {
-  const { database, entries } = createMemoryDatabase();
-  const { service, root } = await createTree(database);
-  await service.adjustLedger(root.id, { type: 'CREDIT', amount: 100, reason: 'grant budget' }, { actorId: 'admin-1' });
-
-  const result = await service.chargeForGrantInTransaction(database, root.id, 'plan-1', { actorId: 'agent-user-1' });
-
-  assert.equal(result.plan.id, 'plan-1');
-  assert.equal(result.balance, 70);
-  assert.equal(entries.at(-1).type, 'DEBIT');
-  assert.equal(entries.at(-1).reason, 'AGENT_GRANT:plan-1');
-
-  const restricted = await service.update(root.id, { planAllowlist: ['plan-other'] }, { actorId: 'admin-1' });
-  assert.deepEqual(restricted.planAllowlist, ['plan-other']);
-  await assert.rejects(
-    service.chargeForGrantInTransaction(database, root.id, 'plan-1', { actorId: 'agent-user-1' }),
-    (error) => error?.getResponse?.().code === 'AGENT_PLAN_NOT_ALLOWED',
-  );
 });

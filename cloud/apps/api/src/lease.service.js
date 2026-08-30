@@ -149,7 +149,7 @@ class LeaseService {
       }
 
       let activeLeases = await this.activeLeases(transaction, id, now);
-      activeLeases = await this.enforceConcurrency(transaction, activeLeases, request.deviceId, request.instanceId, plan, now, context);
+      activeLeases = await this.enforceConcurrency(transaction, activeLeases, request.deviceId, request.instanceId, plan, now);
       const lease = await transaction.licenseLease.create({
         data: {
           userId: id,
@@ -321,7 +321,6 @@ class LeaseService {
     const user = await transaction.user.findUnique({ where: { id: userId }, select: { id: true, profile: { select: { status: true } } } });
     if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND' });
     if (user.profile?.status === 'DISABLED') bad('USER_DISABLED');
-    if (user.profile?.status === 'SUSPENDED') bad('USER_SUSPENDED');
     return user;
   }
 
@@ -411,45 +410,25 @@ class LeaseService {
     return transaction.licenseLease.findMany({ where: activeLeaseFilter(userId, now), orderBy: { issuedAt: 'asc' } });
   }
 
-  async enforceConcurrency(transaction, activeLeases, deviceId, instanceId, plan, now, context = {}) {
+  async enforceConcurrency(transaction, activeLeases, deviceId, instanceId, plan, now) {
     const maxDevices = Math.max(1, Number(plan.maxConcurrentDevices || 1));
     const maxInstances = Math.max(1, Number(plan.maxInstancesPerDevice || 1));
-    const policy = String(plan.concurrencyPolicy || 'DENY_NEW').toUpperCase();
+    const policy = String(plan.concurrencyPolicy || 'REJECT').toUpperCase();
     let leases = [...activeLeases];
     const activeDevices = new Set(leases.map((lease) => lease.deviceId));
     if (!activeDevices.has(deviceId) && activeDevices.size >= maxDevices) {
-      if (policy === 'ASK_USER') bad('CONCURRENT_DEVICE_LIMIT', { policy });
       if (policy !== 'KICK_OLDEST') bad('CONCURRENT_DEVICE_LIMIT');
       const oldest = leases.find((lease) => lease.deviceId !== deviceId);
       if (oldest) {
         await transaction.licenseLease.updateMany({ where: { deviceId: oldest.deviceId, status: 'ACTIVE' }, data: { status: 'REVOKED', revokedAt: now } });
-        await this.audit?.record?.({
-          ...context,
-          actorType: 'USER',
-          action: 'LEASE_KICKED_OLDEST',
-          targetType: 'LICENSE_LEASE',
-          targetId: oldest.id,
-          before: { id: oldest.id, deviceId: oldest.deviceId, status: oldest.status },
-          after: { id: oldest.id, deviceId: oldest.deviceId, status: 'REVOKED', reason: 'KICK_OLDEST' },
-        }, transaction);
         leases = leases.filter((lease) => lease.deviceId !== oldest.deviceId);
       }
     }
     const sameDevice = leases.filter((lease) => lease.deviceId === deviceId);
     if (sameDevice.length >= maxInstances) {
-      if (policy === 'ASK_USER') bad('CONCURRENT_INSTANCE_LIMIT', { policy });
       if (policy !== 'KICK_OLDEST') bad('CONCURRENT_INSTANCE_LIMIT');
       const oldest = sameDevice[0];
       await transaction.licenseLease.updateMany({ where: { id: oldest.id, status: 'ACTIVE' }, data: { status: 'REVOKED', revokedAt: now } });
-      await this.audit?.record?.({
-        ...context,
-        actorType: 'USER',
-        action: 'LEASE_KICKED_OLDEST',
-        targetType: 'LICENSE_LEASE',
-        targetId: oldest.id,
-        before: { id: oldest.id, deviceId: oldest.deviceId, instanceId: oldest.instanceId, status: oldest.status },
-        after: { id: oldest.id, deviceId: oldest.deviceId, instanceId: oldest.instanceId, status: 'REVOKED', reason: 'KICK_OLDEST' },
-      }, transaction);
       leases = leases.filter((lease) => lease.id !== oldest.id);
     }
     return leases;

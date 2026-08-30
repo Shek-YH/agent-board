@@ -39,9 +39,4 @@ export class DeviceController {
   revoke(@Session() session: UserSession, @Param('id') id: string, @Req() request: any) {
     return this.devices.revoke(session.user.id, id, context(request));
   }
-
-  @Post(':id/reset')
-  reset(@Session() session: UserSession, @Param('id') id: string, @Req() request: any) {
-    return this.devices.reset(session.user.id, id, context(request));
-  }
 }

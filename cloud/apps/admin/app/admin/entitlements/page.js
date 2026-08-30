@@ -49,16 +49,6 @@ export default function EntitlementsPage() {
     }
   }
 
-  async function updateStatus(item, status) {
-    try {
-      const action = status === 'ACTIVE' ? 'enable' : status === 'SUSPENDED' ? 'suspend' : 'revoke';
-      await apiRequest(`/v1/admin/entitlements/${item.id}/${action}`, { method: 'POST' });
-      await load();
-    } catch (requestError) {
-      setError(requestError.code || requestError.message || '授权状态更新失败');
-    }
-  }
-
   const visiblePlans = plans.items.filter((plan) => !form.productId || plan.productId === form.productId);
 
   return (
@@ -76,10 +66,10 @@ export default function EntitlementsPage() {
       </form>
       <div className="table-card">
         <table>
-          <thead><tr><th>用户</th><th>产品</th><th>计划</th><th>状态</th><th>到期时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>用户</th><th>产品</th><th>计划</th><th>状态</th><th>到期时间</th></tr></thead>
           <tbody>
-            {entitlements.items.length === 0 && <tr><td colSpan="6" className="empty-state">暂无授权</td></tr>}
-            {entitlements.items.map((item) => <tr key={item.id}><td>{item.userId}</td><td>{item.productId}</td><td>{item.planId || '—'}</td><td><span className={`status-pill ${item.status !== 'ACTIVE' ? 'status-disabled' : ''}`}>{item.status}</span></td><td>{item.isPermanent ? '永久' : new Date(item.expiresAt).toLocaleString('zh-CN')}</td><td>{item.status === 'REVOKED' ? '—' : <><button className="text-button" type="button" onClick={() => updateStatus(item, item.status === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED')}>{item.status === 'SUSPENDED' ? '恢复' : '暂停'}</button><button className="text-button table-action-button" type="button" onClick={() => updateStatus(item, 'REVOKED')}>撤销</button></>}</td></tr>)}
+            {entitlements.items.length === 0 && <tr><td colSpan="5" className="empty-state">暂无授权</td></tr>}
+            {entitlements.items.map((item) => <tr key={item.id}><td>{item.userId}</td><td>{item.productId}</td><td>{item.planId || '—'}</td><td><span className="status-pill">{item.status}</span></td><td>{item.isPermanent ? '永久' : new Date(item.expiresAt).toLocaleString('zh-CN')}</td></tr>)}
           </tbody>
         </table>
       </div>

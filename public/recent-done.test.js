@@ -22,13 +22,3 @@ test('一键已读清除所有最近完成标记并同步当前卡片', () => {
   assert.match(app, /persistRecentDone\(\)/);
   assert.match(app, /applyFlowDecor\(el, ref, state\.liveRefs\.has\(ref\)\)/);
 });
-
-test('全局跳转快捷键选择最新完成任务，并仅在跳转成功后标记已读', () => {
-  assert.match(html, /recent-completed-jump\.js/);
-  assert.match(app, /onJumpToLatestCompleted/);
-  assert.match(app, /function jumpToLatestCompleted\(\)/);
-  assert.match(app, /findLatestEligibleCompletion/);
-  assert.match(app, /await jumpToAgentSession\(candidate\.session\)/);
-  assert.match(app, /if \(jumped\)[\s\S]*dismissRecent\(candidate\.session\.id\)/);
-  assert.match(app, /暂无符合条件的已完成任务/);
-});

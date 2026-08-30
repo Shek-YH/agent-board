@@ -15,8 +15,6 @@ import { AGENT_SERVICE } from './agent.tokens.js';
 import { DeviceController, DEVICE_SERVICE } from './device.controller.js';
 import { DeviceService } from './device.service.js';
 import { AdminDevicesController } from './admin-devices.controller.js';
-import { AdminOnlineSessionsController } from './admin-online-sessions.controller.js';
-import { AdminDashboardController } from './admin-dashboard.controller.js';
 import { AdminVersionPolicyController, VERSION_POLICY_SERVICE } from './admin-version-policy.controller.js';
 import { SecurityEventController, SECURITY_EVENT_SERVICE } from './security-event.controller.js';
 import { LicenseController, LEASE_SERVICE } from './license.controller.js';
@@ -38,11 +36,6 @@ import { createSecurityEventService, SecurityEventService } from './security-eve
 import { RATE_LIMIT_SERVICE } from './rate-limit.tokens.js';
 import { createRateLimitService } from './rate-limit.service.js';
 import { PrismaClient } from '@prisma/client';
-import { DesktopAuthController, DESKTOP_AUTH_SERVICE } from './desktop-auth.controller.js';
-import { DesktopAuthService } from './desktop-auth.service.js';
-import { createRegistrationMiddleware } from './registration.middleware.js';
-import { RegistrationController, REGISTRATION_SERVICE } from './registration.controller.js';
-import { RegistrationService } from './registration.service.js';
 
 @Module({
   imports: [
@@ -53,7 +46,6 @@ import { RegistrationService } from './registration.service.js';
         json: { limit: '1mb' },
         urlencoded: { limit: '1mb', extended: true },
       },
-      middleware: createRegistrationMiddleware(loadConfig().registrationMode),
     }),
   ],
   controllers: [
@@ -70,14 +62,10 @@ import { RegistrationService } from './registration.service.js';
     AgentController,
     DeviceController,
     AdminDevicesController,
-    AdminOnlineSessionsController,
-    AdminDashboardController,
     AdminVersionPolicyController,
     SecurityEventController,
     LicenseController,
     RedemptionController,
-    DesktopAuthController,
-    RegistrationController,
   ],
   providers: [
     AdminGuard,
@@ -161,27 +149,6 @@ import { RegistrationService } from './registration.service.js';
         securityEvents: SecurityEventService,
       ) => new RedemptionService(database, entitlements, audit, loadConfig().redemptionPepper, undefined, undefined, agents, securityEvents),
       inject: [PrismaClient, ENTITLEMENT_SERVICE, AUDIT_SERVICE, AGENT_SERVICE, SECURITY_EVENT_SERVICE],
-    },
-    {
-      provide: DESKTOP_AUTH_SERVICE,
-      useFactory: (database: PrismaClient, securityEvents: SecurityEventService) => new DesktopAuthService(
-        database,
-        auth,
-        securityEvents,
-        loadConfig().betterAuthSecret,
-      ),
-      inject: [PrismaClient, SECURITY_EVENT_SERVICE],
-    },
-    {
-      provide: REGISTRATION_SERVICE,
-      useFactory: (
-        database: PrismaClient,
-        identity: AuthService<typeof auth>,
-        desktopAuth: DesktopAuthService,
-        redemption: RedemptionService,
-        audit: ReturnType<typeof createAuditService>,
-      ) => new RegistrationService(database, identity, desktopAuth, redemption, audit, loadConfig().registrationMode),
-      inject: [PrismaClient, AuthService, DESKTOP_AUTH_SERVICE, REDEMPTION_SERVICE, AUDIT_SERVICE],
     },
   ],
 })

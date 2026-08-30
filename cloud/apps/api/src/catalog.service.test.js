@@ -66,15 +66,3 @@ test('creating a plan persists configured duration and policy fields instead of 
   assert.equal(captured.features.agent_api, true);
   assert.equal(captured.status, 'ACTIVE');
 });
-
-test('plan catalog accepts the PRD ASK_USER concurrency policy', async () => {
-  let captured;
-  const database = {
-    product: { findUnique: async () => ({ id: 'product-1', status: 'ACTIVE' }) },
-    plan: { create: async ({ data }) => { captured = data; return { id: 'plan-1', ...data }; } },
-  };
-  await new CatalogService(database, { record: async () => {} }).createPlan({
-    productId: 'product-1', code: 'ASK', name: 'Ask', durationSeconds: 3600, concurrencyPolicy: 'ASK_USER',
-  });
-  assert.equal(captured.concurrencyPolicy, 'ASK_USER');
-});

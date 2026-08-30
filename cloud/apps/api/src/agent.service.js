@@ -162,48 +162,6 @@ class AgentService {
     return serializeAgent(agent);
   }
 
-  async previewMove(id, /** @type {string | null | undefined} */ proposedParentId = null) {
-    const agentId = assertId(id, 'INVALID_AGENT_ID');
-    const parentAgentId = proposedParentId ? assertId(proposedParentId, 'INVALID_PARENT_AGENT_ID') : null;
-    const agent = await this.database.agent.findUnique({ where: { id: agentId } });
-    if (!agent) throw new NotFoundException({ code: 'AGENT_NOT_FOUND' });
-
-    let parent = null;
-    if (parentAgentId) {
-      if (parentAgentId === agentId || await this.isDescendant(this.database, agentId, parentAgentId)) bad('AGENT_HIERARCHY_CYCLE');
-      parent = await this.database.agent.findUnique({ where: { id: parentAgentId } });
-      if (!parent) throw new NotFoundException({ code: 'PARENT_AGENT_NOT_FOUND' });
-      this.assertCanCreateChild(parent);
-      await this.assertDepthWithinAncestors(this.database, parent);
-    }
-
-    const proposedLevel = parent ? parent.level + 1 : 1;
-    const affectedAgents = [];
-    const queue = [agent];
-    const visited = new Set();
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current || visited.has(current.id)) continue;
-      visited.add(current.id);
-      affectedAgents.push({
-        id: current.id,
-        currentLevel: current.level,
-        proposedLevel: proposedLevel + (current.level - agent.level),
-      });
-      const children = await this.database.agent.findMany({ where: { parentAgentId: current.id } });
-      queue.push(...children);
-    }
-
-    return {
-      agentId,
-      currentParentAgentId: agent.parentAgentId,
-      proposedParentAgentId: parentAgentId,
-      currentLevel: agent.level,
-      proposedLevel,
-      affectedAgents,
-    };
-  }
-
   async update(id, changes = {}, context = {}) {
     const agentId = assertId(id, 'INVALID_AGENT_ID');
     return this.database.$transaction(async (transaction) => {
@@ -320,30 +278,6 @@ class AgentService {
     if (!agent) throw new NotFoundException({ code: 'AGENT_NOT_FOUND' });
     const allowlist = Array.isArray(agent.planAllowlist) ? agent.planAllowlist : [];
     return allowlist.length === 0 || allowlist.includes(planId);
-  }
-
-  async chargeForGrantInTransaction(transaction, agentId, planId, context = {}) {
-    const id = assertId(agentId, 'INVALID_AGENT_ID');
-    const targetPlanId = assertId(planId, 'INVALID_PLAN_ID');
-    const agent = await transaction.agent.findUnique({ where: { id } });
-    if (!agent) throw new NotFoundException({ code: 'AGENT_NOT_FOUND' });
-    if (agent.status !== 'ACTIVE') bad('AGENT_NOT_ACTIVE');
-    const plan = await transaction.plan.findUnique({ where: { id: targetPlanId } });
-    if (!plan) throw new NotFoundException({ code: 'PLAN_NOT_FOUND' });
-    if (plan.status !== 'ACTIVE') bad('PLAN_DISABLED');
-    const allowlist = Array.isArray(agent.planAllowlist) ? agent.planAllowlist : [];
-    if (allowlist.length > 0 && !allowlist.includes(targetPlanId)) bad('AGENT_PLAN_NOT_ALLOWED');
-    const cost = Number(plan.agentCostCredits || 0);
-    if (!Number.isInteger(cost) || cost < 0) bad('INVALID_AGENT_COST');
-    if (cost > 0) {
-      const charged = await this.adjustLedgerInTransaction(transaction, id, {
-        type: 'DEBIT',
-        amount: cost,
-        reason: `AGENT_GRANT:${targetPlanId}`,
-      }, context);
-      return { plan, balance: charged.balance };
-    }
-    return { plan, balance: await this.getBalance(id, transaction) };
   }
 
   async getBalance(agentId, transaction = this.database) {
