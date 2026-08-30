@@ -33,3 +33,12 @@ test('requestJson 拒绝空响应和非法 JSON', async () => {
   await assert.rejects(requestJson('/api/state', { fetchImpl: async () => response(200, '') }), /没有返回 JSON/);
   await assert.rejects(requestJson('/api/state', { fetchImpl: async () => response(200, 'not-json') }), /不是有效 JSON/);
 });
+
+test('requestJson preserves a stable server error code and recovery metadata', async () => {
+  await assert.rejects(
+    requestJson('/api/orchestration/workflows/wf-1/run', {
+      fetchImpl: async () => response(409, { ok: false, code: 'SUGGEST_ONLY', error: 'Suggest Mode', recovery: { action: 'suggest' } }),
+    }),
+    (error) => error && error.code === 'SUGGEST_ONLY' && error.status === 409 && error.recovery.action === 'suggest',
+  );
+});

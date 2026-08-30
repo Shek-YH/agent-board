@@ -1,6 +1,16 @@
 'use strict';
 
 (function exposeApiClient(global) {
+  function createApiError(data, status, statusText, fallback) {
+    const error = new Error(data?.error || fallback || `HTTP ${status} ${statusText || ''}`.trim());
+    if (data && typeof data === 'object') {
+      if (data.code) error.code = String(data.code);
+      if (data.recovery && typeof data.recovery === 'object') error.recovery = data.recovery;
+    }
+    error.status = status;
+    return error;
+  }
+
   async function requestJson(url, requestOptions = {}) {
     const { fetchImpl, timeoutMs = 12000, allowFailure = false, ...options } = requestOptions;
     const fetcher = fetchImpl || global.fetch;
@@ -18,8 +28,8 @@
       } catch {
         throw new Error(`HTTP ${response.status}：服务端返回的不是有效 JSON`);
       }
-      if (!response.ok && !allowFailure) throw new Error(data?.error || `HTTP ${response.status} ${response.statusText || ''}`.trim());
-      if (data && data.ok === false && !allowFailure) throw new Error(data.error || '服务端操作失败');
+      if (!response.ok && !allowFailure) throw createApiError(data, response.status, response.statusText, `HTTP ${response.status}`);
+      if (data && data.ok === false && !allowFailure) throw createApiError(data, response.status, response.statusText, '服务端操作失败');
       return data;
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(`请求超时：${url}`);

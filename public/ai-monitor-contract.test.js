@@ -62,6 +62,23 @@ test('AI monitor exposes Model Routing settings and renders safe route summaries
   assert.doesNotMatch(app, /JSON\.stringify\([^)]*prompt/);
 });
 
+test('AI monitor exposes routing capability controls and safe catalog actions', () => {
+  assert.match(html, /id="ai-routing-auto-model"/);
+  assert.match(html, /id="ai-routing-auto-reasoning"/);
+  assert.match(html, /id="ai-routing-respect-pin"/);
+  assert.match(html, /id="ai-routing-allow-legacy"/);
+  assert.match(app, /routing\/catalog\/refresh/);
+  assert.match(app, /routing\/test/);
+  assert.match(app, /Model Discovery|模型发现/);
+});
+
+test('AI monitor exposes provider readiness without rendering credentials', () => {
+  assert.match(html, /id="ai-provider-config"/);
+  assert.match(app, /providerConfig/);
+  assert.match(app, /Provider 配置状态/);
+  assert.doesNotMatch(app, /providerConfig[^\n]*(apiKey|token|secret)/i);
+});
+
 test('AI monitor exposes commercial routing diagnostics, explainability, usage, and receipt views', () => {
   assert.match(app, /routing-details/);
   assert.match(app, /routing\/overview/);

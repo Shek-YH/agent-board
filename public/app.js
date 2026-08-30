@@ -30,7 +30,7 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   monitorMode: 'manual',
-  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null },
+  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null },
 };
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
@@ -240,7 +240,13 @@ async function loadOrchestration() {
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
       headlessEnabled: data.headlessEnabled === true,
       jarvisVoice: data.jarvisVoice || null,
-      routingCatalog: routingCatalog && routingCatalog.catalog ? routingCatalog.catalog : null,
+      providerConfig: data.providerConfig || null,
+      routingCapabilities: routingCatalog?.capabilities || data.routingCapabilities || {},
+      routingCatalog: routingCatalog && routingCatalog.catalog ? {
+        ...routingCatalog.catalog,
+        supportedAgents: routingCatalog.supportedAgents || [],
+        capabilities: routingCatalog.capabilities || {},
+      } : null,
     };
     renderAIMonitor();
   } catch (error) {
@@ -265,6 +271,27 @@ function renderAIMonitor() {
     const item = capabilities[slot] || {};
     return `<div class="ai-capability"><b>${esc(label)}</b><span class="${item.available ? 'ready' : 'missing'}">${item.available ? `可用 · ${esc(item.providerName || item.provider || '')}` : '未配置'}</span></div>`;
   }).join('');
+  const routingCapabilityBox = $('ai-routing-capability-list');
+  if (routingCapabilityBox) {
+    const routingCapabilities = data.routingCapabilities || {};
+    const agents = Object.keys(routingCapabilities);
+    routingCapabilityBox.innerHTML = agents.length ? agents.map((agent) => {
+      const item = routingCapabilities[agent] || {};
+      const mark = (value) => `<span class="${value ? 'ready' : 'missing'}">${value ? '✓' : '✕'}</span>`;
+      return `<div class="ai-routing-capability-card"><strong>${esc(agent)}</strong><span>Model Discovery ${mark(item.modelDiscovery)}</span><span>Model Switch ${mark(item.modelSwitch)}</span><span>Reasoning ${mark(item.reasoningControl)}</span><span>Profile Verification ${mark(item.profileVerification)}</span></div>`;
+    }).join('') : '<div class="ai-routing-status">暂无可用的 Model Routing Adapter；基础 AutoPilot 不受影响。</div>';
+  }
+
+  const providerBox = $('ai-provider-config');
+  if (providerBox) {
+    const provider = data.providerConfig || {};
+    const status = (item, readyLabel, missingLabel) => `<span class="${item?.available ? 'ready' : 'missing'}">${item?.available ? readyLabel : missingLabel}</span>`;
+    const supervisor = provider.supervisor || {};
+    const worker = provider.workerRouting || {};
+    providerBox.innerHTML = `<div class="ai-provider-row"><strong>Supervisor</strong><span>${esc(supervisor.providerName || supervisor.provider || '未选择供应商')} · ${esc(supervisor.model || '默认模型')}</span>${status(supervisor, '凭据已配置', '未配置凭据')}</div>
+      <div class="ai-provider-row"><strong>Worker Routing</strong><span>${esc(worker.providerName || worker.provider || '由 Agent Adapter 决定')} · ${esc(worker.model || '自动选择')}</span>${status(worker, '已启用', '未启用')}</div>
+      <div class="ai-provider-note">API Key 仅从服务端环境读取，不在浏览器保存或回显；基础 AutoPilot：${provider.baseAutoPilot?.blocking === false ? '不受 Provider 配置阻塞' : '请检查配置'}。</div>`;
+  }
 
   const list = $('ai-workflow-list');
   const workflows = data.workflows || [];
@@ -462,11 +489,11 @@ $('ai-workflow-list').addEventListener('click', (event) => {
   if (button) runOrchestrationAction(button.dataset.action, button.dataset.id);
 });
 $('ai-agent').addEventListener('change', () => {
-  const enabled = $('ai-agent').value === 'codex';
+  const enabled = routingAgentSupported($('ai-agent').value);
   $('ai-routing-enabled').disabled = !enabled;
   if (!enabled) $('ai-routing-enabled').checked = false;
   $('ai-routing-status').textContent = enabled
-    ? '只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。'
+    ? '模型与 reasoning 将按当前 Agent 能力校验。'
     : '当前 Agent 不支持 Model Routing；基础 AutoPilot 仍可正常使用。';
 });
 
@@ -1718,9 +1745,15 @@ function renderRoutingCreateFields(catalog) {
   const selected = model.value;
   model.innerHTML = '<option value="">自动选择（不锁定）</option>' + models.map((item) => `<option value="${esc(item.id)}">${esc(item.displayName || item.id)}</option>`).join('');
   if (models.some((item) => item.id === selected)) model.value = selected;
+  const supported = Array.isArray(catalog?.supportedAgents) ? catalog.supportedAgents : ['codex'];
   status.textContent = catalog
-    ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
-    : 'Catalog 尚未读取；只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。';
+    ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型 · ${supported.join(' / ')}` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
+    : 'Catalog 尚未读取；模型与 reasoning 将按当前 Agent 能力校验。';
+}
+
+function routingAgentSupported(agent) {
+  const supported = state.orchestration.routingCatalog?.supportedAgents;
+  return !Array.isArray(supported) || supported.includes(agent);
 }
 
 function routingReasonLabel(reasonCode) {
@@ -1801,12 +1834,16 @@ async function openRoutingCommercialOverview(id) {
 }
 
 function routingConfigFromCreateForm() {
-  const enabled = $('ai-routing-enabled')?.checked === true && $('ai-agent')?.value === 'codex';
+  const enabled = $('ai-routing-enabled')?.checked === true && routingAgentSupported($('ai-agent')?.value);
   const modelId = $('ai-routing-model')?.value || '';
   const reasoningLevel = $('ai-routing-reasoning')?.value || '';
   return {
     enabled,
     preset: $('ai-routing-preset')?.value || 'balanced',
+    autoModel: $('ai-routing-auto-model')?.checked !== false,
+    autoReasoning: $('ai-routing-auto-reasoning')?.checked !== false,
+    respectManualPin: $('ai-routing-respect-pin')?.checked !== false,
+    allowLegacyModels: $('ai-routing-allow-legacy')?.checked === true,
     ...(modelId || reasoningLevel ? { manualPin: { modelId: modelId || null, reasoningLevel: reasoningLevel || null } } : {}),
   };
 }
@@ -1822,21 +1859,26 @@ function openRoutingSettings() {
   pop.className = 'popover routing-settings';
   pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
   document.body.appendChild(pop);
-  const workflows = (state.orchestration.workflows || []).filter((workflow) => workflow.agent === 'codex');
+  const supportedAgents = state.orchestration.routingCatalog?.supportedAgents || ['codex'];
+  const workflows = (state.orchestration.workflows || []).filter((workflow) => supportedAgents.includes(workflow.agent));
   const catalog = state.orchestration.routingCatalog || {};
   const models = Array.isArray(catalog.models) ? catalog.models : [];
   const first = workflows[0];
   const config = first?.routingConfig || {};
   pop.innerHTML = `<div class="pop-head">AI 智能执行调度</div>
-    <div class="routing-settings-copy">只支持 Codex。设置保存到选定 Workflow，并在下一轮生效；当前 Turn 的 Profile 快照不会被中途改写。</div>
+    <div class="routing-settings-copy">设置保存到选定 Workflow，并在下一轮生效；当前 Turn 的 Profile 快照不会被中途改写。</div>
     ${workflows.length ? `<form class="routing-settings-form" id="routing-settings-form">
       <label>应用到 Workflow<select id="routing-workflow">${workflows.map((workflow) => `<option value="${esc(workflow.id)}">${esc(smartTitle(workflow.runContract?.goal || workflow.id, 42))}</option>`).join('')}</select></label>
       <label class="routing-checkbox"><input id="routing-enabled" type="checkbox"${config.enabled ? ' checked' : ''}>启用智能路由</label>
       <label>路由预设<select id="routing-preset"><option value="balanced">Balanced</option><option value="quality">Quality First</option><option value="save">Economy</option><option value="custom">Custom</option></select></label>
       <label>手动锁定模型<select id="routing-model">${routingSettingsModelOptions(models, config.manualPin?.modelId || '')}</select></label>
       <label>手动锁定 reasoning<select id="routing-reasoning"><option value="">自动选择</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option><option value="ultra">Ultra</option></select></label>
+      <label class="routing-checkbox"><input id="routing-auto-model" type="checkbox"${config.autoModel !== false ? ' checked' : ''}>自动调整模型</label>
+      <label class="routing-checkbox"><input id="routing-auto-reasoning" type="checkbox"${config.autoReasoning !== false ? ' checked' : ''}>自动调整思考强度</label>
+      <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${config.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
+      <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${config.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
       <div class="routing-settings-copy">${catalog.available ? `Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
-      <div class="routing-settings-actions"><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存路由设置</button></div>
+      <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新模型</button><button type="button" class="btn" id="routing-test-switch">测试模型切换</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存路由设置</button></div>
     </form>` : '<div class="routing-settings-copy">暂无 Codex Workflow。请先在 AI 监控中创建一个 Workflow，再从这里保存 Model Routing。</div>'}`;
   if (!workflows.length) return;
   const workflowSelect = pop.querySelector('#routing-workflow');
@@ -1846,10 +1888,32 @@ function openRoutingSettings() {
     pop.querySelector('#routing-preset').value = next.preset || 'balanced';
     pop.querySelector('#routing-model').value = next.manualPin?.modelId || '';
     pop.querySelector('#routing-reasoning').value = next.manualPin?.reasoningLevel || '';
+    pop.querySelector('#routing-auto-model').checked = next.autoModel !== false;
+    pop.querySelector('#routing-auto-reasoning').checked = next.autoReasoning !== false;
+    pop.querySelector('#routing-respect-pin').checked = next.respectManualPin !== false;
+    pop.querySelector('#routing-allow-legacy').checked = next.allowLegacyModels === true;
   };
   fill(first);
   workflowSelect.onchange = () => fill(workflows.find((workflow) => workflow.id === workflowSelect.value));
   pop.querySelector('#routing-settings-cancel').onclick = closePopover;
+  pop.querySelector('#routing-catalog-refresh').onclick = async () => {
+    try {
+      const agent = workflows.find((workflow) => workflow.id === workflowSelect.value)?.agent || 'codex';
+      await requestJson('/api/orchestration/routing/catalog/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent }) });
+      toast('模型 Catalog 已刷新'); await loadOrchestration();
+    } catch (error) { toast(error.message || '模型 Catalog 刷新失败'); }
+  };
+  pop.querySelector('#routing-test-switch').onclick = async () => {
+    const modelId = pop.querySelector('#routing-model').value;
+    const reasoningLevel = pop.querySelector('#routing-reasoning').value;
+    if (!modelId) { toast('请先选择要测试的模型'); return; }
+    try {
+      const result = await requestJson(`/api/orchestration/workflows/${encodeURIComponent(workflowSelect.value)}/routing/test`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modelId, reasoningLevel: reasoningLevel || null }),
+      });
+      toast(result.code === 'PROFILE_TEST_VERIFIED' ? '模型切换验证通过' : `模型切换未验证：${result.code || '未知错误'}`);
+    } catch (error) { toast(error.message || '模型切换测试失败'); }
+  };
   pop.querySelector('#routing-settings-form').onsubmit = async (event) => {
     event.preventDefault();
     const modelId = pop.querySelector('#routing-model').value;
@@ -1858,6 +1922,10 @@ function openRoutingSettings() {
       config: {
         enabled: pop.querySelector('#routing-enabled').checked,
         preset: pop.querySelector('#routing-preset').value,
+        autoModel: pop.querySelector('#routing-auto-model').checked,
+        autoReasoning: pop.querySelector('#routing-auto-reasoning').checked,
+        respectManualPin: pop.querySelector('#routing-respect-pin').checked,
+        allowLegacyModels: pop.querySelector('#routing-allow-legacy').checked,
         ...(modelId || reasoningLevel ? { manualPin: { modelId: modelId || null, reasoningLevel: reasoningLevel || null } } : {}),
       },
     };
@@ -1868,6 +1936,25 @@ function openRoutingSettings() {
       closePopover(); toast('AI 智能执行调度已保存'); await loadOrchestration();
     } catch (error) { toast(error.message || '路由设置保存失败'); }
   };
+}
+
+function openProviderSettings() {
+  closePopover();
+  state.popoverFor = 'provider-settings';
+  const pop = document.createElement('div');
+  pop.className = 'popover provider-settings';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  const provider = state.orchestration.providerConfig || {};
+  const supervisor = provider.supervisor || {};
+  const worker = provider.workerRouting || {};
+  const line = (label, value) => `<div class="provider-settings-line"><span>${esc(label)}</span><b>${esc(value || '—')}</b></div>`;
+  pop.innerHTML = `<div class="pop-head">Provider 配置状态</div>
+    <div class="provider-settings-copy">此处只展示安全状态。API Key 不会进入浏览器，也不会从设置页持久化；修改请通过服务端环境配置完成。</div>
+    <div class="provider-settings-section"><strong>Supervisor</strong>${line('供应商', supervisor.providerName || supervisor.provider)}${line('模型', supervisor.model)}${line('Base URL', supervisor.baseUrl)}${line('Temperature', supervisor.temperature)}${line('Context Budget', supervisor.contextBudget)}${line('状态', supervisor.reasonCode)}</div>
+    <div class="provider-settings-section"><strong>Worker Routing</strong>${line('供应商', worker.providerName || worker.provider)}${line('模型', worker.model)}${line('状态', worker.reasonCode)}</div>
+    <div class="routing-settings-actions"><button type="button" class="btn" id="provider-settings-close">关闭</button></div>`;
+  document.body.appendChild(pop);
+  pop.querySelector('#provider-settings-close').onclick = closePopover;
 }
 
 function openSettingsHub() {
@@ -1887,6 +1974,7 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-shortcut">快捷键设置</button>
     <button class="pop-item" id="settings-theme">主题设置</button>
+    <button class="pop-item" id="settings-provider">Provider 配置状态</button>
     <button class="pop-item" id="settings-autopilot-routing">AI 智能执行调度</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
@@ -1894,6 +1982,7 @@ function openSettingsHub() {
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
   pop.querySelector('#settings-shortcut').onclick = openShortcutSettings;
   pop.querySelector('#settings-theme').onclick = openThemeSettings;
+  pop.querySelector('#settings-provider').onclick = openProviderSettings;
   pop.querySelector('#settings-autopilot-routing').onclick = openRoutingSettings;
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛

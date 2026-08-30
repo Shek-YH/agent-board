@@ -1588,7 +1588,7 @@ const server = http.createServer(async (req, res) => {
       const result = await handleOrchestrationRequest({
         method: req.method, pathname, query: url.searchParams, body, runtime: orchestration,
       });
-      if (!result) { res.writeHead(404); res.end(JSON.stringify({ error: 'orchestration endpoint not found' })); return; }
+      if (!result) { res.writeHead(404); res.end(JSON.stringify({ code: 'ORCHESTRATION_ENDPOINT_NOT_FOUND', error: 'orchestration endpoint not found' })); return; }
       const background = result.background;
       res.writeHead(result.status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result.body));
@@ -1596,7 +1596,19 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       const status = Number(error.statusCode) || 400;
       res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message || 'orchestration request failed' }));
+      const body = { error: error.message || 'orchestration request failed' };
+      if (typeof error.code === 'string' && error.code.trim()) body.code = error.code.trim().slice(0, 80);
+      if (error.recovery && typeof error.recovery === 'object' && !Array.isArray(error.recovery)) {
+        const recovery = {};
+        for (const key of ['status', 'action', 'detectedTier', 'detectedVersion', 'detectedSource']) {
+          if (typeof error.recovery[key] === 'string') recovery[key] = error.recovery[key].slice(0, 300);
+        }
+        if (typeof error.recovery.autoConfigureAvailable === 'boolean') recovery.autoConfigureAvailable = error.recovery.autoConfigureAvailable;
+        if (Array.isArray(error.recovery.suggestions)) recovery.suggestions = error.recovery.suggestions
+          .filter((item) => typeof item === 'string').map((item) => item.slice(0, 500)).slice(0, 8);
+        if (Object.keys(recovery).length) body.recovery = recovery;
+      }
+      res.end(JSON.stringify(body));
     }
     return;
   }

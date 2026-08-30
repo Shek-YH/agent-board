@@ -507,7 +507,12 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
  .ai-routing-toggle input{width:auto!important;min-height:auto!important}
  .ai-routing-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}
  .ai-routing-grid label{min-width:0}
+ .ai-routing-options{display:grid;grid-template-columns:1fr 1fr;gap:5px 9px;margin-top:7px}
+ .ai-routing-options .routing-checkbox{font-size:11px}
  .ai-routing-status{margin-top:6px;color:var(--text3);font-size:10px;line-height:1.4}
+ .ai-routing-capability-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:0 12px 12px}
+ .ai-routing-capability-card{padding:8px;border:1px solid var(--border);border-radius:7px;font-size:11px;background:var(--accent-bg)}
+ .ai-routing-capability-card strong{display:block;margin-bottom:5px}.ai-routing-capability-card span{color:var(--text3);margin-right:8px}.ai-routing-capability-card .ready{color:#15803D}.ai-routing-capability-card .missing{color:var(--text3)}
  .ai-route-summary{margin:6px 0 8px;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:var(--accent-bg);color:var(--text2);font-size:11px;line-height:1.45}
  .routing-settings{min-width:min(370px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:10px}
  .routing-settings-copy{padding:2px 4px 9px;color:var(--text3);font-size:11px;line-height:1.5}
@@ -516,6 +521,10 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
  .routing-settings-form input,.routing-settings-form select{width:100%;min-height:36px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--card);outline:none;font-size:12px}
  .routing-settings-form .routing-checkbox{flex-direction:row;align-items:center;gap:7px}.routing-checkbox input{width:auto;min-height:auto}
  .routing-settings-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:3px}
+ .provider-settings{min-width:min(370px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:10px}
+ .provider-settings-copy{padding:2px 4px 9px;color:var(--text3);font-size:11px;line-height:1.5}
+ .provider-settings-section{display:flex;flex-direction:column;gap:5px;margin:7px 4px;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--accent-bg);font-size:11px}
+ .provider-settings-line{display:flex;justify-content:space-between;gap:8px;color:var(--text3)}.provider-settings-line b{color:var(--text);font-weight:600;text-align:right;overflow-wrap:anywhere}
  .routing-commerce{width:min(500px,calc(100vw - 24px));max-width:calc(100vw - 24px);padding:10px}
  .routing-commerce-copy,.routing-commerce-detail{padding:3px 4px;color:var(--text3);font-size:11px;line-height:1.5}
  .routing-commerce-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:5px 0 9px}
@@ -824,7 +833,13 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
               <label>手动锁定模型<select id="ai-routing-model"><option value="">自动选择（不锁定）</option></select></label>
               <label>手动锁定 reasoning<select id="ai-routing-reasoning"><option value="">自动选择</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option><option value="ultra">Ultra</option></select></label>
             </div>
-            <div class="ai-routing-status" id="ai-routing-status">Catalog 尚未读取；只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。</div>
+            <div class="ai-routing-options">
+              <label class="routing-checkbox"><input id="ai-routing-auto-model" type="checkbox" checked>自动调整模型</label>
+              <label class="routing-checkbox"><input id="ai-routing-auto-reasoning" type="checkbox" checked>自动调整思考强度</label>
+              <label class="routing-checkbox"><input id="ai-routing-respect-pin" type="checkbox" checked>尊重人工模型锁定</label>
+              <label class="routing-checkbox"><input id="ai-routing-allow-legacy" type="checkbox">允许使用 Legacy Models</label>
+            </div>
+            <div class="ai-routing-status" id="ai-routing-status">Catalog 尚未读取；模型与 reasoning 将按当前 Agent 能力校验。</div>
           </fieldset>
           <button class="btn primary" type="submit">创建 AI 工作流</button>
           <div class="ai-hint">Suggest 只生成建议；Auto 仅在绑定并验证单个 Session 后，通过 Verified Dispatch 逐轮执行，不能自动批准权限或重发消息。</div>
@@ -832,7 +847,7 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
       </form>
       <div class="ai-workflows"><h3>工作流</h3><div class="ai-workflow-list" id="ai-workflow-list"><div class="ai-empty">暂无 AI 工作流</div></div></div>
     </div>
-    <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div></div>
+    <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div><div class="ai-routing-capability-list" id="ai-routing-capability-list"></div><div class="ai-provider-config" id="ai-provider-config"></div></div>
   </section>
 </div>
 
