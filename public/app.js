@@ -285,18 +285,19 @@ function renderAIMonitor() {
     const canResume = isAuto && ['PAUSED', 'BLOCKED'].includes(autoState);
     const canStop = isAuto && !['DONE', 'STOPPED'].includes(autoState);
     const canTakeover = !['completed', 'paused'].includes(status) && workflow.controlOwner !== 'human';
+    const routingConfig = workflow.routingConfig || {};
     const actions = [];
     if (canSuggest) actions.push(`<button class="btn primary ai-workflow-action" data-action="suggest" data-id="${esc(workflow.id)}">生成下一步建议</button>`);
     if (canAutoRun) actions.push(`<button class="btn primary ai-workflow-action" data-action="auto-run" data-id="${esc(workflow.id)}">启动 Auto</button>`);
     if (canResume) actions.push(`<button class="btn primary ai-workflow-action" data-action="resume" data-id="${esc(workflow.id)}">恢复 Auto</button>`);
     if (canStop) actions.push(`<button class="btn ai-workflow-action" data-action="stop" data-id="${esc(workflow.id)}">停止 Auto</button>`);
     if (canTakeover) actions.push(`<button class="btn ai-workflow-action" data-action="takeover" data-id="${esc(workflow.id)}">人工接管</button>`);
+    if (workflow.agent === 'codex' || routingConfig.enabled) actions.push(`<button class="btn ai-workflow-action" data-action="routing-details" data-id="${esc(workflow.id)}">路由详情</button>`);
     const dodTotal = Number.isInteger(progress.total) ? progress.total : (Array.isArray(contract.verify?.dod) ? contract.verify.dod.length : 0);
     const dodPassed = Number.isInteger(progress.completed) ? progress.completed : 0;
     const progressLabel = ORCHESTRATION_PROGRESS_LABELS[progress.status] || '未开始';
     const suggestionText = suggestion.nextStep || suggestion.reason || '尚未生成建议';
     const route = workflow.lastRouting || null;
-    const routingConfig = workflow.routingConfig || {};
     const routeReason = { ROUTE_ESCALATED: '失败后升级', ROUTE_DOWNGRADED: '任务简化后降级', MANUAL_PIN: '人工锁定', ROUTING_UNAVAILABLE: '路由能力不可用', PROFILE_VERIFY_FAILED: 'Profile 验证失败' };
     const routeSummary = route && (route.modelId || route.reasonCode)
       ? `<div class="ai-route-summary">智能路由：${esc(route.modelId || '未应用')} · ${esc(route.reasoningLevel || '未验证')} · ${esc(route.source || '未应用')} · ${esc(routeReason[route.reasonCode] || route.reasonCode || '当前配置')} ${route.catalogStale ? '· Catalog stale' : ''}</div>`
@@ -403,6 +404,7 @@ function stopJarvisRecording() {
 }
 
 async function runOrchestrationAction(action, id) {
+  if (action === 'routing-details') return openRoutingCommercialOverview(id);
   const endpoints = { takeover: 'takeover', suggest: 'suggest', 'auto-run': 'run', resume: 'resume', stop: 'stop' };
   const endpoint = endpoints[action] || 'suggest';
   try {
@@ -1719,6 +1721,66 @@ function renderRoutingCreateFields(catalog) {
   status.textContent = catalog
     ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
     : 'Catalog 尚未读取；只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。';
+}
+
+function routingReasonLabel(reasonCode) {
+  return {
+    ROUTE_ESCALATED: '失败/回归后升级', ROUTE_DOWNGRADED: '成功且任务简化后降级', MANUAL_PIN: '人工锁定优先',
+    ROUTE_STABLE: '沿用当前策略', ROUTING_UNAVAILABLE: '路由能力不可用', ROUTING_AGENT_UNSUPPORTED: '当前 Agent 不兼容',
+    PROFILE_VERIFY_FAILED: 'Profile 验证失败', NEED_HUMAN_HIGHEST_TIER_FAILURE: '最高档仍失败，需要人工处理',
+  }[reasonCode] || reasonCode || '未提供原因';
+}
+
+function routingValue(value, fallback = '—') {
+  return value === undefined || value === null || value === '' ? fallback : esc(value);
+}
+
+function renderRoutingCommercialOverview(pop, overview) {
+  const diagnostics = overview?.diagnostics || {};
+  const compatibility = diagnostics.compatibility || {};
+  const catalog = diagnostics.catalog || {};
+  const usage = overview?.usage || {};
+  const last = diagnostics.lastRoute || null;
+  const receipt = overview?.receipt || null;
+  const timeline = Array.isArray(overview?.auditTimeline) ? overview.auditTimeline : [];
+  const catalogState = catalog.available ? `${catalog.source || 'native'}${catalog.stale ? ' · stale' : ''}` : '不可用';
+  const lastRoute = last
+    ? `${routingValue(last.modelId, '未应用')} · ${routingValue(last.reasoningLevel, '未验证')} · ${routingReasonLabel(last.reasonCode)}`
+    : '尚无路由记录';
+  pop.innerHTML = `<div class="pop-head">AI 路由详情</div>
+    <div class="routing-commerce-copy">只读诊断视图：当前 Turn 的 Profile 快照不会被中途改写；成本和配额没有真实数据源时明确标记为不可用。</div>
+    <div class="routing-commerce-grid">
+      <div class="routing-commerce-metric"><span>Compatibility</span><b class="${compatibility.supported ? 'ready' : 'warning'}">${compatibility.supported ? '支持' : '不支持'}</b><small>${esc(compatibility.reasonCode || 'UNKNOWN')}</small></div>
+      <div class="routing-commerce-metric"><span>Catalog Diagnostics</span><b>${esc(catalogState)}</b><small>${esc(catalog.reasonCode || '—')} · ${esc(catalog.modelCount ?? 0)} 个模型</small></div>
+      <div class="routing-commerce-metric"><span>Cost / 成本</span><b>${usage.cost?.available ? '可用' : '不可用'}</b><small>${esc(usage.cost?.reasonCode || 'COST_DATA_UNAVAILABLE')}</small></div>
+      <div class="routing-commerce-metric"><span>Quota / 配额</span><b>${usage.quota?.available ? '可用' : '不可用'}</b><small>${esc(usage.quota?.reasonCode || 'QUOTA_DATA_UNAVAILABLE')}</small></div>
+    </div>
+    <section class="routing-commerce-section"><strong>Routing Explainability</strong><div class="routing-commerce-detail">${esc(lastRoute)}</div></section>
+    <section class="routing-commerce-section"><strong>Audit Timeline</strong>
+      ${timeline.length ? timeline.map((item) => `<div class="routing-audit-item"><span>${esc(item.generatedAt || '未记录')}</span><b>${esc(item.event || 'routing')}</b><span>${esc(item.modelId || '未应用')} · ${esc(item.reasoningLevel || '未验证')}</span><em>${esc(routingReasonLabel(item.reasonCode))}</em></div>`).join('') : '<div class="routing-commerce-detail">暂无路由审计记录</div>'}
+    </section>
+    <section class="routing-commerce-section"><strong>Run Receipt</strong>
+      ${receipt ? `<div class="routing-commerce-detail">${esc(receipt.finalState || 'UNKNOWN')} · DoD ${esc(receipt.dod?.passed ?? 0)}/${esc(receipt.dod?.total ?? 0)} · ${esc(receipt.stopReason || '无停止原因')}</div>` : '<div class="routing-commerce-detail">暂无 Run Receipt</div>'}
+    </section>
+    <div class="routing-commerce-actions"><button type="button" class="btn primary" id="routing-commerce-close">关闭</button></div>`;
+  pop.querySelector('#routing-commerce-close').onclick = closePopover;
+}
+
+async function openRoutingCommercialOverview(id) {
+  closePopover();
+  state.popoverFor = 'routing-commercial';
+  const pop = document.createElement('div');
+  pop.className = 'popover routing-commerce';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  pop.innerHTML = '<div class="pop-head">AI 路由详情</div><div class="routing-commerce-detail">正在读取 Catalog Diagnostics、Audit Timeline 和 Run Receipt…</div>';
+  document.body.appendChild(pop);
+  try {
+    const overview = await requestJson(`/api/orchestration/workflows/${encodeURIComponent(id)}/routing/overview`);
+    renderRoutingCommercialOverview(pop, overview);
+  } catch (error) {
+    pop.innerHTML = `<div class="pop-head">AI 路由详情</div><div class="routing-commerce-error">读取失败：${esc(error.message || '服务暂不可用')}</div><div class="routing-commerce-actions"><button type="button" class="btn" id="routing-commerce-error-close">关闭</button></div>`;
+    pop.querySelector('#routing-commerce-error-close').onclick = closePopover;
+  }
 }
 
 function routingConfigFromCreateForm() {
