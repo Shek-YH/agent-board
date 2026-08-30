@@ -778,9 +778,10 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
     </section>
     <div class="ai-monitor-grid">
       <form class="ai-create" id="ai-create-form">
-        <h3>创建 Suggest 工作流</h3>
+        <h3>创建 AI 工作流</h3>
         <div class="ai-form-body">
           <label>项目目录<input id="ai-project-path" required placeholder="例如 C:\\Projects\\demo"></label>
+          <label>Session Ref（Auto 必填）<input id="ai-session-ref" placeholder="例如 Codex 的 Session UUID"></label>
           <label>任务目标<textarea id="ai-goal" required placeholder="描述要完成的目标、验收条件或维护事项"></textarea></label>
           <label>范围内<textarea id="ai-in-scope" placeholder="每行一项，例如：修改 API、补充测试"></textarea></label>
           <label>范围外<textarea id="ai-out-of-scope" placeholder="每行一项，例如：不改数据库结构、不部署"></textarea></label>
@@ -788,8 +789,9 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
           <label>Evidence（证据要求）<textarea id="ai-evidence" placeholder="每行一项；留空时默认使用 DoD 描述"></textarea></label>
           <label>执行 Agent<select id="ai-agent"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="workbuddy">WorkBuddy</option></select></label>
           <label>接管范围<select id="ai-mode"><option value="project">单个项目 AI 接管</option><option value="global">全局 AI 接管策略</option></select></label>
-          <button class="btn primary" type="submit">创建 Suggest 工作流</button>
-          <div class="ai-hint">Suggest Mode 只读取状态、生成下一步建议和 Evidence 回执，不自动发送、不启动执行 Agent。</div>
+          <label>AutoPilot 模式<select id="ai-autopilot-mode"><option value="suggest">Suggest：只生成建议</option><option value="auto">Auto：单 Session 自动循环</option></select></label>
+          <button class="btn primary" type="submit">创建 AI 工作流</button>
+          <div class="ai-hint">Suggest 只生成建议；Auto 仅在绑定并验证单个 Session 后，通过 Verified Dispatch 逐轮执行，不能自动批准权限或重发消息。</div>
         </div>
       </form>
       <div class="ai-workflows"><h3>工作流</h3><div class="ai-workflow-list" id="ai-workflow-list"><div class="ai-empty">暂无 AI 工作流</div></div></div>

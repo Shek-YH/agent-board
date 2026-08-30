@@ -223,6 +223,11 @@ const ORCHESTRATION_STATUS_LABELS = {
 const ORCHESTRATION_PROGRESS_LABELS = {
   not_started: '未开始', in_progress: '进行中', completed: '已完成', blocked: '已阻塞',
 };
+const ORCHESTRATION_AUTO_STATE_LABELS = {
+  OFF: '未启动', PREFLIGHT: '准备中', WAITING_AGENT: '等待 Agent', REVIEWING: '监督复核',
+  DISPATCHING: '发送中', VERIFYING: '验收送达', PAUSED: '已暂停', BLOCKED: '已阻塞',
+  DONE: '已完成', STOPPED: '已停止',
+};
 const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维护', existing_unversioned: '未纳入 Git 的项目' };
 
 async function loadOrchestration() {
@@ -269,18 +274,27 @@ function renderAIMonitor() {
     const goal = contract.goal || plan.goal || workflow.id;
     const progress = workflow.progress || workflow.lastSuggestion?.progress || {};
     const suggestion = workflow.lastSuggestion || {};
-    const canSuggest = status !== 'completed';
+    const autoState = workflow.autoState || 'OFF';
+    const isAuto = workflow.autopilotMode === 'auto';
+    const canSuggest = status !== 'completed' && autoState !== 'STOPPED';
+    const canAutoRun = isAuto && !['DONE', 'STOPPED', 'PAUSED', 'BLOCKED'].includes(autoState) && workflow.controlOwner !== 'human';
+    const canResume = isAuto && ['PAUSED', 'BLOCKED'].includes(autoState);
+    const canStop = isAuto && !['DONE', 'STOPPED'].includes(autoState);
     const canTakeover = !['completed', 'paused'].includes(status) && workflow.controlOwner !== 'human';
     const actions = [];
     if (canSuggest) actions.push(`<button class="btn primary ai-workflow-action" data-action="suggest" data-id="${esc(workflow.id)}">生成下一步建议</button>`);
+    if (canAutoRun) actions.push(`<button class="btn primary ai-workflow-action" data-action="auto-run" data-id="${esc(workflow.id)}">启动 Auto</button>`);
+    if (canResume) actions.push(`<button class="btn primary ai-workflow-action" data-action="resume" data-id="${esc(workflow.id)}">恢复 Auto</button>`);
+    if (canStop) actions.push(`<button class="btn ai-workflow-action" data-action="stop" data-id="${esc(workflow.id)}">停止 Auto</button>`);
     if (canTakeover) actions.push(`<button class="btn ai-workflow-action" data-action="takeover" data-id="${esc(workflow.id)}">人工接管</button>`);
     const dodTotal = Number.isInteger(progress.total) ? progress.total : (Array.isArray(contract.verify?.dod) ? contract.verify.dod.length : 0);
     const dodPassed = Number.isInteger(progress.completed) ? progress.completed : 0;
     const progressLabel = ORCHESTRATION_PROGRESS_LABELS[progress.status] || '未开始';
     const suggestionText = suggestion.nextStep || suggestion.reason || '尚未生成建议';
     return `<article class="ai-workflow-card ${esc(status)}">
-      <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">Suggest-only</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
-      <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')}</div>
+      <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(isAuto ? 'Auto' : 'Suggest')}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
+      <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')} · FSM：${esc(ORCHESTRATION_AUTO_STATE_LABELS[autoState] || autoState)}</div>
+      ${isAuto && workflow.binding?.sessionRef ? `<div class="ai-workflow-meta" title="${esc(workflow.binding.sessionRef)}">Session：${esc(workflow.binding.sessionRef)}</div>` : ''}
       <div class="ai-workflow-meta">进度：${esc(progressLabel)} · DoD ${esc(dodPassed)}/${esc(dodTotal)} · ${esc(progress.percent || 0)}%</div>
       <div class="ai-workflow-meta">下一步建议：${esc(suggestionText)}</div>
       ${suggestion.receipt?.generatedAt ? `<div class="ai-workflow-meta">最近回执：${esc(suggestion.receipt.generatedAt)}</div>` : ''}
@@ -378,12 +392,17 @@ function stopJarvisRecording() {
 }
 
 async function runOrchestrationAction(action, id) {
-  const endpoint = action === 'takeover' ? 'takeover' : 'suggest';
+  const endpoints = { takeover: 'takeover', suggest: 'suggest', 'auto-run': 'run', resume: 'resume', stop: 'stop' };
+  const endpoint = endpoints[action] || 'suggest';
   try {
     await requestJson(`/api/orchestration/workflows/${encodeURIComponent(id)}/${endpoint}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     });
-    toast(action === 'takeover' ? '已人工接管，AI 工作流已暂停' : '已生成下一步建议，未自动执行');
+    const message = action === 'takeover' ? '已人工接管，AI 工作流已暂停'
+      : action === 'auto-run' ? 'Auto Loop 已启动，正在等待验证结果'
+        : action === 'resume' ? '已恢复 Auto Loop，开始重新复核'
+          : action === 'stop' ? 'Auto Loop 已停止' : '已生成下一步建议，未自动执行';
+    toast(message);
     await loadOrchestration();
   } catch (error) { toast(error.message || 'AI 工作流操作失败'); }
 }
@@ -407,11 +426,15 @@ $('ai-create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const dod = contractLines($('ai-dod').value);
   if (!dod.length) { toast('请至少填写一条 DoD'); return; }
+  const autopilotMode = $('ai-autopilot-mode').value;
+  const sessionRef = $('ai-session-ref').value.trim();
+  if (autopilotMode === 'auto' && !sessionRef) { toast('Auto 模式必须填写 Session Ref'); return; }
   const body = {
     projectPath: $('ai-project-path').value.trim(), goal: $('ai-goal').value.trim(),
-    agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human', autopilotMode: 'suggest',
+    agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human', autopilotMode,
     scope: { inScope: contractLines($('ai-in-scope').value), outOfScope: contractLines($('ai-out-of-scope').value) },
     verify: { dod, evidence: contractLines($('ai-evidence').value) },
+    ...(sessionRef ? { binding: { sessionRef, agent: $('ai-agent').value, projectPath: $('ai-project-path').value.trim() } } : {}),
   };
   try {
     const data = await requestJson('/api/orchestration/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

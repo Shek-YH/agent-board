@@ -23,7 +23,10 @@ test('AI monitor uses orchestration API and does not use desktop open endpoints'
   assert.match(app, /\/api\/orchestration\/workflows/);
   assert.match(app, /data-action="suggest"/);
   assert.match(app, /data-action="takeover"/);
-  assert.match(app, /autopilotMode: 'suggest'/);
+  assert.match(app, /autopilotMode/);
+  assert.match(app, /data-action="auto-run"/);
+  assert.match(app, /data-action="resume"/);
+  assert.match(app, /data-action="stop"/);
   assert.doesNotMatch(app, /data-action="run"/);
   assert.doesNotMatch(app, /ai-workflow-action[^\n]*open-with/);
 });
@@ -33,7 +36,9 @@ test('AI monitor captures the Suggest Mode run contract', () => {
   assert.match(html, /id="ai-out-of-scope"/);
   assert.match(html, /id="ai-dod"/);
   assert.match(html, /id="ai-evidence"/);
-  assert.match(html, /Suggest Mode/);
+  assert.match(html, /id="ai-autopilot-mode"/);
+  assert.match(html, /id="ai-session-ref"/);
+  assert.match(html, /Suggest(?: Mode)?/);
 });
 
 test('AI monitor exposes the Jarvis recording MVP without coupling it to desktop navigation', () => {
