@@ -184,6 +184,10 @@ test('设置面板从 Theme Registry 渲染可访问的主题按钮，并交给 
   assert.match(htmlSource, /prefers-reduced-motion/);
 });
 
+test('主题选项预览时阻止冒泡，避免面板被全局点击监听器关闭', () => {
+  assert.match(appSource, /button\.onclick = \(event\) => \{\s*event\.stopPropagation\(\);\s*themeManager\.previewTheme\(/);
+});
+
 test('九套主题都能应用到根节点，启动恢复在样式前完成', () => {
   const api = loadThemeApi();
   const document = createDocument();

@@ -1576,7 +1576,8 @@ function renderThemeSettings(pop) {
       <button type="button" class="btn primary" id="theme-apply">确定</button>
     </div>`;
   pop.querySelectorAll('.theme-option').forEach((button) => {
-    button.onclick = () => {
+    button.onclick = (event) => {
+      event.stopPropagation();
       themeManager.previewTheme(button.dataset.themeId);
       renderThemeSettings(pop);
     };
