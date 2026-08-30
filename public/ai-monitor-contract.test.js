@@ -48,3 +48,16 @@ test('AI monitor exposes the Jarvis recording MVP without coupling it to desktop
   assert.match(app, /getUserMedia/);
   assert.match(app, /\/api\/jarvis\/voice/);
 });
+
+test('AI monitor exposes Model Routing settings and renders safe route summaries', () => {
+  assert.match(html, /id="ai-routing-enabled"/);
+  assert.match(html, /id="ai-routing-preset"/);
+  assert.match(html, /id="ai-routing-model"/);
+  assert.match(html, /id="ai-routing-reasoning"/);
+  assert.match(app, /AI 智能执行调度/);
+  assert.match(app, /\/api\/orchestration\/routing\/catalog/);
+  assert.match(app, /\/routing/);
+  assert.match(app, /lastRouting/);
+  assert.match(app, /manualPin/);
+  assert.doesNotMatch(app, /JSON\.stringify\([^)]*prompt/);
+});

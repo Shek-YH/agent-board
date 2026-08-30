@@ -45,6 +45,8 @@ const {
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
+const { createCodexAppServerCapability } = require('./lib/orchestrator/routing/codex-app-server');
+const { createCodexAppServerClient } = require('./lib/orchestrator/routing/codex-app-server-client');
 const { createJarvisVoiceRuntime } = require('./lib/jarvis-voice');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
@@ -1155,10 +1157,32 @@ function scanWorkBuddyStatus({ baseline = false } = {}) {
 
 // 人工监控和 AI 监控共用这一个工作流状态源；AI 面板只负责展示/发起编排请求，
 // 不再另起一套会话缓存。默认不允许 headless Agent 执行，需显式配置环境变量开启。
+function resolveCodexRoutingCapability() {
+  if (process.env.AGENT_BOARD_ROUTING_NATIVE === '0') return { capability: null, version: null };
+  try {
+    const probe = detect.probeAgent(codex, { userOverrides: detect.loadUserOverrides() }) || {};
+    if (!probe.executablePath) return { capability: null, version: null };
+    const client = createCodexAppServerClient({ executablePath: probe.executablePath, clientVersion: String(probe.version || 'agent-board') });
+    return {
+      capability: createCodexAppServerCapability({
+        request: client.request.bind(client),
+        waitForNotification: client.waitForNotification.bind(client),
+        agentVersion: probe.version || null,
+      }),
+      version: probe.version || null,
+    };
+  } catch (error) {
+    console.warn('[routing] Codex App Server capability unavailable:', error.message);
+    return { capability: null, version: null };
+  }
+}
+const codexRouting = resolveCodexRoutingCapability();
 const orchestration = createOrchestrationRuntime({
   workbuddyCliPath: resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentGuiExecutable('workbuddy') }),
   verifiedDispatchDependencies: (agent) => createVerifiedDispatchDependencies(agent),
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
+  routingNativeCapability: codexRouting.capability,
+  routingAgentVersion: codexRouting.version,
 });
 const jarvisVoice = createJarvisVoiceRuntime({ orchestration, env: process.env });
 orchestration.jarvisVoice = jarvisVoice;

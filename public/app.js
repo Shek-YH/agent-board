@@ -30,7 +30,7 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   monitorMode: 'manual',
-  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null },
+  orchestration: { workflows: [], capabilities: {}, allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null },
 };
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
@@ -233,11 +233,14 @@ const ORCHESTRATION_KIND_LABELS = { new: '新项目', existing: 'Git 项目维�
 async function loadOrchestration() {
   try {
     const data = await requestJson('/api/orchestration/state');
+    let routingCatalog = null;
+    try { routingCatalog = await requestJson('/api/orchestration/routing/catalog'); } catch { /* state remains useful without catalog */ }
     state.orchestration = {
       workflows: Array.isArray(data.workflows) ? data.workflows : [],
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
       headlessEnabled: data.headlessEnabled === true,
       jarvisVoice: data.jarvisVoice || null,
+      routingCatalog: routingCatalog && routingCatalog.catalog ? routingCatalog.catalog : null,
     };
     renderAIMonitor();
   } catch (error) {
@@ -265,6 +268,7 @@ function renderAIMonitor() {
 
   const list = $('ai-workflow-list');
   const workflows = data.workflows || [];
+  renderRoutingCreateFields(data.routingCatalog);
   if (!workflows.length) { list.innerHTML = '<div class="ai-empty">暂无 AI 工作流</div>'; return; }
   list.innerHTML = workflows.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((workflow) => {
     const plan = workflow.executionPlan || {};
@@ -291,11 +295,18 @@ function renderAIMonitor() {
     const dodPassed = Number.isInteger(progress.completed) ? progress.completed : 0;
     const progressLabel = ORCHESTRATION_PROGRESS_LABELS[progress.status] || '未开始';
     const suggestionText = suggestion.nextStep || suggestion.reason || '尚未生成建议';
+    const route = workflow.lastRouting || null;
+    const routingConfig = workflow.routingConfig || {};
+    const routeReason = { ROUTE_ESCALATED: '失败后升级', ROUTE_DOWNGRADED: '任务简化后降级', MANUAL_PIN: '人工锁定', ROUTING_UNAVAILABLE: '路由能力不可用', PROFILE_VERIFY_FAILED: 'Profile 验证失败' };
+    const routeSummary = route && (route.modelId || route.reasonCode)
+      ? `<div class="ai-route-summary">智能路由：${esc(route.modelId || '未应用')} · ${esc(route.reasoningLevel || '未验证')} · ${esc(route.source || '未应用')} · ${esc(routeReason[route.reasonCode] || route.reasonCode || '当前配置')} ${route.catalogStale ? '· Catalog stale' : ''}</div>`
+      : routingConfig.enabled ? '<div class="ai-route-summary">智能路由已启用，等待下一轮 Catalog 与 Profile 验证。</div>' : '';
     return `<article class="ai-workflow-card ${esc(status)}">
       <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(isAuto ? 'Auto' : 'Suggest')}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
       <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')} · FSM：${esc(ORCHESTRATION_AUTO_STATE_LABELS[autoState] || autoState)}</div>
       ${isAuto && workflow.binding?.sessionRef ? `<div class="ai-workflow-meta" title="${esc(workflow.binding.sessionRef)}">Session：${esc(workflow.binding.sessionRef)}</div>` : ''}
       <div class="ai-workflow-meta">进度：${esc(progressLabel)} · DoD ${esc(dodPassed)}/${esc(dodTotal)} · ${esc(progress.percent || 0)}%</div>
+      ${routeSummary}
       <div class="ai-workflow-meta">下一步建议：${esc(suggestionText)}</div>
       ${suggestion.receipt?.generatedAt ? `<div class="ai-workflow-meta">最近回执：${esc(suggestion.receipt.generatedAt)}</div>` : ''}
       ${workflow.lastError ? `<div class="ai-workflow-error">${esc(workflow.lastError)}</div>` : ''}
@@ -434,6 +445,7 @@ $('ai-create-form').addEventListener('submit', async (event) => {
     agent: $('ai-agent').value, mode: $('ai-mode').value, requestedBy: 'human', autopilotMode,
     scope: { inScope: contractLines($('ai-in-scope').value), outOfScope: contractLines($('ai-out-of-scope').value) },
     verify: { dod, evidence: contractLines($('ai-evidence').value) },
+    routingConfig: routingConfigFromCreateForm(),
     ...(sessionRef ? { binding: { sessionRef, agent: $('ai-agent').value, projectPath: $('ai-project-path').value.trim() } } : {}),
   };
   try {
@@ -446,6 +458,14 @@ $('ai-create-form').addEventListener('submit', async (event) => {
 $('ai-workflow-list').addEventListener('click', (event) => {
   const button = event.target.closest('.ai-workflow-action');
   if (button) runOrchestrationAction(button.dataset.action, button.dataset.id);
+});
+$('ai-agent').addEventListener('change', () => {
+  const enabled = $('ai-agent').value === 'codex';
+  $('ai-routing-enabled').disabled = !enabled;
+  if (!enabled) $('ai-routing-enabled').checked = false;
+  $('ai-routing-status').textContent = enabled
+    ? '只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。'
+    : '当前 Agent 不支持 Model Routing；基础 AutoPilot 仍可正常使用。';
 });
 
 /* ---------- 顶栏 AI Agent 快捷图标 ---------- */
@@ -1688,6 +1708,89 @@ if (themeManager) themeManager.subscribe(() => {
   if (pop && state.popoverFor === 'theme-settings') renderThemeSettings(pop);
 });
 
+function renderRoutingCreateFields(catalog) {
+  const model = $('ai-routing-model');
+  const status = $('ai-routing-status');
+  if (!model || !status) return;
+  const models = Array.isArray(catalog?.models) ? catalog.models : [];
+  const selected = model.value;
+  model.innerHTML = '<option value="">自动选择（不锁定）</option>' + models.map((item) => `<option value="${esc(item.id)}">${esc(item.displayName || item.id)}</option>`).join('');
+  if (models.some((item) => item.id === selected)) model.value = selected;
+  status.textContent = catalog
+    ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
+    : 'Catalog 尚未读取；只支持 Codex，模型与 reasoning 将按当前 Agent 能力校验。';
+}
+
+function routingConfigFromCreateForm() {
+  const enabled = $('ai-routing-enabled')?.checked === true && $('ai-agent')?.value === 'codex';
+  const modelId = $('ai-routing-model')?.value || '';
+  const reasoningLevel = $('ai-routing-reasoning')?.value || '';
+  return {
+    enabled,
+    preset: $('ai-routing-preset')?.value || 'balanced',
+    ...(modelId || reasoningLevel ? { manualPin: { modelId: modelId || null, reasoningLevel: reasoningLevel || null } } : {}),
+  };
+}
+
+function routingSettingsModelOptions(models, selected) {
+  return '<option value="">自动选择（不锁定）</option>' + (models || []).map((item) => `<option value="${esc(item.id)}"${item.id === selected ? ' selected' : ''}>${esc(item.displayName || item.id)}</option>`).join('');
+}
+
+function openRoutingSettings() {
+  closePopover();
+  state.popoverFor = 'routing-settings';
+  const pop = document.createElement('div');
+  pop.className = 'popover routing-settings';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  document.body.appendChild(pop);
+  const workflows = (state.orchestration.workflows || []).filter((workflow) => workflow.agent === 'codex');
+  const catalog = state.orchestration.routingCatalog || {};
+  const models = Array.isArray(catalog.models) ? catalog.models : [];
+  const first = workflows[0];
+  const config = first?.routingConfig || {};
+  pop.innerHTML = `<div class="pop-head">AI 智能执行调度</div>
+    <div class="routing-settings-copy">只支持 Codex。设置保存到选定 Workflow，并在下一轮生效；当前 Turn 的 Profile 快照不会被中途改写。</div>
+    ${workflows.length ? `<form class="routing-settings-form" id="routing-settings-form">
+      <label>应用到 Workflow<select id="routing-workflow">${workflows.map((workflow) => `<option value="${esc(workflow.id)}">${esc(smartTitle(workflow.runContract?.goal || workflow.id, 42))}</option>`).join('')}</select></label>
+      <label class="routing-checkbox"><input id="routing-enabled" type="checkbox"${config.enabled ? ' checked' : ''}>启用智能路由</label>
+      <label>路由预设<select id="routing-preset"><option value="balanced">Balanced</option><option value="quality">Quality First</option><option value="save">Economy</option><option value="custom">Custom</option></select></label>
+      <label>手动锁定模型<select id="routing-model">${routingSettingsModelOptions(models, config.manualPin?.modelId || '')}</select></label>
+      <label>手动锁定 reasoning<select id="routing-reasoning"><option value="">自动选择</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option><option value="ultra">Ultra</option></select></label>
+      <div class="routing-settings-copy">${catalog.available ? `Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
+      <div class="routing-settings-actions"><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存路由设置</button></div>
+    </form>` : '<div class="routing-settings-copy">暂无 Codex Workflow。请先在 AI 监控中创建一个 Workflow，再从这里保存 Model Routing。</div>'}`;
+  if (!workflows.length) return;
+  const workflowSelect = pop.querySelector('#routing-workflow');
+  const fill = (workflow) => {
+    const next = workflow?.routingConfig || {};
+    pop.querySelector('#routing-enabled').checked = next.enabled === true;
+    pop.querySelector('#routing-preset').value = next.preset || 'balanced';
+    pop.querySelector('#routing-model').value = next.manualPin?.modelId || '';
+    pop.querySelector('#routing-reasoning').value = next.manualPin?.reasoningLevel || '';
+  };
+  fill(first);
+  workflowSelect.onchange = () => fill(workflows.find((workflow) => workflow.id === workflowSelect.value));
+  pop.querySelector('#routing-settings-cancel').onclick = closePopover;
+  pop.querySelector('#routing-settings-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const modelId = pop.querySelector('#routing-model').value;
+    const reasoningLevel = pop.querySelector('#routing-reasoning').value;
+    const body = {
+      config: {
+        enabled: pop.querySelector('#routing-enabled').checked,
+        preset: pop.querySelector('#routing-preset').value,
+        ...(modelId || reasoningLevel ? { manualPin: { modelId: modelId || null, reasoningLevel: reasoningLevel || null } } : {}),
+      },
+    };
+    try {
+      await requestJson(`/api/orchestration/workflows/${encodeURIComponent(workflowSelect.value)}/routing`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      closePopover(); toast('AI 智能执行调度已保存'); await loadOrchestration();
+    } catch (error) { toast(error.message || '路由设置保存失败'); }
+  };
+}
+
 function openSettingsHub() {
   closePopover();
   state.popoverFor = 'settings';
@@ -1705,12 +1808,14 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-sound">提示音设置</button>
     <button class="pop-item" id="settings-shortcut">快捷键设置</button>
     <button class="pop-item" id="settings-theme">主题设置</button>
+    <button class="pop-item" id="settings-autopilot-routing">AI 智能执行调度</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
   pop.querySelector('#settings-sound').onclick = openSoundSettings;
   pop.querySelector('#settings-shortcut').onclick = openShortcutSettings;
   pop.querySelector('#settings-theme').onclick = openThemeSettings;
+  pop.querySelector('#settings-autopilot-routing').onclick = openRoutingSettings;
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
