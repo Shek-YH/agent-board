@@ -40,9 +40,30 @@ test('verified dispatch route remains scoped to Codex and Hermes POC agents', ()
   const route = serverSource.slice(routeStart, routeEnd >= 0 ? routeEnd : routeStart + 9000);
   assert.match(route, /createVerifiedDispatchDependencies/);
   assert.match(route, /!request\.sessionRef && !request\.project/);
-  const dependencyFactory = serverSource.slice(serverSource.indexOf('function createVerifiedDispatchDependencies'), routeStart);
-  assert.match(dependencyFactory, /agent === 'codex'/);
-  assert.match(dependencyFactory, /agent === 'hermes'/);
+  const factoryStart = serverSource.indexOf('function createVerifiedDispatchDependencies');
+  const factoryEnd = serverSource.indexOf('\nfunction verifiedDispatchHttpStatus', factoryStart);
+  const dependencyFactory = serverSource.slice(factoryStart, factoryEnd);
+  assert.match(dependencyFactory, /AGENT_CAPABILITY_REGISTRY\.get\(agent\)/);
+  assert.doesNotMatch(dependencyFactory, /if \(agent === 'codex'\)/);
+  assert.doesNotMatch(dependencyFactory, /if \(agent === 'hermes'\)/);
   assert.doesNotMatch(route, /model/);
   assert.doesNotMatch(route, /retry/i);
+});
+
+test('verified dispatch dependencies are resolved from the capability registry', () => {
+  assert.match(serverSource, /require\('\.\/lib\/capability-layer'\)/);
+  assert.match(serverSource, /createCapabilityRegistry\(/);
+  assert.match(serverSource, /AGENT_CAPABILITY_REGISTRY\.get\(agent\)/);
+
+  const factoryStart = serverSource.indexOf('function createVerifiedDispatchDependencies');
+  const factoryEnd = serverSource.indexOf('\nfunction verifiedDispatchHttpStatus', factoryStart);
+  const factory = serverSource.slice(factoryStart, factoryEnd);
+  assert.doesNotMatch(factory, /if \(agent === 'codex'\)/);
+  assert.doesNotMatch(factory, /if \(agent === 'hermes'\)/);
+});
+
+test('capability report is exposed as a read-only safe API', () => {
+  assert.match(serverSource, /pathname === '\/api\/capabilities' && req\.method === 'GET'/);
+  assert.match(serverSource, /AGENT_CAPABILITY_REGISTRY\.report\(\)/);
+  assert.doesNotMatch(serverSource, /pathname === '\/api\/capabilities'[\s\S]{0,500}(POST|PUT|DELETE)/);
 });

@@ -52,6 +52,7 @@ const { createCodexWriter, verifyCodexDraft, verifyCodexDesktopSession } = requi
 const { createHermesWriter, verifyHermesDraft, verifyHermesDesktopSession } = require('./lib/hermes-desktop-uia');
 const { createCodexDeliveryReader } = require('./lib/codex-delivery');
 const { createHermesDeliveryReader } = require('./lib/hermes-delivery');
+const { createCapabilityRegistry } = require('./lib/capability-layer');
 const { enrichVerifiedTarget } = require('./lib/verified-dispatch-target');
 const detectionCatalog = require('./lib/agent-detection-catalog');
 const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
@@ -531,33 +532,32 @@ function resolveVerifiedSession(request) {
 }
 
 function createVerifiedDispatchDependencies(agent) {
-  if (agent === 'codex') {
-    const writer = createCodexWriter();
-    const deliveryReader = createCodexDeliveryReader();
-    return {
-      resolveSession: resolveVerifiedSession,
-      verifySession: (target) => verifyCodexDesktopSession(target),
-      activateSession: activateVerifiedSession,
-      captureDeliverySnapshot: (target) => deliveryReader.snapshot(target),
-      writer,
-      verifyDraft: (target, message) => verifyCodexDraft(target, message),
-      verifyDelivery: (target, message, context) => deliveryReader.verify(target, message, context),
-    };
-  }
-  if (agent === 'hermes') {
-    const writer = createHermesWriter();
-    const deliveryReader = createHermesDeliveryReader();
-    return {
-      resolveSession: resolveVerifiedSession,
-      verifySession: (target) => verifyHermesDesktopSession(target),
-      activateSession: activateVerifiedSession,
-      captureDeliverySnapshot: (target) => deliveryReader.snapshot(target),
-      writer,
-      verifyDraft: (target, message) => verifyHermesDraft(target, message),
-      verifyDelivery: (target, message, context) => deliveryReader.verify(target, message, context),
-    };
-  }
-  return null;
+  const set = AGENT_CAPABILITY_REGISTRY.get(agent);
+  if (!set) return null;
+
+  const required = [
+    'sessionLocator',
+    'sessionActivator',
+    'identityVerifier',
+    'messageWriter',
+    'deliveryVerifier',
+  ].map((name) => set.get(name));
+  if (required.some((capability) => !capability || !capability.supported)) return null;
+
+  const locator = set.get('sessionLocator').implementation;
+  const activator = set.get('sessionActivator').implementation;
+  const verifier = set.get('identityVerifier').implementation;
+  const writer = set.get('messageWriter').implementation;
+  const delivery = set.get('deliveryVerifier').implementation;
+  return {
+    resolveSession: locator,
+    verifySession: verifier,
+    activateSession: activator,
+    captureDeliverySnapshot: (target) => delivery.snapshot(target),
+    writer,
+    verifyDraft: (target, message) => writer.verifyDraft(target, message),
+    verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
+  };
 }
 
 function verifiedDispatchHttpStatus(result) {
@@ -898,6 +898,99 @@ function focusWorkBuddyWindow(attempt = 0) {
   });
 }
 const ADAPTERS = [claude, codex, workbuddy, deepseek, marvis, zcode, pi, hermes];
+
+function unsupportedCapability(reason) {
+  return {
+    supported: false,
+    implementation: null,
+    source: 'unavailable',
+    reason,
+  };
+}
+
+function readerCapability(adapter) {
+  const supported = typeof adapter.scanAll === 'function' && typeof adapter.poll === 'function';
+  return supported
+    ? { supported: true, implementation: adapter, source: 'adapter' }
+    : unsupportedCapability('Adapter 没有完整的 scanAll/poll Conversation Reader');
+}
+
+function completionCapability(adapter) {
+  const methods = [
+    'parseLines',
+    'parseSessionRows',
+    'parseSessionStatus',
+    'checkDesktopIdle',
+    'isDeepSeekIdleComplete',
+    'scanHeartbeats',
+    'scanSessionStatuses',
+  ].filter((name) => typeof adapter[name] === 'function');
+  return methods.length
+    ? { supported: true, implementation: adapter, source: 'adapter', methods }
+    : unsupportedCapability('Adapter 尚未暴露独立的 Completion Detector 入口');
+}
+
+const VERIFIED_CAPABILITY_BINDINGS = {
+  codex() {
+    const writer = createCodexWriter();
+    const delivery = createCodexDeliveryReader();
+    return {
+      sessionActivator: { supported: true, implementation: activateVerifiedSession, source: 'deep-link' },
+      identityVerifier: { supported: true, implementation: verifyCodexDesktopSession, source: 'uia' },
+      messageWriter: {
+        supported: true,
+        implementation: {
+          write: writer.write,
+          send: writer.send,
+          verifyDraft: verifyCodexDraft,
+        },
+        source: 'uia',
+      },
+      deliveryVerifier: { supported: true, implementation: delivery, source: 'delivery-reader' },
+    };
+  },
+  hermes() {
+    const writer = createHermesWriter();
+    const delivery = createHermesDeliveryReader();
+    return {
+      sessionActivator: { supported: true, implementation: activateVerifiedSession, source: 'deep-link' },
+      identityVerifier: { supported: true, implementation: verifyHermesDesktopSession, source: 'uia' },
+      messageWriter: {
+        supported: true,
+        implementation: {
+          write: writer.write,
+          send: writer.send,
+          verifyDraft: verifyHermesDraft,
+        },
+        source: 'uia',
+      },
+      deliveryVerifier: { supported: true, implementation: delivery, source: 'delivery-reader' },
+    };
+  },
+};
+
+function capabilityDefinitionsForAdapter(adapter) {
+  const unsupported = unsupportedCapability('Slice 1 尚未为 ' + adapter.ID + ' 接入该能力');
+  const definitions = {
+    sessionLocator: { supported: true, implementation: resolveVerifiedSession, source: 'core' },
+    sessionActivator: unsupported,
+    conversationReader: readerCapability(adapter),
+    identityVerifier: unsupported,
+    messageWriter: unsupported,
+    deliveryVerifier: unsupported,
+    completionDetector: completionCapability(adapter),
+  };
+  const bindingFactory = VERIFIED_CAPABILITY_BINDINGS[adapter.ID];
+  return bindingFactory ? { ...definitions, ...bindingFactory() } : definitions;
+}
+
+const AGENT_CAPABILITY_REGISTRY = createCapabilityRegistry(
+  ADAPTERS.map((adapter) => ({
+    agentId: adapter.ID,
+    capabilities: capabilityDefinitionsForAdapter(adapter),
+  })),
+);
+
 // 只探测条目不参与 scanAll / fs.watch；它们仅用于应用管理，后续补齐正式 adapter
 // 后从这个目录迁入即可。
 const PROBE_ONLY_ADAPTERS = detectionCatalog;
@@ -1424,6 +1517,12 @@ const server = http.createServer(async (req, res) => {
       sseClients: sseClients.size,
       checkedAt: new Date().toISOString(),
     }));
+    return;
+  }
+
+  if (pathname === '/api/capabilities' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ items: AGENT_CAPABILITY_REGISTRY.report() }));
     return;
   }
 
