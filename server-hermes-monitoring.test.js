@@ -17,6 +17,7 @@ test('Hermes 兜底扫描间隔与看板刷新一致为 5 秒', () => {
 });
 
 test('Hermes 扫描读取 session 级终态字段', () => {
-  assert.match(hermesSource, /SELECT id, title, cwd, profile_name, ended_at, end_reason, last_activity_at FROM sessions/);
-  assert.match(hermesSource, /parseSessionStatus\(session, latestMessage\)/);
+  assert.match(hermesSource, /function sessionQueries\(db\)/);
+  assert.match(hermesSource, /column\('ended_at'\)/);
+  assert.match(hermesSource, /parseSessionStatus\(sessionForRows, latestMessage, topologyOverride\)/);
 });
