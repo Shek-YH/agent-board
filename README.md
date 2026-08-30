@@ -24,6 +24,7 @@
 - **应用管理**：实时探测 Agent 安装状态；每个 Agent 都可以自动配置真实可执行文件路径，未安装时点击“打开下载页”跳转到官方下载入口；内置 Agent Board 安装 Skill，可让 AI 先询问安装范围后协助下载和安装
 - **瀑布流列联动**：首页默认只显示"已安装或有历史会话数据"的 Agent 列，用户手动配置过的列设置不受影响
 - **用户路径覆盖**：`~/.agent-board/tool-paths.json` 可手动指定某个命令行工具的真实安装路径，用于覆盖非标准安装位置探测不到的情况
+- **数据源路径校准**：会话采集默认跟随当前用户的 `USERPROFILE`、`APPDATA` 和 `LOCALAPPDATA`，不依赖某台电脑的绝对路径；非标准位置可在 `~/.agent-board/source-paths.json` 中按 Agent 覆盖，修改后重启 Agent Board，再点击顶栏“重新扫描全部数据源”
 - **运行时诊断身份**：`/api/state` 额外返回 server 启动时冻结的 `runtime` 身份（项目根目录、入口、Node、PID、启动时间和 `server.js` SHA-256），用于区分当前源码服务与旧目录常驻进程
 - **健康诊断**：`/api/health` 返回当前运行实例、采集器目录是否存在、最近扫描/监听时间和错误摘要，不返回会话正文
 - **可靠重扫**：顶栏重扫会真正扫描全部历史文件，不受首次启动的 30 天窗口限制；文件监听之外还有定时快照校准，目录晚创建、文件替换、删除和 WAL 重建都能被补偿
@@ -75,6 +76,35 @@ node --test
 ```
 
 不要带路径参数（`node --test lib/` 在这套 Windows/Node 环境下会抛 `MODULE_NOT_FOUND`）。
+
+### 数据源路径配置
+
+默认路径会按当前运行用户和平台解析。若某个 Agent 把数据放在非默认位置，在配置目录创建 `source-paths.json`；Windows 默认配置目录为 `%USERPROFILE%\.agent-board`，也可用 `AB_CONFIG_DIR` 指定。
+
+```json
+{
+  "claude": "D:\\AgentData\\claude-projects",
+  "codex": {
+    "root": "D:\\AgentData\\codex-sessions",
+    "sessionIndex": "D:\\AgentData\\codex-index.jsonl"
+  },
+  "workbuddy": {
+    "root": "D:\\AgentData\\workbuddy-projects",
+    "heartbeatDir": "D:\\AgentData\\workbuddy-heartbeats",
+    "db": "D:\\AgentData\\workbuddy.db"
+  },
+  "deepseek": "D:\\AgentData\\deepseek-sessions",
+  "marvis": "D:\\AgentData\\marvis\\User",
+  "zcode": "D:\\AgentData\\zcode-db",
+  "pi": "D:\\AgentData\\pi-sessions",
+  "hermes": {
+    "root": "D:\\AgentData\\hermes",
+    "db": "D:\\AgentData\\hermes\\state.db"
+  }
+}
+```
+
+`/api/health` 会返回实际使用的采集器根目录和当前配置文件位置；配置只影响 Agent Board 读取，不会移动、修改或删除第三方 Agent 数据。
 
 ## 项目结构
 

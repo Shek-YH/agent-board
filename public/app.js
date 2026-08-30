@@ -1206,7 +1206,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
-  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents')) closePopover();
+  if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents') && !e.target.closest('#btn-logout')) closePopover();
 });
 
 /* ---------- 详情抽屉 ---------- */
@@ -1542,6 +1542,7 @@ async function openHiddenManager() {
   } catch (error) { pop.innerHTML = `<div style="padding:12px;color:var(--text3)">加载失败：${esc(error.message || '请求失败')}</div>`; }
 }
 $('btn-hidden').onclick = openHiddenManager;
+$('btn-logout').onclick = logoutFromBoard;
 
 /* ---------- 设置面板（集中入口） ---------- */
 function themeOptionMarkup(theme, selectedTheme, resolvedTheme, previewTheme) {
@@ -1638,6 +1639,199 @@ function openSettingsHub() {
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
   pop.querySelector('#settings-launch').onclick = () => openLaunchOverridesManager();
+}
+
+function desktopCloudApi() {
+  const cloud = window.AgentBoardDesktop?.cloud;
+  return cloud && typeof cloud.getStatus === 'function' ? cloud : null;
+}
+
+function authErrorMessage(error, fallback = '操作失败') {
+  const code = error?.code || '';
+  const messages = {
+    AUTH_INVALID_CREDENTIALS: '邮箱或密码不正确',
+    USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: '该邮箱已注册，请直接登录',
+    INVALID_REDEMPTION_CODE: '激活码无效',
+    REDEMPTION_ALREADY_USED: '激活码已经使用过了',
+    REDEMPTION_EXPIRED: '激活码已过期',
+    REDEMPTION_REVOKED: '激活码已失效',
+    PLAN_DISABLED: '激活码对应的方案已停用',
+    PRODUCT_DISABLED: '激活码对应的产品已停用',
+    INVALID_USER_EMAIL: '请输入有效的邮箱地址',
+    INVALID_USER_PASSWORD: '密码至少需要 8 位',
+    CLOUD_NETWORK_UNAVAILABLE: '暂时无法连接云端，请检查网络后重试',
+    REGISTRATION_UNAVAILABLE: '注册服务暂不可用，请稍后重试',
+  };
+  return messages[code] || error?.message || fallback;
+}
+
+function renderDesktopAuthGate(gate, cloud, initialMessage = '') {
+  gate.innerHTML = `<div class="desktop-auth-shell">
+    <div class="desktop-auth-brand">
+      <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 5h16v14H4z" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+      <div><strong>Agent Board</strong><small>登录后开始使用</small></div>
+    </div>
+    <div class="desktop-auth-tabs" role="tablist">
+      <button class="desktop-auth-tab active" type="button" data-auth-view="login">登录</button>
+      <button class="desktop-auth-tab" type="button" data-auth-view="register">注册</button>
+    </div>
+    <form class="desktop-auth-form" id="desktop-auth-login">
+      <label>邮箱<input name="email" type="email" autocomplete="username" required placeholder="name@example.com"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码"></label>
+      <button class="btn primary desktop-auth-submit" type="submit">登录并进入 Agent Board</button>
+      <button class="btn" id="desktop-auth-forgot" type="button">忘记密码</button>
+    </form>
+    <form class="desktop-auth-form" id="desktop-auth-register" hidden>
+      <label>邮箱<input name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label>
+      <label>密码<input name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="至少 8 位"></label>
+      <label>确认密码<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required placeholder="再次输入密码"></label>
+      <label>激活码<input name="activationCode" autocomplete="off" required placeholder="请输入有效激活码"></label>
+      <button class="btn primary desktop-auth-submit" type="submit">验证激活码并注册</button>
+    </form>
+    <div class="desktop-auth-error" role="alert">${esc(initialMessage)}</div>
+    <div class="desktop-auth-help">注册必须填写激活码。激活码验证通过后才会创建账号。</div>
+  </div>`;
+  gate.hidden = false;
+  const errorNode = gate.querySelector('.desktop-auth-error');
+  const loginForm = gate.querySelector('#desktop-auth-login');
+  const registerForm = gate.querySelector('#desktop-auth-register');
+  const tabs = [...gate.querySelectorAll('.desktop-auth-tab')];
+  const setError = (message) => { errorNode.textContent = message || ''; };
+  const setBusy = (form, busy) => {
+    form.querySelectorAll('input,button').forEach((node) => { node.disabled = busy; });
+  };
+  const switchView = (view) => {
+    const register = view === 'register';
+    loginForm.hidden = register;
+    registerForm.hidden = !register;
+    tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.authView === view));
+    setError('');
+  };
+  tabs.forEach((tab) => { tab.onclick = () => switchView(tab.dataset.authView); });
+
+  const complete = () => {
+    if (typeof gate._authDone === 'function') gate._authDone();
+  };
+  loginForm.onsubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setBusy(loginForm, true);
+    try {
+      const result = await cloud.login(loginForm.elements.email.value, loginForm.elements.password.value);
+      if (result?.ok === false) throw result;
+      complete();
+    } catch (error) {
+      setError(authErrorMessage(error, '登录失败，请检查账号信息'));
+      setBusy(loginForm, false);
+    }
+  };
+  registerForm.onsubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (registerForm.elements.password.value !== registerForm.elements.passwordConfirm.value) {
+      setError('两次输入的密码不一致');
+      return;
+    }
+    setBusy(registerForm, true);
+    try {
+      if (typeof cloud.register !== 'function') throw { code: 'REGISTRATION_UNAVAILABLE' };
+      const result = await cloud.register(
+        registerForm.elements.email.value,
+        registerForm.elements.password.value,
+        registerForm.elements.activationCode.value,
+      );
+      if (result?.ok === false) throw result;
+      complete();
+    } catch (error) {
+      setError(authErrorMessage(error, '注册失败，请检查激活码和账号信息'));
+      setBusy(registerForm, false);
+    }
+  };
+  const forgotButton = gate.querySelector('#desktop-auth-forgot');
+  if (forgotButton && typeof cloud.requestPasswordReset === 'function') {
+    forgotButton.onclick = async () => {
+      const email = loginForm.elements.email.value.trim();
+      if (!email) { setError('请先填写邮箱'); return; }
+      forgotButton.disabled = true;
+      setError('正在发送重置邮件…');
+      try {
+        await cloud.requestPasswordReset(email);
+        setError('如果邮箱已注册，重置链接将发送到你的邮箱。');
+      } catch (error) {
+        setError(authErrorMessage(error, '发送失败，请稍后重试'));
+      } finally {
+        forgotButton.disabled = false;
+      }
+    };
+  } else if (forgotButton) {
+    forgotButton.remove();
+  }
+}
+
+async function showDesktopAuthenticationGate(cloud, message) {
+  const gate = $('desktop-auth-gate');
+  if (!gate) return false;
+  await new Promise((resolve) => {
+    gate._authDone = resolve;
+    renderDesktopAuthGate(gate, cloud, message);
+  });
+  gate._authDone = null;
+  gate.hidden = true;
+  gate.innerHTML = '';
+  return true;
+}
+
+async function ensureDesktopAuthentication() {
+  const cloud = desktopCloudApi();
+  if (!cloud) return true;
+  let status;
+  try {
+    status = await cloud.getStatus();
+  } catch (error) {
+    status = { configured: true, authenticated: false, errorMessage: authErrorMessage(error, '云端状态读取失败') };
+  }
+  if (!status?.configured || status.authenticated) return true;
+  await showDesktopAuthenticationGate(cloud, status.errorMessage || '请登录或注册后继续使用');
+  return true;
+}
+
+async function logoutFromBoard() {
+  const cloud = desktopCloudApi();
+  const button = $('btn-logout');
+  if (!cloud) {
+    toast('当前运行环境未配置登录服务');
+    return;
+  }
+  if (button) button.disabled = true;
+  let logoutError = null;
+  try {
+    const result = await cloud.logout();
+    if (result?.ok === false) throw result;
+  } catch (error) {
+    // cloud.logout 会在 finally 中清理本地令牌；即使云端同步失败，也必须回到登录界面。
+    logoutError = error;
+  }
+  closePopover();
+  const shown = await showDesktopAuthenticationGate(cloud, '已退出登录，请重新登录');
+  if (logoutError) toast(`已清除本地登录状态，但云端同步失败：${authErrorMessage(logoutError, '请稍后重试')}`);
+  else if (!shown) toast('退出成功，但登录界面不可用');
+  if (button) button.disabled = false;
+}
+
+async function requestLocalAccount(path, options) {
+  const api = typeof requestJson === 'function'
+    ? requestJson
+    : async (url, options) => {
+      const response = await fetch(url, options);
+      const status = await response.json();
+      if (!response.ok || status.error) throw new Error(status.error || ('HTTP ' + response.status));
+      return status;
+    };
+  return api(path, options);
+}
+
+async function fetchLocalAccountStatus() {
+  return requestLocalAccount('/api/account/status');
 }
 
 function renderAccountSettings(pop, status) {
