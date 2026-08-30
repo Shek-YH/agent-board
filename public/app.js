@@ -974,12 +974,13 @@ function buildCard(s, colKey, groupContext = null) {
     </div>
     <div class="s-actions">
       <button class="s-more" data-action="session-menu" data-ref="${esc(s.id)}" title="更多操作">···</button>
+      ${subagentToggleHtml}
       ${recent ? '<button class="s-flow-dismiss" title="取消「刚完成」流光高亮，恢复普通已完成样式"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>已读</button>' : ''}
       <button type="button" class="s-jump" data-action="jump-session" data-ref="${esc(s.id)}" data-session-id="${esc(sessionId)}" data-agent="${esc(s.agent)}" aria-label="跳转到 ${esc(meta.name||s.agent)}" title="跳转到 ${esc(meta.name||s.agent)}">
         ${iconHtml}
       </button>
     </div>
-    ${subagentToggleHtml}`;
+    `;
   if (groupContext) card.classList.add('has-subagent-toggle', 'stack-main-card');
   card.addEventListener('click', (e) => {
     if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss') || e.target.closest('.s-subagent-toggle')) return;
