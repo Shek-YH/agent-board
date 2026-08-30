@@ -25,3 +25,14 @@ test('Electron 主进程接入最近完成任务快捷键事件和独立配置',
   assert.match(preload, /onJumpToLatestCompleted/);
   assert.match(preload, /shortcut:jump-latest-completed/);
 });
+
+test('Electron 主进程使用 safeStorage 管理 Provider Key，并只向渲染层暴露安全状态', () => {
+  assert.match(source, /createSecureStore/);
+  assert.match(source, /safeStorage/);
+  assert.match(source, /provider:status/);
+  assert.match(source, /provider:set-api-key/);
+  assert.match(source, /provider:clear-api-key/);
+  assert.match(source, /backendEnvironment/);
+  assert.match(preload, /setApiKey/);
+  assert.match(preload, /clearApiKey/);
+});

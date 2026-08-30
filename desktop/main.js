@@ -28,6 +28,11 @@ const {
   loadShortcutSettings,
   saveShortcutSettings,
 } = require('./shortcut-settings');
+const {
+  createSecureStore,
+  SUPPORTED_PROVIDERS,
+  providerEnvName,
+} = require('./secure-store');
 
 let mainWindow = null;
 let tray = null;
@@ -35,6 +40,7 @@ let backend = null;
 let backendContext = null;
 let localUrl = '';
 let quitting = false;
+let providerStore = null;
 const LATEST_COMPLETED_JUMP_CHANNEL = 'shortcut:jump-latest-completed';
 let pendingLatestCompletedJump = false;
 const shortcutController = createGlobalShortcutController({
@@ -57,6 +63,46 @@ function writeDesktopLog(message) {
   } catch {
     // Logging must never prevent the app from showing an error or exiting.
   }
+}
+
+function getProviderStore() {
+  if (!providerStore) {
+    providerStore = createSecureStore({
+      safeStorage,
+      filePath: path.join(app.getPath('userData'), 'provider-keys.json'),
+    });
+  }
+  return providerStore;
+}
+
+function getProviderStoreStatus() {
+  try {
+    return getProviderStore().status();
+  } catch (error) {
+    return { available: false, configuredProviders: [], activeProvider: null, code: error.code || 'SECURE_STORE_UNAVAILABLE' };
+  }
+}
+
+function backendEnvironment() {
+  const env = { ...process.env };
+  try {
+    const store = getProviderStore();
+    for (const provider of SUPPORTED_PROVIDERS) {
+      const apiKey = store.getProviderApiKey(provider);
+      if (apiKey) env[providerEnvName(provider)] = apiKey;
+    }
+    const activeProvider = store.getActiveProvider();
+    if (activeProvider && !String(env.AGENT_BOARD_SUPERVISOR_PROVIDER || '').trim()) {
+      env.AGENT_BOARD_SUPERVISOR_PROVIDER = activeProvider;
+    }
+  } catch (error) {
+    writeDesktopLog(`Provider 安全存储不可用：${error.code || 'SECURE_STORE_UNAVAILABLE'}`);
+  }
+  return env;
+}
+
+function providerIpcFailure(error) {
+  return { ok: false, code: error?.code || 'SECURE_STORE_OPERATION_FAILED', error: 'Provider 安全存储操作失败' };
 }
 
 function showMainWindow() {
@@ -152,7 +198,7 @@ async function startBackendProcess() {
     backendEntry: backendContext.paths.backendEntry,
     port: backendContext.port,
     dataDir: backendContext.paths.dataDir,
-    env: process.env,
+    env: backendEnvironment(),
   });
   backend = startBackend(launch);
   backend.child.stdout.on('data', chunk => writeDesktopLog(chunk.toString()));
@@ -277,6 +323,40 @@ function showWorkBuddyCompletionNotification(input = {}) {
 }
 
 ipcMain.handle('notification:completion', (_event, input) => showWorkBuddyCompletionNotification(input));
+
+ipcMain.handle('provider:status', () => ({ ok: true, ...getProviderStoreStatus() }));
+
+ipcMain.handle('provider:set-api-key', async (_event, input) => {
+  try {
+    const result = getProviderStore().setProviderApiKey(input?.provider, input?.apiKey);
+    if (backendContext) {
+      try {
+        await restartBackend();
+      } catch {
+        return { ok: false, code: 'BACKEND_RESTART_FAILED', error: 'Provider 已安全保存，但后端重启失败' };
+      }
+    }
+    return { ok: true, ...result };
+  } catch (error) {
+    return providerIpcFailure(error);
+  }
+});
+
+ipcMain.handle('provider:clear-api-key', async (_event, input) => {
+  try {
+    const result = getProviderStore().clearProviderApiKey(input?.provider);
+    if (backendContext) {
+      try {
+        await restartBackend();
+      } catch {
+        return { ok: false, code: 'BACKEND_RESTART_FAILED', error: 'Provider 已安全清除，但后端重启失败' };
+      }
+    }
+    return { ok: true, ...result };
+  } catch (error) {
+    return providerIpcFailure(error);
+  }
+});
 
 async function quitApplication() {
   if (quitting) return;

@@ -85,6 +85,10 @@ test('AI monitor exposes provider readiness without rendering credentials', () =
   assert.match(html, /id="ai-provider-config"/);
   assert.match(app, /providerConfig/);
   assert.match(app, /Provider 配置状态/);
+  assert.match(app, /safeStorage/);
+  assert.match(app, /setApiKey/);
+  assert.match(app, /clearApiKey/);
+  assert.doesNotMatch(app, /secureProvider\.apiKey/);
   assert.doesNotMatch(app, /providerConfig[^\n]*(apiKey|token|secret)/i);
 });
 

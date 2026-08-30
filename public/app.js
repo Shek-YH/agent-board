@@ -30,7 +30,7 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   monitorMode: 'manual',
-  orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null },
+  orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null, secureProvider: null },
 };
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
@@ -237,6 +237,8 @@ async function loadOrchestration() {
       requestJson('/api/orchestration/routing/catalog').catch(() => null),
       requestJson('/api/capabilities').catch(() => null),
     ]);
+    const secureProvider = typeof window.AgentBoardDesktop?.provider?.getStatus === 'function'
+      ? await window.AgentBoardDesktop.provider.getStatus().catch(() => null) : null;
     state.orchestration = {
       workflows: Array.isArray(data.workflows) ? data.workflows : [],
       capabilities: data.capabilities || {}, allowedRoots: data.allowedRoots || [],
@@ -244,6 +246,7 @@ async function loadOrchestration() {
       headlessEnabled: data.headlessEnabled === true,
       jarvisVoice: data.jarvisVoice || null,
       providerConfig: data.providerConfig || null,
+      secureProvider,
       routingCapabilities: routingCatalog?.capabilities || data.routingCapabilities || {},
       routingCatalog: routingCatalog && routingCatalog.catalog ? {
         ...routingCatalog.catalog,
@@ -311,12 +314,45 @@ function renderAIMonitor() {
   const providerBox = $('ai-provider-config');
   if (providerBox) {
     const provider = data.providerConfig || {};
+    const secureProvider = data.secureProvider || {};
     const status = (item, readyLabel, missingLabel) => `<span class="${item?.available ? 'ready' : 'missing'}">${item?.available ? readyLabel : missingLabel}</span>`;
     const supervisor = provider.supervisor || {};
     const worker = provider.workerRouting || {};
+    const providerLabels = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', deepseek: 'DeepSeek', openrouter: 'OpenRouter', 'openai-compatible': 'OpenAI-compatible' };
+    const providerOptions = Object.entries(providerLabels).map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
+    const configured = Array.isArray(secureProvider.configuredProviders) ? secureProvider.configuredProviders : [];
+    const configuredLabel = configured.length ? configured.map((item) => providerLabels[item] || item).join('、') : '暂无';
+    const providerBridge = window.AgentBoardDesktop?.provider;
+    const secureEditor = providerBridge
+      ? `<form class="ai-provider-key-form" id="ai-provider-key-form"><label>Supervisor API Key（Electron safeStorage）<select id="ai-provider-key-provider">${providerOptions}</select><input id="ai-provider-key" type="password" autocomplete="new-password" placeholder="仅写入本机安全存储" required></label><div class="ai-provider-key-actions"><button type="submit" class="btn primary">安全保存</button><button type="button" class="btn" id="ai-provider-key-clear">清除选中 Key</button></div></form>`
+      : '<div class="ai-provider-note">当前为浏览器模式；Provider Key 请通过服务端环境变量配置。</div>';
     providerBox.innerHTML = `<div class="ai-provider-row"><strong>Supervisor</strong><span>${esc(supervisor.providerName || supervisor.provider || '未选择供应商')} · ${esc(supervisor.model || '默认模型')}</span>${status(supervisor, '凭据已配置', '未配置凭据')}</div>
       <div class="ai-provider-row"><strong>Worker Routing</strong><span>${esc(worker.providerName || worker.provider || '由 Agent Adapter 决定')} · ${esc(worker.model || '自动选择')}</span>${status(worker, '已启用', '未启用')}</div>
-      <div class="ai-provider-note">API Key 仅从服务端环境读取，不在浏览器保存或回显；基础 AutoPilot：${provider.baseAutoPilot?.blocking === false ? '不受 Provider 配置阻塞' : '请检查配置'}。</div>`;
+      <div class="ai-provider-note">安全存储：${secureProvider.available ? 'Electron safeStorage 可用' : '不可用'} · 已配置：${esc(configuredLabel)}${secureProvider.activeProvider ? ` · 当前 Supervisor：${esc(providerLabels[secureProvider.activeProvider] || secureProvider.activeProvider)}` : ''}。Key 不会回显；基础 AutoPilot：${provider.baseAutoPilot?.blocking === false ? '不受 Provider 配置阻塞' : '请检查配置'}。</div>${secureEditor}`;
+    if (providerBridge) {
+      const providerSelect = providerBox.querySelector('#ai-provider-key-provider');
+      if (secureProvider.activeProvider && providerLabels[secureProvider.activeProvider]) providerSelect.value = secureProvider.activeProvider;
+      providerBox.querySelector('#ai-provider-key-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const input = providerBox.querySelector('#ai-provider-key');
+        try {
+          const result = await providerBridge.setApiKey(providerSelect.value, input.value);
+          if (!result?.ok) throw new Error(result?.error || 'Provider Key 保存失败');
+          input.value = '';
+          toast('Provider Key 已通过 safeStorage 保存，后端已重启');
+          await loadOrchestration();
+        } catch (error) { toast(error.message || 'Provider Key 保存失败'); }
+      });
+      providerBox.querySelector('#ai-provider-key-clear')?.addEventListener('click', async () => {
+        if (!window.confirm('确认清除当前 Provider 的本机安全凭据？')) return;
+        try {
+          const result = await providerBridge.clearApiKey(providerSelect.value);
+          if (!result?.ok) throw new Error(result?.error || 'Provider Key 清除失败');
+          toast('Provider Key 已清除，后端已重启');
+          await loadOrchestration();
+        } catch (error) { toast(error.message || 'Provider Key 清除失败'); }
+      });
+    }
   }
 
   const list = $('ai-workflow-list');
@@ -1975,7 +2011,7 @@ function openProviderSettings() {
   const worker = provider.workerRouting || {};
   const line = (label, value) => `<div class="provider-settings-line"><span>${esc(label)}</span><b>${esc(value || '—')}</b></div>`;
   pop.innerHTML = `<div class="pop-head">Provider 配置状态</div>
-    <div class="provider-settings-copy">此处只展示安全状态。API Key 不会进入浏览器，也不会从设置页持久化；修改请通过服务端环境配置完成。</div>
+    <div class="provider-settings-copy">此处只展示安全状态。桌面端 Provider Key 通过 Electron safeStorage 管理，不进入 workflow、日志、Audit 或浏览器持久化；详细管理请在 AI 监控面板操作。</div>
     <div class="provider-settings-section"><strong>Supervisor</strong>${line('供应商', supervisor.providerName || supervisor.provider)}${line('模型', supervisor.model)}${line('Base URL', supervisor.baseUrl)}${line('Temperature', supervisor.temperature)}${line('Context Budget', supervisor.contextBudget)}${line('状态', supervisor.reasonCode)}</div>
     <div class="provider-settings-section"><strong>Worker Routing</strong>${line('供应商', worker.providerName || worker.provider)}${line('模型', worker.model)}${line('状态', worker.reasonCode)}</div>
     <div class="routing-settings-actions"><button type="button" class="btn" id="provider-settings-close">关闭</button></div>`;

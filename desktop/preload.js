@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     return () => ipcRenderer.removeListener('shortcut:jump-latest-completed', listener);
   },
   notifyCompletion: (sessionId) => ipcRenderer.invoke('notification:completion', { sessionId }),
+  provider: Object.freeze({
+    getStatus: () => ipcRenderer.invoke('provider:status'),
+    setApiKey: (provider, apiKey) => ipcRenderer.invoke('provider:set-api-key', { provider, apiKey }),
+    clearApiKey: (provider) => ipcRenderer.invoke('provider:clear-api-key', { provider }),
+  }),
   cloud: Object.freeze({
     getStatus: () => ipcRenderer.invoke('cloud:status'),
     login: (email, password) => ipcRenderer.invoke('cloud:login', { email, password }),

@@ -65,5 +65,10 @@ test('verified dispatch dependencies are resolved from the capability registry',
 test('capability report is exposed as a read-only safe API', () => {
   assert.match(serverSource, /pathname === '\/api\/capabilities' && req\.method === 'GET'/);
   assert.match(serverSource, /AGENT_CAPABILITY_REGISTRY\.report\(\)/);
+  assert.match(serverSource, /adapterVersion/);
+  assert.match(serverSource, /supportedAppVersionRange/);
+  assert.match(serverSource, /selectorProfileVersion/);
+  assert.match(serverSource, /lastProbeResult/);
+  assert.match(serverSource, /modelCatalogProbeAt/);
   assert.doesNotMatch(serverSource, /pathname === '\/api\/capabilities'[\s\S]{0,500}(POST|PUT|DELETE)/);
 });

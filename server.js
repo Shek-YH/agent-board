@@ -1010,8 +1010,23 @@ const AGENT_CAPABILITY_REGISTRY = createCapabilityRegistry(
   ADAPTERS.map((adapter) => ({
     agentId: adapter.ID,
     capabilities: capabilityDefinitionsForAdapter(adapter),
+    metadata: {
+      adapterVersion: adapter.adapterVersion || '1',
+      supportedAppVersionRange: adapter.supportedAppVersionRange || 'unknown',
+      selectorProfileVersion: adapter.selectorProfileVersion || '1',
+    },
   })),
 );
+
+function updateCapabilityProbeMetadata(probes, checkedAt = Date.now()) {
+  for (const adapter of ADAPTERS) {
+    const result = probes && probes[adapter.ID];
+    AGENT_CAPABILITY_REGISTRY.updateMetadata(adapter.ID, {
+      lastProbeAt: checkedAt,
+      lastProbeResult: !result ? 'probe_failed' : result.installed === true ? 'installed' : 'not_installed',
+    });
+  }
+}
 
 // 只探测条目不参与 scanAll / fs.watch；它们仅用于应用管理，后续补齐正式 adapter
 // 后从这个目录迁入即可。
@@ -1100,6 +1115,7 @@ async function getProbe(force = false) {
   probeInFlight = detect.probeAll(PROBE_ADAPTERS)
     .then((data) => {
       probeCache = { data, ts: Date.now() };
+      updateCapabilityProbeMetadata(data, probeCache.ts);
       return data;
     })
     .finally(() => { probeInFlight = null; });
@@ -1185,6 +1201,9 @@ const orchestration = createOrchestrationRuntime({
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
   routingNativeCapability: codexRouting.capability,
   routingAgentVersion: codexRouting.version,
+  routingProbeObserver: (agent) => {
+    AGENT_CAPABILITY_REGISTRY.updateMetadata(agent, { modelCatalogProbeAt: Date.now() });
+  },
 });
 const jarvisVoice = createJarvisVoiceRuntime({ orchestration, env: process.env });
 orchestration.jarvisVoice = jarvisVoice;
