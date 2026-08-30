@@ -75,3 +75,19 @@ test('打包后的 desktop paths 不依赖未打进 app.asar 的 backend lib', (
     fs.rmSync(packageRoot, { recursive: true, force: true });
   }
 });
+
+test('解析 WorkBuddy 插件资源路径', () => {
+  const packaged = resolveDesktopPaths({
+    packaged: true,
+    resourcesPath: 'C:\\App\\resources',
+    homedir: 'C:\\Users\\test',
+  });
+  assert.equal(packaged.workbuddyPluginSource, path.join('C:\\App\\resources', 'integrations', 'agent-board-workbuddy'));
+
+  const development = resolveDesktopPaths({
+    packaged: false,
+    projectRoot: 'C:\\work\\agent-board',
+    homedir: 'C:\\Users\\test',
+  });
+  assert.equal(development.workbuddyPluginSource, path.join('C:\\work\\agent-board', 'integrations', 'agent-board-workbuddy'));
+});

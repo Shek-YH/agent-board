@@ -17,6 +17,8 @@ const required = [
   'resources/backend/public/api-client.js',
   'resources/backend/tools/wf.dll',
   'resources/runtime/node.exe',
+  'resources/integrations/agent-board-workbuddy/.codebuddy-plugin/plugin.json',
+  'resources/integrations/agent-board-workbuddy/scripts/status-hook.mjs',
 ];
 const forbiddenPathPattern = /[A-Za-z]:[\\/]+Users[\\/]+[^\\/\\r\\n"'<>]+[\\/]+(?:WorkBuddy|AppData|Desktop|Documents|Downloads)[\\/]/i;
 

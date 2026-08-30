@@ -11,3 +11,8 @@ test('安装包校验不携带当前开发机绝对路径', () => {
   assert.doesNotMatch(source, /C:\\Users\\Administrator/i);
   assert.match(source, /forbiddenPathPattern/i);
 });
+
+test('安装包校验覆盖 WorkBuddy 自动初始化所需的插件资源', () => {
+  assert.match(source, /resources\/integrations\/agent-board-workbuddy\/\.codebuddy-plugin\/plugin\.json/);
+  assert.match(source, /resources\/integrations\/agent-board-workbuddy\/scripts\/status-hook\.mjs/);
+});

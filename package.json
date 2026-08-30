@@ -9,7 +9,7 @@
     "desktop:dev": "electron .",
     "desktop:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1",
     "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
-    "desktop:verify": "node tools/verify-package.js dist/win-unpacked"
+    "desktop:verify": "node tools/verify-package.js"
   },
   "license": "UNLICENSED",
   "dependencies": {},
@@ -27,6 +27,7 @@
     "files": [
       "desktop/**/*",
       "lib/runtime-paths.js",
+      "lib/workbuddy-plugin.js",
       "integrations/**/*",
       "package.json",
       "LICENSE"
@@ -38,7 +39,8 @@
       { "from": "marvis-launch.bat", "to": "backend/marvis-launch.bat" },
       { "from": "zcode-launch.bat", "to": "backend/zcode-launch.bat" },
       { "from": "tools/wf.dll", "to": "backend/tools/wf.dll" },
-      { "from": "runtime/node.exe", "to": "runtime/node.exe" }
+      { "from": "runtime/node.exe", "to": "runtime/node.exe" },
+      { "from": "integrations/agent-board-workbuddy", "to": "integrations/agent-board-workbuddy" }
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],

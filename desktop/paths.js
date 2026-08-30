@@ -20,10 +20,14 @@ function resolveDesktopPaths({
   const backendRoot = packaged
     ? path.join(resourcesPath, 'backend')
     : pathApi.resolve(projectRoot);
+  const workbuddyPluginSource = packaged
+    ? path.join(resourcesPath, 'integrations', 'agent-board-workbuddy')
+    : pathApi.resolve(projectRoot, 'integrations', 'agent-board-workbuddy');
   const dataDir = getDataDir({ env, homedir, platform });
   return {
     backendRoot,
     backendEntry: path.join(backendRoot, 'server.js'),
+    workbuddyPluginSource,
     nodeRuntime: packaged
       ? path.join(resourcesPath, 'runtime', platform === 'win32' ? 'node.exe' : 'node')
       : (nonBlank(env.AGENT_BOARD_NODE_RUNTIME)

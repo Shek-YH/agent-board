@@ -23,6 +23,7 @@ const {
   stopBackend,
 } = require('./backend-process');
 const { createGlobalShortcutController } = require('./global-shortcut');
+const { installWorkBuddyPlugin } = require('../lib/workbuddy-plugin');
 const {
   loadShortcutSettings,
   saveShortcutSettings,
@@ -186,6 +187,13 @@ async function startApplication() {
   });
   if (!fs.existsSync(paths.nodeRuntime)) throw new Error(`未找到内置 Node.js：${paths.nodeRuntime}`);
   if (!fs.existsSync(paths.backendEntry)) throw new Error(`未找到 Agent Board 后端：${paths.backendEntry}`);
+  try {
+    const result = installWorkBuddyPlugin({ sourcePath: paths.workbuddyPluginSource });
+    if (result.ok) writeDesktopLog(`WorkBuddy 插件已自动初始化：${result.installPath}`);
+    else writeDesktopLog(`WorkBuddy 插件自动初始化失败：${result.error}`);
+  } catch (error) {
+    writeDesktopLog(`WorkBuddy 插件自动初始化异常：${error.message || '未知错误'}`);
+  }
 
   const port = await findAvailablePort({ preferredPort: 4876 });
   backendContext = { paths, port, backendEntry: paths.backendEntry };
