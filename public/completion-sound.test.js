@@ -41,7 +41,15 @@ test('提示音设置可上传、选择、试听并持久化请求', () => {
   assert.match(source, /new FileReader\(\)/);
   assert.match(source, /\/api\/sounds\/upload/);
   assert.match(source, /\/api\/sounds\/assign/);
-  assert.match(source, /new Audio\(url\)/);
+  assert.match(source, /new Audio\(\)/);
+});
+
+test('提示音播放会预加载并缓存 Audio 对象', () => {
+  assert.match(source, /const soundAudioCache = new Map\(\);/);
+  assert.match(source, /audio\.preload = ['"]auto['"];/);
+  assert.match(source, /audio\.load\(\);/);
+  assert.match(source, /soundAudioCache\.set\(url, audio\);/);
+  assert.match(source, /preloadAssignedSounds\(state\.completionSounds\);/);
 });
 
 test('子代理完成通知只读取子代理作用域，不影响主会话提示音', () => {

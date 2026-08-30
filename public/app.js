@@ -2131,8 +2131,34 @@ function readFileAsDataUrl(file) {
   });
 }
 
+const soundAudioCache = new Map();
+
+function getPreloadedSound(url) {
+  if (typeof url !== 'string' || !url) return null;
+  const cached = soundAudioCache.get(url);
+  if (cached) return cached;
+
+  const audio = new Audio();
+  audio.preload = 'auto';
+  audio.src = url;
+  audio.load();
+  soundAudioCache.set(url, audio);
+  return audio;
+}
+
+function preloadAssignedSounds(settings) {
+  const soundsById = new Map((settings?.sounds || []).map((sound) => [sound.id, sound]));
+  for (const soundId of Object.values(settings?.assignments || {})) {
+    const sound = soundsById.get(soundId);
+    if (sound?.url) getPreloadedSound(sound.url);
+  }
+}
+
 function playSoundPreview(url) {
-  const audio = new Audio(url);
+  const audio = getPreloadedSound(url);
+  if (!audio) return;
+  audio.pause();
+  try { audio.currentTime = 0; } catch {}
   audio.play().catch(() => toast('浏览器阻止了播放，请再次点击试听'));
 }
 
@@ -2217,6 +2243,7 @@ function renderSoundSettings(pop, selectedAgent) {
     try {
       const next = await requestJson('/api/sounds/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: selectedAgent, soundId: soundSelect.value }) });
       state.completionSounds = next;
+      preloadAssignedSounds(state.completionSounds);
       renderSoundSettings(pop, selectedAgent);
       toast(soundSelect.value ? '已设置当前提示音' : '已关闭该 Agent 提示音');
     } catch (error) { toast('保存失败：' + (error.message || '未知错误')); renderSoundSettings(pop, selectedAgent); }
@@ -2233,7 +2260,10 @@ function renderSoundSettings(pop, selectedAgent) {
       try {
         const response = await fetch('/api/sounds/' + encodeURIComponent(soundId), { method: 'DELETE' });
         const next = await readApiResponse(response);
-        if (next) state.completionSounds = next;
+        if (next) {
+          state.completionSounds = next;
+          preloadAssignedSounds(state.completionSounds);
+        }
         else await loadCompletionSounds();
         renderSoundSettings(pop, selectedAgent);
         toast('提示音已删除');
@@ -2252,6 +2282,7 @@ function renderSoundSettings(pop, selectedAgent) {
       const dataUrl = await readFileAsDataUrl(file);
       const result = await requestJson('/api/sounds/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, name: file.name }) });
       state.completionSounds = result.settings;
+      preloadAssignedSounds(state.completionSounds);
       renderSoundSettings(pop, selectedAgent);
       toast('提示音已上传到项目');
     } catch (error) { toast('上传失败：' + (error.message || '未知错误')); }
@@ -2261,6 +2292,7 @@ function renderSoundSettings(pop, selectedAgent) {
 async function loadCompletionSounds() {
   try {
     state.completionSounds = await requestJson('/api/sounds');
+    preloadAssignedSounds(state.completionSounds);
   } catch { state.completionSounds = { assignments: {}, sounds: [], disabledAgents: [], disabledAgentRoles: [] }; }
 }
 
