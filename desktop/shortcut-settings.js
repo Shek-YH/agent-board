@@ -6,6 +6,7 @@ const path = require('node:path');
 const { getConfigDir } = require('../lib/runtime-paths');
 
 const DEFAULT_SHORTCUT = 'Alt+`';
+const DEFAULT_JUMP_SHORTCUT = 'Alt+1';
 
 function normalizeShortcut(value) {
   if (typeof value !== 'string') return null;
@@ -19,23 +20,36 @@ function getShortcutSettingsPath({ env = process.env, homedir = os.homedir(), pl
 }
 
 function defaultSettings() {
-  return { activateApp: DEFAULT_SHORTCUT };
+  return {
+    activateApp: DEFAULT_SHORTCUT,
+    jumpToLatestCompleted: DEFAULT_JUMP_SHORTCUT,
+  };
 }
 
 function loadShortcutSettings(filePath = getShortcutSettingsPath()) {
   try {
     const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    const shortcut = normalizeShortcut(value?.activateApp);
-    return shortcut ? { activateApp: shortcut } : defaultSettings();
+    const defaults = defaultSettings();
+    return {
+      activateApp: normalizeShortcut(value?.activateApp) || defaults.activateApp,
+      jumpToLatestCompleted: normalizeShortcut(value?.jumpToLatestCompleted) || defaults.jumpToLatestCompleted,
+    };
   } catch {
     return defaultSettings();
   }
 }
 
-function saveShortcutSettings(shortcut, filePath = getShortcutSettingsPath()) {
-  const normalized = normalizeShortcut(shortcut);
-  if (!normalized) throw new Error('快捷键不能为空');
-  const settings = { activateApp: normalized };
+function saveShortcutSettings(input, filePath = getShortcutSettingsPath()) {
+  const current = loadShortcutSettings(filePath);
+  const requested = typeof input === 'string' ? { activateApp: input } : input;
+  if (!requested || typeof requested !== 'object') throw new Error('快捷键不能为空');
+  const settings = { ...current };
+  for (const key of ['activateApp', 'jumpToLatestCompleted']) {
+    if (!(key in requested)) continue;
+    const normalized = normalizeShortcut(requested[key]);
+    if (!normalized) throw new Error('快捷键不能为空');
+    settings[key] = normalized;
+  }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   return settings;
@@ -43,6 +57,7 @@ function saveShortcutSettings(shortcut, filePath = getShortcutSettingsPath()) {
 
 module.exports = {
   DEFAULT_SHORTCUT,
+  DEFAULT_JUMP_SHORTCUT,
   getShortcutSettingsPath,
   loadShortcutSettings,
   saveShortcutSettings,

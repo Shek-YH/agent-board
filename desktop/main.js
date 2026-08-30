@@ -32,9 +32,15 @@ let backend = null;
 let backendContext = null;
 let localUrl = '';
 let quitting = false;
+const LATEST_COMPLETED_JUMP_CHANNEL = 'shortcut:jump-latest-completed';
+let pendingLatestCompletedJump = false;
 const shortcutController = createGlobalShortcutController({
   globalShortcut,
   onActivate: showMainWindow,
+});
+const latestCompletedShortcutController = createGlobalShortcutController({
+  globalShortcut,
+  onActivate: requestLatestCompletedJump,
 });
 
 function logPath() {
@@ -55,6 +61,22 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+function notifyLatestCompletedJump() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) return false;
+  try {
+    mainWindow.webContents.send(LATEST_COMPLETED_JUMP_CHANNEL);
+    return true;
+  } catch (error) {
+    writeDesktopLog(`最近完成任务快捷键通知失败：${error.message || '未知错误'}`);
+    return false;
+  }
+}
+
+function requestLatestCompletedJump() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  pendingLatestCompletedJump = !notifyLatestCompletedJump();
 }
 
 function isLocalUrl(url) {
@@ -94,6 +116,10 @@ function createMainWindow() {
       event.preventDefault();
       openExternalSafely(url);
     }
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!pendingLatestCompletedJump) return;
+    pendingLatestCompletedJump = !notifyLatestCompletedJump();
   });
   mainWindow.once('ready-to-show', () => showMainWindow());
   mainWindow.on('close', (event) => {
@@ -170,8 +196,14 @@ async function startApplication() {
 
 function registerConfiguredShortcut() {
   const settings = loadShortcutSettings();
-  const result = shortcutController.apply(settings.activateApp);
-  if (!result.ok) writeDesktopLog(`全局快捷键注册失败：${result.error}`);
+  const activateResult = shortcutController.apply(settings.activateApp);
+  if (!activateResult.ok) writeDesktopLog(`全局快捷键注册失败：${activateResult.error}`);
+  if (settings.jumpToLatestCompleted === settings.activateApp) {
+    writeDesktopLog('最近完成任务快捷键注册失败：不能与 Agent Board 激活快捷键相同');
+    return;
+  }
+  const jumpResult = latestCompletedShortcutController.apply(settings.jumpToLatestCompleted);
+  if (!jumpResult.ok) writeDesktopLog(`最近完成任务快捷键注册失败：${jumpResult.error}`);
 }
 
 ipcMain.handle('shortcut:get', () => {
@@ -180,22 +212,37 @@ ipcMain.handle('shortcut:get', () => {
     ok: true,
     shortcut: settings.activateApp,
     activeShortcut: shortcutController.current,
+    jumpToLatestCompleted: settings.jumpToLatestCompleted,
+    activeJumpToLatestCompleted: latestCompletedShortcutController.current,
   };
 });
 
-ipcMain.handle('shortcut:set', (_event, shortcut) => {
-  const previous = shortcutController.current || loadShortcutSettings().activateApp;
-  const applied = shortcutController.apply(shortcut);
+ipcMain.handle('shortcut:set', (_event, input) => {
+  const kind = input && typeof input === 'object' && input.kind === 'jumpToLatestCompleted'
+    ? 'jumpToLatestCompleted'
+    : 'activateApp';
+  const shortcut = typeof input === 'string' ? input : input?.shortcut;
+  const settings = loadShortcutSettings();
+  const otherKind = kind === 'activateApp' ? 'jumpToLatestCompleted' : 'activateApp';
+  const next = typeof shortcut === 'string' ? shortcut.trim() : '';
+  if (next && next === (settings[otherKind] || '')) {
+    return { ok: false, error: '两个快捷键不能使用同一组合键', accelerator: settings[kind] };
+  }
+  const controller = kind === 'activateApp' ? shortcutController : latestCompletedShortcutController;
+  const previous = controller.current || settings[kind];
+  const applied = controller.apply(shortcut);
   if (!applied.ok) return applied;
   try {
-    const saved = saveShortcutSettings(applied.accelerator);
+    const saved = saveShortcutSettings({ ...settings, [kind]: applied.accelerator });
     return {
       ok: true,
       shortcut: saved.activateApp,
       activeShortcut: shortcutController.current,
+      jumpToLatestCompleted: saved.jumpToLatestCompleted,
+      activeJumpToLatestCompleted: latestCompletedShortcutController.current,
     };
   } catch (error) {
-    shortcutController.apply(previous);
+    controller.apply(previous);
     return { ok: false, error: `保存快捷键失败：${error.message || '未知错误'}`, accelerator: previous };
   }
 });
@@ -234,7 +281,10 @@ if (!gotLock) {
       quitApplication().catch(showStartupError);
     }
   });
-  app.on('will-quit', () => shortcutController.dispose());
+  app.on('will-quit', () => {
+    shortcutController.dispose();
+    latestCompletedShortcutController.dispose();
+  });
   app.on('window-all-closed', (event) => event.preventDefault());
   app.whenReady().then(startApplication).catch(showStartupError);
 }

@@ -482,7 +482,7 @@ async function openCodexThread(sessionId) {
   const threadId = extractCodexThreadId(sessionId);
   if (!threadId) {
     toast('Codex：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Codex 会话…');
   try {
@@ -491,12 +491,13 @@ async function openCodexThread(sessionId) {
       body: JSON.stringify({ threadId }),
     });
     toast(d.action === 'protocol-dispatched' ? 'Codex：已投递会话协议' : 'Codex：已打开指定会话');
-  } catch (error) { toast(`Codex：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Codex：${error.message || '请求失败'}`); return false; }
 }
 async function openWorkBuddySession(sessionId) {
   if (!sessionId) {
     toast('WorkBuddy：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 WorkBuddy 会话…');
   try {
@@ -505,26 +506,28 @@ async function openWorkBuddySession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'WorkBuddy：已发送启动请求，但未确认窗口' : 'WorkBuddy：已打开指定会话');
-  } catch (error) { toast(`WorkBuddy：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`WorkBuddy：${error.message || '请求失败'}`); return false; }
 }
 async function openMarvisSession(sessionId) {
   if (!sessionId) {
     toast('Marvis：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Marvis 会话…');
   try {
-    await requestJson('/api/open-marvis-session', {
+    const d = await requestJson('/api/open-marvis-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Marvis：已打开指定会话');
-  } catch (error) { toast(`Marvis：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Marvis：${error.message || '请求失败'}`); return false; }
 }
 async function openClaudeSession(sessionId) {
   if (!sessionId) {
     toast('Claude Code：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Claude Desktop 会话…');
   try {
@@ -533,26 +536,28 @@ async function openClaudeSession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'Claude Code：已发送请求，但未确认窗口' : 'Claude Code：已打开指定 Desktop 会话');
-  } catch (error) { toast(`Claude Code：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`Claude Code：${error.message || '请求失败'}`); return false; }
 }
 async function openZCodeSession(sessionId) {
   if (!sessionId) {
     toast('ZCode：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 ZCode 会话…');
   try {
-    await requestJson('/api/open-zcode-session', {
+    const d = await requestJson('/api/open-zcode-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('ZCode：已打开指定会话');
-  } catch (error) { toast(`ZCode：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`ZCode：${error.message || '请求失败'}`); return false; }
 }
 async function openDeepSeekSession(sessionId) {
   if (!sessionId) {
     toast('DeepSeek Harness：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 DeepSeek Harness 桌面端会话…');
   try {
@@ -561,35 +566,38 @@ async function openDeepSeekSession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     toast(d.windowVerified === false ? 'DeepSeek Harness：已发送请求，但未确认窗口' : 'DeepSeek Harness：已打开指定桌面端会话');
-  } catch (error) { toast(`DeepSeek Harness：${error.message || '请求失败'}`); }
+    return d?.ok !== false && d?.windowVerified !== false;
+  } catch (error) { toast(`DeepSeek Harness：${error.message || '请求失败'}`); return false; }
 }
 async function openPiAgentSession(sessionId) {
   if (!sessionId) {
     toast('Pi Agent：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Pi Agent Desktop 会话…');
   try {
-    await requestJson('/api/open-pi-agent-session', {
+    const d = await requestJson('/api/open-pi-agent-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Pi Agent：已打开指定桌面端会话');
-  } catch (error) { toast(`Pi Agent：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Pi Agent：${error.message || '请求失败'}`); return false; }
 }
 async function openHermesSession(sessionId) {
   if (!sessionId) {
     toast('Hermes Agent：无效的会话 ID');
-    return;
+    return false;
   }
   toast('正在打开 Hermes Desktop 会话…');
   try {
-    await requestJson('/api/open-hermes-session', {
+    const d = await requestJson('/api/open-hermes-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
     toast('Hermes Agent：已打开指定 Desktop 会话');
-  } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); }
+    return d?.ok !== false;
+  } catch (error) { toast(`Hermes Agent：${error.message || '请求失败'}`); return false; }
 }
 function sessionNavigationId(s) {
   const syntheticChild = s?.session_role === 'child'
@@ -615,6 +623,29 @@ function jumpToAgentSession(s) {
   if (s.agent === 'pi') return openPiAgentSession(s.session_id);
   if (s.agent === 'hermes') return openHermesSession(s.session_id);
   return launchAgent(s.agent);
+}
+async function jumpToLatestCompleted() {
+  const sessions = Array.isArray(state.board.all)
+    ? state.board.all
+    : Object.values(state.board).flatMap((list) => Array.isArray(list) ? list : []);
+  const candidate = window.AgentBoardRecentCompletedJump.findLatestEligibleCompletion(sessions, {
+    recentDone: state.recentDone,
+    dismissedRecent: state.dismissedRecent,
+    liveRefs: state.liveRefs,
+    runtimeStatuses: state.runtimeStatuses,
+    ttl: RECENT_DONE_TTL,
+  });
+  if (!candidate) {
+    toast('暂无符合条件的已完成任务');
+    return false;
+  }
+
+  const jumped = await jumpToAgentSession(candidate.session);
+  if (jumped) {
+    dismissRecent(candidate.session.id);
+    syncFlowDecor(candidate.session.id);
+  }
+  return Boolean(jumped);
 }
 async function refreshRunStatus() {
   try {
@@ -1093,12 +1124,13 @@ function buildCard(s, colKey, groupContext = null) {
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
     e.stopPropagation();
-    jumpToAgentSession(s);
-    // 点击跳转 = 视为已读：若该卡是「刚完成」绿色流光状态，同步取消高亮
-    if (isRecentCompleted(s.id)) {
-      dismissRecent(s.id);
-      syncFlowDecor(s.id);
-    }
+    Promise.resolve(jumpToAgentSession(s)).then((jumped) => {
+      // 只有确认跳转成功，才把「刚完成」卡片标记为已读。
+      if (jumped && isRecentCompleted(s.id)) {
+        dismissRecent(s.id);
+        syncFlowDecor(s.id);
+      }
+    });
   });
   card.querySelector('.s-sid')?.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -2097,88 +2129,106 @@ async function openSoundSettings() {
 }
 
 const DEFAULT_AGENT_BOARD_SHORTCUT = 'Alt+`';
+const DEFAULT_AGENT_BOARD_JUMP_SHORTCUT = 'Alt+1';
+const SHORTCUT_SETTING_DEFS = [
+  {
+    kind: 'activateApp', inputId: 'shortcut-input', recordId: 'shortcut-record',
+    resetId: 'shortcut-reset', saveId: 'shortcut-save', statusId: 'shortcut-status',
+    title: '激活 Agent Board 到前台', help: '在任意应用中按下该组合键，可显示并聚焦 Agent Board 窗口。',
+    ariaLabel: 'Agent Board 激活快捷键', defaultValue: DEFAULT_AGENT_BOARD_SHORTCUT,
+  },
+  {
+    kind: 'jumpToLatestCompleted', inputId: 'jump-shortcut-input', recordId: 'jump-shortcut-record',
+    resetId: 'jump-shortcut-reset', saveId: 'jump-shortcut-save', statusId: 'jump-shortcut-status',
+    title: '跳转到最近完成任务', help: '在任意应用中按下该组合键，可打开最新完成且未读的 Agent 任务。',
+    ariaLabel: '最近完成任务跳转快捷键', defaultValue: DEFAULT_AGENT_BOARD_JUMP_SHORTCUT,
+  },
+];
 
 function renderShortcutSettings(pop, settings, bridge) {
-  const current = settings?.shortcut || DEFAULT_AGENT_BOARD_SHORTCUT;
-  const active = settings?.activeShortcut;
   const unavailable = !bridge;
-  pop.innerHTML = `<div class="pop-head">快捷键设置</div>
-    <div class="shortcut-settings">
-      <div class="shortcut-title">激活 Agent Board 到前台</div>
-      <div class="shortcut-help">在任意应用中按下该组合键，可显示并聚焦 Agent Board 窗口。</div>
+  pop.innerHTML = `<div class="pop-head">快捷键设置</div>${SHORTCUT_SETTING_DEFS.map((def) => {
+    const current = settings?.[def.kind] || (def.kind === 'activateApp' ? settings?.shortcut : '') || def.defaultValue;
+    const active = settings?.[def.kind === 'activateApp' ? 'activeShortcut' : 'activeJumpToLatestCompleted'];
+    return `<div class="shortcut-settings" data-shortcut-kind="${def.kind}">
+      <div class="shortcut-title">${def.title}</div>
+      <div class="shortcut-help">${def.help}</div>
       <div class="shortcut-row">
-        <input id="shortcut-input" class="shortcut-input" value="${esc(current)}" readonly aria-label="Agent Board 激活快捷键" ${unavailable ? 'disabled' : ''}>
-        <button class="btn" id="shortcut-record" type="button" ${unavailable ? 'disabled' : ''}>录入快捷键</button>
+        <input id="${def.inputId}" class="shortcut-input" value="${esc(current)}" readonly aria-label="${def.ariaLabel}" ${unavailable ? 'disabled' : ''}>
+        <button class="btn" id="${def.recordId}" type="button" ${unavailable ? 'disabled' : ''}>录入快捷键</button>
       </div>
-      <div class="shortcut-status" id="shortcut-status">${unavailable ? '快捷键仅在桌面版中可用。' : active === current ? '当前快捷键已启用。' : '当前快捷键尚未成功注册，请重新录入。'}</div>
+      <div class="shortcut-status" id="${def.statusId}">${unavailable ? '快捷键仅在桌面版中可用。' : active === current ? '当前快捷键已启用。' : '当前快捷键尚未成功注册，请重新录入。'}</div>
       <div class="shortcut-actions">
-        <button class="btn" id="shortcut-reset" type="button" ${unavailable ? 'disabled' : ''}>恢复默认（${esc(DEFAULT_AGENT_BOARD_SHORTCUT)}）</button>
-        <button class="btn primary" id="shortcut-save" type="button" ${unavailable ? 'disabled' : ''}>保存快捷键</button>
+        <button class="btn" id="${def.resetId}" type="button" ${unavailable ? 'disabled' : ''}>恢复默认（${esc(def.defaultValue)}）</button>
+        <button class="btn primary" id="${def.saveId}" type="button" ${unavailable ? 'disabled' : ''}>保存快捷键</button>
       </div>
     </div>`;
+  }).join('')}`;
   if (unavailable) return;
 
-  const input = pop.querySelector('#shortcut-input');
-  const recordButton = pop.querySelector('#shortcut-record');
-  const resetButton = pop.querySelector('#shortcut-reset');
-  const saveButton = pop.querySelector('#shortcut-save');
-  const status = pop.querySelector('#shortcut-status');
-  let recording = false;
-  let candidate = current;
+  for (const def of SHORTCUT_SETTING_DEFS) {
+    const input = pop.querySelector('#' + def.inputId);
+    const recordButton = pop.querySelector('#' + def.recordId);
+    const resetButton = pop.querySelector('#' + def.resetId);
+    const saveButton = pop.querySelector('#' + def.saveId);
+    const status = pop.querySelector('#' + def.statusId);
+    let recording = false;
+    let candidate = input.value;
 
-  const setStatus = (message, error = false) => {
-    status.textContent = message;
-    status.classList.toggle('error', error);
-  };
-  const persist = async (shortcut, successMessage) => {
-    saveButton.disabled = true;
-    resetButton.disabled = true;
-    try {
-      const result = await bridge.setShortcutSettings(shortcut);
-      if (!result?.ok) {
-        setStatus(result?.error || '快捷键保存失败。', true);
+    const setStatus = (message, error = false) => {
+      status.textContent = message;
+      status.classList.toggle('error', error);
+    };
+    const persist = async (shortcut, successMessage) => {
+      saveButton.disabled = true;
+      resetButton.disabled = true;
+      try {
+        const result = await bridge.setShortcutSettings(shortcut, def.kind);
+        if (!result?.ok) {
+          setStatus(result?.error || '快捷键保存失败。', true);
+          return;
+        }
+        candidate = result[def.kind] || shortcut;
+        input.value = candidate;
+        setStatus(successMessage || '快捷键已保存。');
+        toast('快捷键设置已保存');
+      } catch (error) {
+        setStatus(error.message || '快捷键保存失败。', true);
+      } finally {
+        saveButton.disabled = false;
+        resetButton.disabled = false;
+      }
+    };
+
+    recordButton.onclick = (event) => {
+      event.stopPropagation();
+      recording = true;
+      input.focus();
+      setStatus('请按下包含 Alt、Ctrl、Shift 或 Win 的组合键…');
+    };
+    input.onkeydown = (event) => {
+      if (!recording) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const next = window.AgentBoardShortcutUtils.acceleratorFromKeyboardEvent(event);
+      if (!next) {
+        setStatus('请至少包含一个修饰键和一个普通按键。', true);
         return;
       }
-      candidate = result.shortcut || shortcut;
-      input.value = candidate;
-      setStatus(successMessage || '快捷键已保存。');
-      toast('快捷键设置已保存');
-    } catch (error) {
-      setStatus(error.message || '快捷键保存失败。', true);
-    } finally {
-      saveButton.disabled = false;
-      resetButton.disabled = false;
-    }
-  };
-
-  recordButton.onclick = (event) => {
-    event.stopPropagation();
-    recording = true;
-    input.focus();
-    setStatus('请按下包含 Alt、Ctrl、Shift 或 Win 的组合键…');
-  };
-  input.onkeydown = (event) => {
-    if (!recording) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const next = window.AgentBoardShortcutUtils.acceleratorFromKeyboardEvent(event);
-    if (!next) {
-      setStatus('请至少包含一个修饰键和一个普通按键。', true);
-      return;
-    }
-    recording = false;
-    candidate = next;
-    input.value = next;
-    setStatus('快捷键已录入，点击“保存快捷键”后生效。');
-  };
-  saveButton.onclick = (event) => {
-    event.stopPropagation();
-    persist(candidate);
-  };
-  resetButton.onclick = (event) => {
-    event.stopPropagation();
-    persist(DEFAULT_AGENT_BOARD_SHORTCUT, '已恢复并启用默认快捷键 Alt+`。');
-  };
+      recording = false;
+      candidate = next;
+      input.value = next;
+      setStatus('快捷键已录入，点击“保存快捷键”后生效。');
+    };
+    saveButton.onclick = (event) => {
+      event.stopPropagation();
+      persist(candidate);
+    };
+    resetButton.onclick = (event) => {
+      event.stopPropagation();
+      persist(def.defaultValue, `已恢复并启用默认快捷键 ${def.defaultValue}。`);
+    };
+  }
 }
 
 async function openShortcutSettings() {
@@ -2836,7 +2886,14 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
+function registerDesktopJumpShortcut() {
+  const desktop = window.AgentBoardDesktop;
+  if (typeof desktop?.onJumpToLatestCompleted !== 'function') return;
+  desktop.onJumpToLatestCompleted(() => { void jumpToLatestCompleted(); });
+}
+
 /* ---------- 启动 ---------- */
+registerDesktopJumpShortcut();
 (async () => {
   loadRecentDone();
   await loadState();

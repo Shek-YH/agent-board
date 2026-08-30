@@ -13,6 +13,7 @@ const required = [
   'resources/backend/lib/runtime-marker.js',
   'resources/backend/public/index.html',
   'resources/backend/public/app.js',
+  'resources/backend/public/recent-completed-jump.js',
   'resources/backend/public/api-client.js',
   'resources/backend/tools/wf.dll',
   'resources/runtime/node.exe',
