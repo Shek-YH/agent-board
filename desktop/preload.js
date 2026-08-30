@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     ipcRenderer.on('shortcut:jump-latest-completed', listener);
     return () => ipcRenderer.removeListener('shortcut:jump-latest-completed', listener);
   },
+  notifyCompletion: (sessionId) => ipcRenderer.invoke('notification:completion', { sessionId }),
   cloud: Object.freeze({
     getStatus: () => ipcRenderer.invoke('cloud:status'),
     login: (email, password) => ipcRenderer.invoke('cloud:login', { email, password }),

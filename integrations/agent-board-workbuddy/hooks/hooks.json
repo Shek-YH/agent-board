@@ -1,0 +1,22 @@
+{
+  "description": "Privacy-safe WorkBuddy lifecycle projection for Agent Board.",
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" SessionStart", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" UserPromptSubmit", "timeout": 10 }] }],
+    "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" PreToolUse", "timeout": 10 }] }],
+    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" PostToolUse", "timeout": 10 }] }],
+    "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" PostToolUseFailure", "timeout": 10 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" PermissionRequest", "timeout": 10 }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" PermissionDenied", "timeout": 10 }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" SubagentStart", "timeout": 10 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" SubagentStop", "timeout": 10 }] }],
+    "TaskCreated": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" TaskCreated", "timeout": 10 }] }],
+    "TaskCompleted": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" TaskCompleted", "timeout": 10 }] }],
+    "Elicitation": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" Elicitation", "timeout": 10 }] }],
+    "ElicitationResult": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" ElicitationResult", "timeout": 10 }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" Notification", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" Stop", "timeout": 10 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" StopFailure", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"${CODEBUDDY_PLUGIN_ROOT}/scripts/status-hook.mjs\" SessionEnd", "timeout": 10 }] }]
+  }
+}

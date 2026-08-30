@@ -2835,6 +2835,12 @@ function connectSSE() {
       });
     } catch {}
   });
+  es.addEventListener('completion', (ev) => {
+    try {
+      const payload = JSON.parse(ev.data);
+      Promise.resolve(window.AgentBoardDesktop?.notifyCompletion?.(payload.sessionId)).catch(() => {});
+    } catch {}
+  });
   es.addEventListener('scan', (ev) => {
     try {
       const d = JSON.parse(ev.data);

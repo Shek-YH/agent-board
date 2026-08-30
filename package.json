@@ -29,6 +29,7 @@
       "desktop/**/*",
       "lib/offline-grant.js",
       "lib/runtime-paths.js",
+      "integrations/**/*",
       "package.json",
       "LICENSE"
     ],
