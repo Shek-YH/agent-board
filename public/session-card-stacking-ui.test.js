@@ -258,6 +258,10 @@ test('compact child cards expose their action rows with indexed offsets and desc
   assert.match(html, /\.session-card-group\.is-stacked[^}]*\.stack-child-card:hover\{[^}]*transform:none/);
 });
 
+test('stacked cards use an opaque session background so lower card content cannot show through', () => {
+  assert.match(html, /\.session-card-group\.is-stacked>\.stack-main-card,\s*\.session-card-group\.is-stacked>\.session-card-children>\.stack-child-card\{[^}]*background:var\(--session-background\)/);
+});
+
 test('expanded groups restore full card spacing while retaining the existing card height', () => {
   assert.match(html, /\.session-card-group\.is-expanded\s*>\.session-card-children\{[^}]*margin-top:10px[^}]*gap:10px/);
   assert.match(html, /\.session-card-group\.is-expanded\s*>\.session-card-children\s*>\.stack-child-card\{[^}]*margin-top:0/);
