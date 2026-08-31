@@ -109,6 +109,11 @@ test('AI monitor exposes read-only historical routing insights and workspace saf
   assert.match(app, /\/api\/orchestration\/routing\/insights/);
   assert.match(app, /settings-routing-flywheel/);
   assert.match(app, /Routing Data Flywheel|历史路由数据/);
+  assert.match(app, /taskClasses/);
+  assert.match(app, /taskProfiles/);
+  assert.match(app, /recommendations/);
+  assert.match(app, /INSUFFICIENT_HISTORY|样本不足/);
+  assert.match(app, /averageDurationMs|平均耗时/);
   assert.match(app, /历史成功率|Historical success/);
   assert.match(app, /Worktree|工作区/);
   assert.match(app, /仅建议|read-only/);

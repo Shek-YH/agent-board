@@ -2000,6 +2000,8 @@ function routingReasonLabel(reasonCode) {
     ROUTE_ESCALATED: '失败/回归后升级', ROUTE_DOWNGRADED: '成功且任务简化后降级', MANUAL_PIN: '人工锁定优先',
     ROUTE_STABLE: '沿用当前策略', ROUTING_UNAVAILABLE: '路由能力不可用', ROUTING_AGENT_UNSUPPORTED: '当前 Agent 不兼容',
     PROFILE_VERIFY_FAILED: 'Profile 验证失败', NEED_HUMAN_HIGHEST_TIER_FAILURE: '最高档仍失败，需要人工处理',
+    INSUFFICIENT_HISTORY: '历史样本不足', HISTORICAL_PROFILE_RECOMMENDED: '历史 Profile 建议',
+    HISTORICAL_PROFILE_STABLE: '历史 Profile 稳定', MODEL_UNAVAILABLE: '模型不可用',
   }[reasonCode] || reasonCode || '未提供原因';
 }
 
@@ -2076,7 +2078,18 @@ function renderRoutingFlywheel(pop, data) {
   const totalAttempts = Number(data?.totalAttempts) || 0;
   const totalSuccesses = Number(data?.totalSuccesses) || 0;
   const agents = Array.isArray(data?.agents) ? data.agents : [];
-  const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+  const taskClasses = Array.isArray(data?.taskClasses) ? data.taskClasses : [];
+  const taskProfiles = Array.isArray(data?.taskProfiles) ? data.taskProfiles : [];
+  const profiles = taskProfiles.length ? taskProfiles : (Array.isArray(data?.profiles) ? data.profiles : []);
+  const recommendations = Array.isArray(data?.recommendations) ? data.recommendations : [];
+  const taskClassLabels = { new: '新项目', existing: '现有 Git 项目', existing_unversioned: '未纳入 Git', unknown: '未知任务类型' };
+  const duration = (value) => {
+    const ms = Number(value);
+    if (!Number.isFinite(ms)) return '—';
+    if (ms < 1_000) return `${Math.round(ms)}ms`;
+    if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
+    return `${(ms / 60_000).toFixed(1)}min`;
+  };
   const successRate = totalAttempts ? Math.round((totalSuccesses / totalAttempts) * 100) : 0;
   pop.innerHTML = `<div class="pop-head">Routing Data Flywheel</div>
     <div class="routing-commerce-copy">只读工作区汇总：按 Agent、模型和 reasoning 统计已验证的历史结果，不会自动修改任何 Workflow 的路由设置。</div>
@@ -2084,11 +2097,21 @@ function renderRoutingFlywheel(pop, data) {
       <div class="routing-commerce-metric"><span>历史尝试</span><b>${totalAttempts}</b><small>最近有界记录</small></div>
       <div class="routing-commerce-metric"><span>总体成功率</span><b>${successRate}%</b><small>${totalSuccesses} 次成功 · ${Number(data?.totalFailures) || 0} 次失败</small></div>
     </div>
+    <section class="routing-commerce-section"><strong>任务画像</strong>
+      ${taskClasses.length ? taskClasses.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')} · ${esc(taskClassLabels[item.taskClass] || item.taskClass || '未知任务类型')}</span><b>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</b><span>平均耗时 ${esc(duration(item.averageDurationMs))}</span><em>DoD ${esc(Math.round(Number(item.averageDodCompletionRate || 0) * 100))}% · 人工介入 ${esc(item.humanInterventions ?? 0)} 次 · 停滞 ${esc(Number(item.averageStagnation || 0).toFixed(1))}</em></div>`).join('') : '<div class="routing-commerce-detail">暂无已完成任务画像</div>'}
+    </section>
+    <section class="routing-commerce-section"><strong>自动 Profile 建议（只读）</strong>
+      ${recommendations.length ? recommendations.map((item) => {
+        const profile = item.profile || {};
+        const selected = profile.modelId ? `${profile.modelId} · ${profile.reasoningLevel || 'model-only'}` : routingReasonLabel(item.reasonCode);
+        return `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')} · ${esc(taskClassLabels[item.taskClass] || item.taskClass || '未知任务类型')}</span><b>${esc(selected)}</b><span>样本 ${esc(item.sampleSize ?? 0)}/${esc(item.minAttempts ?? 3)}</span><em>${esc(routingReasonLabel(item.reasonCode))}；不会自动应用</em></div>`;
+      }).join('') : '<div class="routing-commerce-detail">暂无可生成的 Profile 建议</div>'}
+    </section>
     <section class="routing-commerce-section"><strong>Agent 成功率</strong>
       ${agents.length ? agents.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')}</span><b>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</b><span>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</span></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
     </section>
     <section class="routing-commerce-section"><strong>Agent · Model · Reasoning</strong>
-      ${profiles.length ? profiles.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')} · ${esc(item.modelId || '未命名')}</span><b>${esc(item.reasoningLevel || '未验证')}</b><span>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</span><em>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</em></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
+      ${profiles.length ? profiles.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')}${item.taskClass ? ` · ${esc(taskClassLabels[item.taskClass] || item.taskClass)}` : ''} · ${esc(item.modelId || '未命名')}</span><b>${esc(item.reasoningLevel || 'model-only')}</b><span>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</span><em>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</em></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
     </section>
     <div class="routing-commerce-actions"><button type="button" class="btn primary" id="routing-flywheel-close">关闭</button></div>`;
   pop.querySelector('#routing-flywheel-close').onclick = closePopover;
