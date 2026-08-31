@@ -99,11 +99,11 @@ f99be9f feat: add task-aware routing recommendations
 
 - `npm test`：1082 tests，1081 passed，0 failed，1 skipped。
 - 真实 Codex Workflow：3 条干净完成记录，另有 1 条竞态恢复记录。
-- 包体验证脚本：已通过；本次构建基于 `25eee74`，未覆盖历史产物。
-- 安装包：`C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v1\Agent Board Setup 0.2.0.exe`
-- 安装包大小：137,754,629 bytes。
-- 安装包 SHA-256：`A9D40C9710F205C01B6CE8DD49E5E4900641B12C6B2CE280A533A9E2DB3AEE61`
-- 验证命令：`npm run desktop:verify -- "C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v1\win-unpacked"`
+- 包体验证脚本：已通过；本次构建基于最终 HEAD `0a21007`，未覆盖历史产物。
+- 安装包：`C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v2\Agent Board Setup 0.2.0.exe`
+- 安装包大小：137,754,697 bytes。
+- 安装包 SHA-256：`5DCE02EC2E2E5AAF3514112C2471A6B676ADC8821EF309B76045ECF3E154D25F`
+- 验证命令：`npm run desktop:verify -- "C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v2\win-unpacked"`
 
 ## 5. 明确的后续 TODO（按优先级）
 
