@@ -10,7 +10,7 @@ const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 test('全部视图的 Agent 标签和 session 标题共用显式的标题行，不与卡片边界重叠', () => {
   assert.match(app, /<div class="s-title-leading">\s*\$\{agentTag\}\s*\$\{titleHtml\}/);
-  assert.match(app, /<div class="s-row1">\s*\$\{topologyRoleMarkup\(s\)\}/);
+  assert.match(app, /<div class="s-row1">\s*\$\{topologyRoleMarkup\(s, statusHtml\)\}\s*\$\{autopilotButton\}/);
   assert.match(index, /\.s-title-leading\{[^}]*min-width:0/);
   assert.match(index, /\.s-title-leading \.agent-tag\{[^}]*white-space:nowrap/);
 });

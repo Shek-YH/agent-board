@@ -157,7 +157,10 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 @keyframes flow-grad{0%{background-position:0% 0}100%{background-position:400% 0}}
 .s-flow-dismiss{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:#15803D;background:#DCFCE7;border:1px solid #86EFAC;border-radius:999px;padding:2px 9px;cursor:pointer;transition:.12s;line-height:1.6}
 .s-flow-dismiss:hover{background:#BBF7D0;border-color:#4ADE80;box-shadow:var(--shadow)}
-.s-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px;min-height:20px;flex-wrap:wrap}
+.s-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px;min-height:20px;flex-wrap:nowrap;min-width:0;overflow:hidden}
+.s-row1>.s-status{flex:0 0 auto}
+.s-row1>.s-topology-relation{min-width:0;flex:1 1 auto}
+.s-row1>.s-autopilot{margin-left:auto;flex:0 0 auto}
 .session-card-group{display:flex;flex-direction:column;min-width:0;isolation:isolate}
 .session-card-children{display:flex;flex-direction:column;min-width:0;gap:0;overflow:visible}
 .session-card-group.is-stacked>.session-card-children>.stack-child-card{
@@ -178,10 +181,8 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .s-subagent-toggle svg{transition:transform .18s ease}
 .session-card-group.is-expanded .s-subagent-toggle svg{transform:rotate(180deg)}
 .s-title-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;min-width:0}
-.s-title-actions{display:flex;align-items:center;gap:5px;flex:0 0 auto;margin-left:auto}
 .s-title-leading{display:flex;align-items:flex-start;gap:7px;min-width:0;flex:1 1 auto}
 .s-title-leading .agent-tag{margin-top:1px;white-space:nowrap}
-.s-title-row>.s-status{flex:0 0 auto}
 .s-time{font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;flex:0 0 auto;white-space:nowrap}
 .s-title{font-size:13px;font-weight:600;color:var(--text);flex:1 1 auto;min-width:0;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.5;overflow-wrap:anywhere}
 .s-sid{font-size:10px;color:var(--text3);font-family:ui-monospace,Consolas,monospace;border:1px dashed var(--border);border-radius:5px;padding:0 5px;background:transparent;line-height:1.6;cursor:copy;transition:.12s;flex-shrink:0}

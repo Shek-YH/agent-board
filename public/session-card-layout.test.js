@@ -16,16 +16,21 @@ test('较长 session ID 的可见标签会统一截断，避免挤压状态标�
   assert.match(app, /esc\(sessionIdLabel\)/);
 });
 
-test('session 卡将时间和 session ID 放在底部，并为标题保留多行空间', () => {
+test('session 卡将状态与主会话放在顶部，并为标题保留多行空间', () => {
   const cardTemplate = app.match(/function buildCard[\s\S]*?card\.innerHTML = `([\s\S]*?)`;\r?\n/);
   assert.ok(cardTemplate, '未找到 session 卡片模板');
   const template = cardTemplate[1];
   const firstRow = template.match(/<div class="s-row1">([\s\S]*?)<\/div>/)?.[1] || '';
+  const titleRow = template.match(/<div class="s-title-row">([\s\S]*?)<\/div>/)?.[1] || '';
   const bottomRow = template.match(/<div class="s-row2">([\s\S]*?)<\/div>/)?.[1] || '';
   assert.doesNotMatch(firstRow, /s-time|sessionIdHtml/);
+  assert.match(app, /function topologyRoleMarkup\(s, statusHtml = ''\)[\s\S]*?return badge \+ statusHtml \+ relation;/);
+  assert.match(firstRow, /topologyRoleMarkup\(s, statusHtml\)/);
+  assert.match(firstRow, /autopilotButton/);
+  assert.doesNotMatch(titleRow, /statusHtml|autopilotButton/);
   assert.match(bottomRow, /s-time/);
   assert.match(bottomRow, /sessionIdHtml/);
-  assert.match(template, /<div class="s-title-row">[\s\S]*?titleHtml[\s\S]*?statusHtml/);
+  assert.match(titleRow, /titleHtml/);
   assert.match(html, /\.s-title\{[^}]*white-space:normal[^}]*-webkit-line-clamp:2/);
   assert.match(html, /\.app\{[^}]*width:100%[^}]*max-width:none[^}]*margin:0/);
   assert.match(html, /\.board-layout\{[^}]*grid-template-columns:166px minmax\(0,1fr\)[^}]*gap:10px/);
@@ -33,6 +38,9 @@ test('session 卡将时间和 session ID 放在底部，并为标题保留多行
   assert.doesNotMatch(html, /grid-template-columns:repeat\(auto-fit/);
   assert.match(html, /\.s-card\{[^}]*height:196px[^}]*min-height:196px/);
   assert.match(html, /\.s-actions\{[^}]*position:absolute[^}]*right:12px[^}]*bottom:12px/);
+  assert.match(html, /\.s-row1\{[^}]*flex-wrap:nowrap[^}]*min-width:0[^}]*overflow:hidden/);
+  assert.match(html, /\.s-row1>\.s-status\{[^}]*flex:0 0 auto/);
+  assert.match(html, /\.s-row1>\.s-autopilot\{[^}]*margin-left:auto[^}]*flex:0 0 auto/);
 });
 
 test('流光状态不会将 session 操作区挤回内容流', () => {

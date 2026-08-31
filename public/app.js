@@ -932,7 +932,7 @@ function shortProj(p) {
   const parts = trimmed.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || raw;
 }
-function topologyRoleMarkup(s) {
+function topologyRoleMarkup(s, statusHtml = '') {
   const role = ['main', 'child', 'unknown'].includes(s.session_role) ? s.session_role : 'unknown';
   const labels = { main: '◎ 主会话', child: '↳ 子代理', unknown: '? 未确认' };
   const hint = s.child_detection === 'unsupported' ? '当前 agent 尚未验证子代理结构，自动控制需人工确认' : '';
@@ -943,7 +943,7 @@ function topologyRoleMarkup(s) {
   } else if (role === 'main' && Number(s.child_count || 0) > 0) {
     relation = `<span class="s-topology-relation" title="${Number(s.active_child_count || 0)} 个子代理最近 10 分钟有活动">子代理 ${Number(s.child_count || 0)}${Number(s.active_child_count || 0) ? ` · ${Number(s.active_child_count)} 活跃` : ''}</span>`;
   }
-  return badge + relation;
+  return badge + statusHtml + relation;
 }
 function resumeCommand(agent, sid) {
   if (agent === 'claude') return `claude --resume ${sid}`;
@@ -1502,14 +1502,14 @@ function buildCard(s, colKey, groupContext = null) {
     : '';
   card.innerHTML = `
     <div class="s-row1">
-      ${topologyRoleMarkup(s)}
+      ${topologyRoleMarkup(s, statusHtml)}
+      ${autopilotButton}
     </div>
     <div class="s-title-row">
       <div class="s-title-leading">
         ${agentTag}
         ${titleHtml}
       </div>
-      <div class="s-title-actions">${autopilotButton}${statusHtml}</div>
     </div>
     <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
     <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
