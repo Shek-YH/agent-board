@@ -7,8 +7,8 @@
 
 - 仓库：`C:\Users\Administrator\WorkBuddy\2026-08-20-03-52-10\agent-board-main`
 - 分支：`main`
-- 当前 HEAD：`edebb04 docs: finalize autopilot intake verification`
-- `main` 相对 `origin/main`：ahead 49；本轮没有 push。
+- 当前 HEAD：`25eee74 docs: add development handoff`
+- `main` 相对 `origin/main`：ahead 51；本轮没有 push。
 - 已跟踪文件：干净。
 - 工作树中已有的 `Microsoft/` 和各个历史 `dist-*` 未跟踪目录属于既有产物，本轮没有添加、删除、覆盖或清理。
 
@@ -84,9 +84,11 @@ git log -1 --oneline --decorate
 
 ## 4. 代码提交与验证记录
 
-当前主要提交：
+当前主要提交（由新到旧）：
 
 ```text
+25eee74 docs: add development handoff
+9f643fa docs: add real autopilot intake smoke test
 edebb04 docs: finalize autopilot intake verification
 a49d657 feat: simplify autopilot intake and harden real codex delivery
 f99be9f feat: add task-aware routing recommendations
@@ -97,14 +99,18 @@ f99be9f feat: add task-aware routing recommendations
 
 - `npm test`：1082 tests，1081 passed，0 failed，1 skipped。
 - 真实 Codex Workflow：3 条干净完成记录，另有 1 条竞态恢复记录。
-- 包体验证脚本：已通过一次；本次 handoff 后会重新构建并在此文档补充最新安装包路径、大小和 SHA-256。
+- 包体验证脚本：已通过；本次构建基于 `25eee74`，未覆盖历史产物。
+- 安装包：`C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v1\Agent Board Setup 0.2.0.exe`
+- 安装包大小：137,754,629 bytes。
+- 安装包 SHA-256：`A9D40C9710F205C01B6CE8DD49E5E4900641B12C6B2CE280A533A9E2DB3AEE61`
+- 验证命令：`npm run desktop:verify -- "C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v1\win-unpacked"`
 
 ## 5. 明确的后续 TODO（按优先级）
 
 1. **完成正向 Routing Recommendation 真实验证**：创建 app-server-owned Codex writer 会话，获取运行时真实 model/reasoning capability，生成至少 3 条同类型、带 profile 的 `DONE` 记录，确认推荐返回具体 profile；禁止用 fixture 冒充真实结果。
 2. **安装包 UI smoke test**：用本次新构建的安装包启动，确认 Session 卡片右上方可看到“AI 托管”，并验证 intake 预览、任务目标输入和启动/停止状态流转。
 3. **补齐文档勾选状态**：`docs/superpowers/plans/2026-08-31-routing-data-flywheel-phase2.md` 中仍保留部分实施计划的旧 checkbox 状态；代码已落地，但后续可按真实验证结果更新计划文档，避免文档状态与代码状态不一致。
-4. **远端同步**：当前 `main` ahead 49，尚未 push；只有在用户明确要求时再推送。
+4. **远端同步**：当前 `main` ahead 51，尚未 push；只有在用户明确要求时再推送。
 5. **历史构建产物治理**：现有多个 `dist-*` 和 `Microsoft/` 未跟踪目录未触碰；如需清理，必须先逐项确认目标和可恢复性。
 
 ## 6. 下一会话建议启动顺序
