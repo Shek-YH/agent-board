@@ -99,7 +99,7 @@ f99be9f feat: add task-aware routing recommendations
 
 - `npm test`：1082 tests，1081 passed，0 failed，1 skipped。
 - 真实 Codex Workflow：3 条干净完成记录，另有 1 条竞态恢复记录。
-- 包体验证脚本：已通过；本次构建基于最终 HEAD `0a21007`，未覆盖历史产物。
+- 包体验证脚本：已通过；本次构建基于运行代码最终 HEAD `0a21007`，未覆盖历史产物。之后的 `bf75612` 仅更新本 handoff 的包记录，没有改动运行代码。
 - 安装包：`C:\Users\Administrator\AppData\Local\Temp\agent-board-exe-20260831-handoff-v2\Agent Board Setup 0.2.0.exe`
 - 安装包大小：137,754,697 bytes。
 - 安装包 SHA-256：`5DCE02EC2E2E5AAF3514112C2471A6B676ADC8821EF309B76045ECF3E154D25F`
