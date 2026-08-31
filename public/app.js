@@ -1964,11 +1964,29 @@ function renderRoutingCreateFields(catalog) {
   if (!model || !status) return;
   const models = Array.isArray(catalog?.models) ? catalog.models : [];
   const selected = model.value;
-  model.innerHTML = '<option value="">自动选择（不锁定）</option>' + models.map((item) => `<option value="${esc(item.id)}">${esc(item.displayName || item.id)}</option>`).join('');
+  model.innerHTML = '<option value="">自动选择（不锁定）</option>' + models.map((item) => {
+    const version = item.version || item.multiAgentVersion;
+    const reasoning = Array.isArray(item.supportedReasoningLevels) && item.supportedReasoningLevels.length
+      ? ` · ${item.supportedReasoningLevels.join('/')}` : '';
+    return `<option value="${esc(item.id)}">${esc(item.displayName || item.id)}${version ? ` · ${esc(version)}` : ''}${esc(reasoning)}</option>`;
+  }).join('');
   if (models.some((item) => item.id === selected)) model.value = selected;
+  const renderReasoning = () => {
+    const reasoning = $('ai-routing-reasoning');
+    if (!reasoning) return;
+    const active = models.find((item) => item.id === model.value);
+    const values = active && Array.isArray(active.supportedReasoningLevels)
+      ? active.supportedReasoningLevels
+      : [...new Set(models.flatMap((item) => Array.isArray(item.supportedReasoningLevels) ? item.supportedReasoningLevels : []))];
+    const previous = reasoning.value;
+    reasoning.innerHTML = '<option value="">自动选择</option>' + values.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`).join('');
+    if (values.includes(previous)) reasoning.value = previous;
+  };
+  model.onchange = renderReasoning;
+  renderReasoning();
   const supported = Array.isArray(catalog?.supportedAgents) ? catalog.supportedAgents : ['codex'];
   status.textContent = catalog
-    ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型 · ${supported.join(' / ')}` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
+    ? (catalog.available ? `Catalog：${catalog.source}${catalog.stale ? '（stale，已标记）' : ''} · ${models.length} 个可用模型${catalog.agentVersion ? ` · Agent ${catalog.agentVersion}` : ''} · ${supported.join(' / ')}` : 'Catalog 不可用；启用路由不会阻止基础 AutoPilot。')
     : 'Catalog 尚未读取；模型与 reasoning 将按当前 Agent 能力校验。';
 }
 
@@ -2096,7 +2114,7 @@ function openRoutingSettings() {
       <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${routing.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
       <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${routing.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
       <label>模型切换无法验证<select id="routing-profile-failure"><option value="pause"${safety.profileApplyFailure !== 'continue' ? ' selected' : ''}>暂停并等待人工</option><option value="continue"${safety.profileApplyFailure === 'continue' ? ' selected' : ''}>继续使用当前模型</option></select></label>
-      <div class="routing-settings-copy">${catalog.available ? `Codex Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
+      <div class="routing-settings-copy">${catalog.available ? `Codex Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型${catalog.agentVersion ? ` · Agent ${esc(catalog.agentVersion)}` : ''}` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
       <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新 Codex 模型</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存全局设置</button></div>
     </form>`;
   pop.querySelector('#routing-settings-cancel').onclick = closePopover;
