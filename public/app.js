@@ -248,6 +248,7 @@ async function loadOrchestration() {
       jarvisVoice: data.jarvisVoice || null,
       providerConfig: data.providerConfig || null,
       secureProvider,
+      settings: data.settings || null,
       routingCapabilities: routingCatalog?.capabilities || data.routingCapabilities || {},
       routingCatalog: routingCatalog && routingCatalog.catalog ? {
         ...routingCatalog.catalog,
@@ -272,7 +273,7 @@ function renderAIMonitor() {
   $('ai-readiness').textContent = `${supervisor.available ? '监督模型已就绪' : '监督模型未配置'} · ${data.headlessEnabled ? 'headless 已开启' : 'headless 未开启'} · ${voiceReady ? '语音 MVP 已就绪' : '语音 MVP 未就绪'} · ${roots}`;
   const jarvisProject = $('jarvis-project-path');
   if (jarvisProject && !jarvisProject.value) jarvisProject.value = localStorage.getItem('ab-jarvis-project') || $('ai-project-path').value || '';
-  setJarvisStatus(voiceReady ? '可以开始录音' : '请先配置 headless、ZAI_API_KEY、允许目录和 WorkBuddy CLI');
+  setJarvisStatus(voiceReady ? '可以开始录音' : '请先在设置中配置智谱 Key、headless、允许目录和 WorkBuddy CLI');
 
   const capabilityBox = $('ai-capability-list');
   capabilityBox.innerHTML = Object.entries(ORCHESTRATION_SLOT_LABELS).map(([slot, label]) => {
@@ -320,17 +321,17 @@ function renderAIMonitor() {
     const status = (item, readyLabel, missingLabel) => `<span class="${item?.available ? 'ready' : 'missing'}">${item?.available ? readyLabel : missingLabel}</span>`;
     const supervisor = provider.supervisor || {};
     const worker = provider.workerRouting || {};
-    const providerLabels = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', deepseek: 'DeepSeek', openrouter: 'OpenRouter', 'openai-compatible': 'OpenAI-compatible' };
+    const providerLabels = { dashscope: '阿里云百炼', zai: '智谱', ark: '火山方舟', minimax: 'MiniMax', deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', deepseek: 'DeepSeek', openrouter: 'OpenRouter', 'openai-compatible': 'OpenAI-compatible' };
     const providerOptions = Object.entries(providerLabels).map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
     const configured = Array.isArray(secureProvider.configuredProviders) ? secureProvider.configuredProviders : [];
     const configuredLabel = configured.length ? configured.map((item) => providerLabels[item] || item).join('、') : '暂无';
     const providerBridge = window.AgentBoardDesktop?.provider;
     const secureEditor = providerBridge
-      ? `<form class="ai-provider-key-form" id="ai-provider-key-form"><label>Supervisor API Key（Electron safeStorage）<select id="ai-provider-key-provider">${providerOptions}</select><input id="ai-provider-key" type="password" autocomplete="new-password" placeholder="仅写入本机安全存储" required></label><div class="ai-provider-key-actions"><button type="submit" class="btn primary">安全保存</button><button type="button" class="btn" id="ai-provider-key-clear">清除选中 Key</button></div></form>`
+      ? `<form class="ai-provider-key-form" id="ai-provider-key-form"><label>Agent 共用 Provider Key（Electron safeStorage）<select id="ai-provider-key-provider">${providerOptions}</select><input id="ai-provider-key" type="password" autocomplete="new-password" placeholder="保存一次，所有 Agent 共用" required></label><div class="ai-provider-key-actions"><button type="submit" class="btn primary">安全保存</button><button type="button" class="btn" id="ai-provider-key-clear">清除选中 Key</button></div></form>`
       : '<div class="ai-provider-note">当前为浏览器模式；Provider Key 请通过服务端环境变量配置。</div>';
     providerBox.innerHTML = `<div class="ai-provider-row"><strong>Supervisor</strong><span>${esc(supervisor.providerName || supervisor.provider || '未选择供应商')} · ${esc(supervisor.model || '默认模型')}</span>${status(supervisor, '凭据已配置', '未配置凭据')}</div>
       <div class="ai-provider-row"><strong>Worker Routing</strong><span>${esc(worker.providerName || worker.provider || '由 Agent Adapter 决定')} · ${esc(worker.model || '自动选择')}</span>${status(worker, '已启用', '未启用')}</div>
-      <div class="ai-provider-note">安全存储：${secureProvider.available ? 'Electron safeStorage 可用' : '不可用'} · 已配置：${esc(configuredLabel)}${secureProvider.activeProvider ? ` · 当前 Supervisor：${esc(providerLabels[secureProvider.activeProvider] || secureProvider.activeProvider)}` : ''}。Key 不会回显；基础 AutoPilot：${provider.baseAutoPilot?.blocking === false ? '不受 Provider 配置阻塞' : '请检查配置'}。</div>${secureEditor}`;
+      <div class="ai-provider-note">统一凭据：所有 Agent 共用；语音 ASR/TTS 当前使用智谱 Key。安全存储：${secureProvider.available ? 'Electron safeStorage 可用' : '不可用'} · 已配置：${esc(configuredLabel)}${secureProvider.activeProvider ? ` · 当前 Supervisor：${esc(providerLabels[secureProvider.activeProvider] || secureProvider.activeProvider)}` : ''}。Key 不会回显；基础 AutoPilot：${provider.baseAutoPilot?.blocking === false ? '不受 Provider 配置阻塞' : '请检查配置'}。</div>${secureEditor}`;
     if (providerBridge) {
       const providerSelect = providerBox.querySelector('#ai-provider-key-provider');
       if (secureProvider.activeProvider && providerLabels[secureProvider.activeProvider]) providerSelect.value = secureProvider.activeProvider;
@@ -1251,24 +1252,90 @@ function openAutoPilotDetail(workflow) {
 
 async function openAutoPilotForSession(s) {
   closePopover();
-  await setMonitorMode('ai');
   const workflow = workflowForSession(s);
   if (workflow) {
     openAutoPilotDetail(workflow);
     return;
   }
-  const project = $('ai-project-path');
-  const sessionRef = $('ai-session-ref');
-  const agent = $('ai-agent');
-  const goal = $('ai-goal');
-  if (project) project.value = s.project || '';
-  if (sessionRef) sessionRef.value = s.id || '';
-  if (agent && [...agent.options].some((option) => option.value === s.agent)) agent.value = s.agent;
-  if (goal && !goal.value) goal.value = s.last_user_text || s.title || '';
-  $('ai-autopilot-mode').value = 'auto';
-  $('ai-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  goal?.focus();
-  toast('已带入此 Session；补充 Goal 和 DoD 后即可创建 AutoPilot');
+  const sessionAgent = agentMeta(s.agent);
+  const sessionProject = s.project || '';
+  const initialGoal = String(s.last_user_text || s.title || '').trim();
+  state.popoverFor = 'autopilot-fastpath';
+  const pop = document.createElement('div');
+  pop.className = 'popover autopilot-fastpath';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  pop.innerHTML = `<div class="autopilot-fastpath-head"><strong>AI 托管当前 Session</strong><button type="button" class="btn autopilot-fastpath-close">关闭</button></div>
+    <div class="autopilot-fastpath-context"><div>Agent：<b>${esc(sessionAgent.name || s.agent || '未知')}</b>（已自动识别）</div><div>项目：<b>${esc(shortProj(sessionProject) || '未检测到项目')}</b>（已自动绑定）</div><div>Session：<b>${esc(displaySessionId(s.id))}</b></div></div>
+    <form id="autopilot-fastpath-form"><label>任务目标<textarea id="autopilot-fast-goal" required placeholder="只描述你希望当前 Session 完成的结果"></textarea></label>
+      <div class="autopilot-fastpath-source"><button type="button" class="btn" id="autopilot-goal-manual">自己填写</button><button type="button" class="btn" id="autopilot-goal-prd">从当前项目 PRD 生成</button></div>
+      <div class="autopilot-prd-preview" id="autopilot-prd-preview" hidden></div>
+      <div class="autopilot-fastpath-actions"><button type="button" class="btn" id="autopilot-advanced">高级设置 / 手动创建</button><button type="submit" class="btn primary" id="autopilot-fast-start">开始 AI 托管</button></div>
+      <div class="autopilot-fastpath-hint">客户端不能修改 Agent、Session 或项目绑定；模式、调度、预算和安全策略使用设置中心的持久化默认值。</div></form>`;
+  document.body.appendChild(pop);
+  const goal = pop.querySelector('#autopilot-fast-goal');
+  goal.value = initialGoal;
+  pop.querySelector('.autopilot-fastpath-close').onclick = closePopover;
+  pop.querySelector('#autopilot-advanced').onclick = async () => {
+    closePopover();
+    await setMonitorMode('ai');
+    $('ai-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  pop.querySelector('#autopilot-goal-manual').onclick = () => {
+    goal.dataset.goalSource = 'manual';
+    goal.focus();
+  };
+  pop.querySelector('#autopilot-goal-prd').onclick = async () => {
+    const button = pop.querySelector('#autopilot-goal-prd');
+    button.disabled = true;
+    button.textContent = '正在读取 PRD…';
+    try {
+      const data = await requestJson('/api/orchestration/prd-draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionRef: s.id }),
+      });
+      if (!data.draft?.goal) throw new Error('PRD 未生成可用目标');
+      goal.value = data.draft.goal;
+      goal.dataset.goalSource = 'prd';
+      const preview = pop.querySelector('#autopilot-prd-preview');
+      preview.hidden = false;
+      preview.innerHTML = `<strong>PRD 草稿预览 · ${esc(data.source === 'model' ? 'AI 生成' : '本地提取')}</strong><div>Goal：${esc(data.draft.goal)}</div><div>DoD：</div><ul>${(data.draft.dod || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul>${data.warning ? `<small>${esc(data.warning)}</small>` : ''}`;
+      toast('已生成 Goal 草稿，请确认后开始 AI 托管');
+      goal.focus();
+    } catch (error) {
+      toast(error.message || 'PRD 目标生成失败');
+    } finally {
+      button.disabled = false;
+      button.textContent = '从当前项目 PRD 生成';
+    }
+  };
+  pop.querySelector('#autopilot-fastpath-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const value = goal.value.trim();
+    if (!value) { toast('请先填写任务目标'); goal.focus(); return; }
+    const start = pop.querySelector('#autopilot-fast-start');
+    start.disabled = true;
+    try {
+      const data = await requestJson('/api/orchestration/workflows/from-session', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionRef: s.id, goal: value, goalSource: goal.dataset.goalSource || 'manual' }),
+      });
+      if (data.workflow?.autopilotMode === 'auto') {
+        await requestJson(`/api/orchestration/workflows/${encodeURIComponent(data.workflow.id)}/run`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+        });
+      }
+      closePopover();
+      toast('已开始托管当前 Session');
+      await loadOrchestration();
+    } catch (error) {
+      start.disabled = false;
+      toast(error.message || 'AI 托管启动失败');
+    }
+  };
+  goal.focus();
 }
 
 function buildSessionCardGroup(group, colKey) {
@@ -1322,7 +1389,7 @@ function buildCard(s, colKey, groupContext = null) {
   const statusHtml = statusMarkup(status);
   const autopilotWorkflow = typeof workflowForSession === 'function' ? workflowForSession(s) : null;
   const autopilotSummary = typeof autopilotUi !== 'undefined' && autopilotUi && autopilotUi.sessionSummary
-    ? autopilotUi.sessionSummary(autopilotWorkflow) : { kind: 'setup', label: '配置 AutoPilot', title: '为此 Session 配置 AutoPilot' };
+    ? autopilotUi.sessionSummary(autopilotWorkflow) : { kind: 'setup', label: 'AI 托管', title: '仅托管当前 Session 和项目' };
   const autopilotButton = `<button type="button" class="s-autopilot ${esc(autopilotSummary.kind)}" data-action="autopilot" aria-label="${esc(autopilotSummary.title)}" title="${esc(autopilotSummary.title)}">🤖 ${esc(autopilotSummary.label)}</button>`;
   // 跳转图标：优先用 AGENT_DEFS 里的 logo，否则 fallback 到字母
   const iconHtml = def.icon
@@ -2002,10 +2069,6 @@ function routingConfigFromCreateForm() {
   };
 }
 
-function routingSettingsModelOptions(models, selected) {
-  return '<option value="">自动选择（不锁定）</option>' + (models || []).map((item) => `<option value="${esc(item.id)}"${item.id === selected ? ' selected' : ''}>${esc(item.displayName || item.id)}</option>`).join('');
-}
-
 function openRoutingSettings() {
   closePopover();
   state.popoverFor = 'routing-settings';
@@ -2013,82 +2076,59 @@ function openRoutingSettings() {
   pop.className = 'popover routing-settings';
   pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
   document.body.appendChild(pop);
-  const supportedAgents = state.orchestration.routingCatalog?.supportedAgents || ['codex'];
-  const workflows = (state.orchestration.workflows || []).filter((workflow) => supportedAgents.includes(workflow.agent));
+  const settings = state.orchestration.settings || {};
+  const autopilot = settings.autopilot || {};
+  const routing = settings.routing || {};
+  const safety = settings.safety || {};
   const catalog = state.orchestration.routingCatalog || {};
   const models = Array.isArray(catalog.models) ? catalog.models : [];
-  const first = workflows[0];
-  const config = first?.routingConfig || {};
   pop.innerHTML = `<div class="pop-head">AI 智能执行调度</div>
-    <div class="routing-settings-copy">设置保存到选定 Workflow，并在下一轮生效；当前 Turn 的 Profile 快照不会被中途改写。</div>
-    ${workflows.length ? `<form class="routing-settings-form" id="routing-settings-form">
-      <label>应用到 Workflow<select id="routing-workflow">${workflows.map((workflow) => `<option value="${esc(workflow.id)}">${esc(smartTitle(workflow.runContract?.goal || workflow.id, 42))}</option>`).join('')}</select></label>
-      <label class="routing-checkbox"><input id="routing-enabled" type="checkbox"${config.enabled ? ' checked' : ''}>启用智能路由</label>
-      <label>路由预设<select id="routing-preset"><option value="balanced">Balanced</option><option value="quality">Quality First</option><option value="save">Economy</option><option value="custom">Custom</option></select></label>
-      <label>手动锁定模型<select id="routing-model">${routingSettingsModelOptions(models, config.manualPin?.modelId || '')}</select></label>
-      <label>手动锁定 reasoning<select id="routing-reasoning"><option value="">自动选择</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option><option value="ultra">Ultra</option></select></label>
-      <label class="routing-checkbox"><input id="routing-auto-model" type="checkbox"${config.autoModel !== false ? ' checked' : ''}>自动调整模型</label>
-      <label class="routing-checkbox"><input id="routing-auto-reasoning" type="checkbox"${config.autoReasoning !== false ? ' checked' : ''}>自动调整思考强度</label>
-      <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${config.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
-      <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${config.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
-      <div class="routing-settings-copy">${catalog.available ? `Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
-      <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新模型</button><button type="button" class="btn" id="routing-test-switch">测试模型切换</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存路由设置</button></div>
-    </form>` : '<div class="routing-settings-copy">暂无 Codex Workflow。请先在 AI 监控中创建一个 Workflow，再从这里保存 Model Routing。</div>'}`;
-  if (!workflows.length) return;
-  const workflowSelect = pop.querySelector('#routing-workflow');
-  const fill = (workflow) => {
-    const next = workflow?.routingConfig || {};
-    pop.querySelector('#routing-enabled').checked = next.enabled === true;
-    pop.querySelector('#routing-preset').value = next.preset || 'balanced';
-    pop.querySelector('#routing-model').value = next.manualPin?.modelId || '';
-    pop.querySelector('#routing-reasoning').value = next.manualPin?.reasoningLevel || '';
-    pop.querySelector('#routing-auto-model').checked = next.autoModel !== false;
-    pop.querySelector('#routing-auto-reasoning').checked = next.autoReasoning !== false;
-    pop.querySelector('#routing-respect-pin').checked = next.respectManualPin !== false;
-    pop.querySelector('#routing-allow-legacy').checked = next.allowLegacyModels === true;
-  };
-  fill(first);
-  workflowSelect.onchange = () => fill(workflows.find((workflow) => workflow.id === workflowSelect.value));
+    <div class="routing-settings-copy">这里保存的是跨 Workflow 生效的默认设置；当前 Turn 的 Profile 快照不会被中途改写。</div>
+    <form class="routing-settings-form" id="routing-settings-form">
+      <label>默认模式<select id="routing-default-mode"><option value="auto"${autopilot.defaultMode === 'auto' ? ' selected' : ''}>Auto：自动循环</option><option value="suggest"${autopilot.defaultMode === 'suggest' ? ' selected' : ''}>Suggest：只生成建议</option></select></label>
+      <label>最大循环轮数<input id="routing-max-iterations" type="number" min="1" max="100" value="${esc(autopilot.maxIterations ?? 20)}"></label>
+      <label>最大运行时间（毫秒）<input id="routing-max-runtime" type="number" min="1000" max="86400000" value="${esc(autopilot.maxRuntimeMs ?? 3600000)}"></label>
+      <label>周期复核间隔（毫秒）<input id="routing-reconcile-ms" type="number" min="1000" max="3600000" value="${esc(autopilot.reconciliationIntervalMs ?? 30000)}"></label>
+      <label class="routing-checkbox"><input id="routing-enabled" type="checkbox"${routing.enabled !== false ? ' checked' : ''}>启用智能路由</label>
+      <label>路由预设<select id="routing-preset"><option value="balanced"${routing.preset === 'balanced' ? ' selected' : ''}>Balanced</option><option value="quality"${routing.preset === 'quality' ? ' selected' : ''}>Quality First</option><option value="save"${routing.preset === 'save' ? ' selected' : ''}>Economy</option><option value="custom"${routing.preset === 'custom' ? ' selected' : ''}>Custom</option></select></label>
+      <label class="routing-checkbox"><input id="routing-auto-model" type="checkbox"${routing.autoModel !== false ? ' checked' : ''}>自动调整模型</label>
+      <label class="routing-checkbox"><input id="routing-auto-reasoning" type="checkbox"${routing.autoReasoning !== false ? ' checked' : ''}>自动调整思考强度</label>
+      <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${routing.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
+      <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${routing.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
+      <label>模型切换无法验证<select id="routing-profile-failure"><option value="pause"${safety.profileApplyFailure !== 'continue' ? ' selected' : ''}>暂停并等待人工</option><option value="continue"${safety.profileApplyFailure === 'continue' ? ' selected' : ''}>继续使用当前模型</option></select></label>
+      <div class="routing-settings-copy">${catalog.available ? `Codex Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
+      <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新 Codex 模型</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存全局设置</button></div>
+    </form>`;
   pop.querySelector('#routing-settings-cancel').onclick = closePopover;
   pop.querySelector('#routing-catalog-refresh').onclick = async () => {
     try {
-      const agent = workflows.find((workflow) => workflow.id === workflowSelect.value)?.agent || 'codex';
-      await requestJson('/api/orchestration/routing/catalog/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent }) });
-      toast('模型 Catalog 已刷新'); await loadOrchestration();
+      await requestJson('/api/orchestration/routing/catalog/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: 'codex' }) });
+      toast('Codex 模型 Catalog 已刷新'); await loadOrchestration();
     } catch (error) { toast(error.message || '模型 Catalog 刷新失败'); }
-  };
-  pop.querySelector('#routing-test-switch').onclick = async () => {
-    const modelId = pop.querySelector('#routing-model').value;
-    const reasoningLevel = pop.querySelector('#routing-reasoning').value;
-    if (!modelId) { toast('请先选择要测试的模型'); return; }
-    try {
-      const result = await requestJson(`/api/orchestration/workflows/${encodeURIComponent(workflowSelect.value)}/routing/test`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modelId, reasoningLevel: reasoningLevel || null }),
-      });
-      toast(result.code === 'PROFILE_TEST_VERIFIED' ? '模型切换验证通过' : `模型切换未验证：${result.code || '未知错误'}`);
-    } catch (error) { toast(error.message || '模型切换测试失败'); }
   };
   pop.querySelector('#routing-settings-form').onsubmit = async (event) => {
     event.preventDefault();
-    const modelId = pop.querySelector('#routing-model').value;
-    const reasoningLevel = pop.querySelector('#routing-reasoning').value;
     const body = {
-      config: {
+      autopilot: {
+        defaultMode: pop.querySelector('#routing-default-mode').value,
+        maxIterations: Number(pop.querySelector('#routing-max-iterations').value),
+        maxRuntimeMs: Number(pop.querySelector('#routing-max-runtime').value),
+        reconciliationIntervalMs: Number(pop.querySelector('#routing-reconcile-ms').value),
+      },
+      routing: {
         enabled: pop.querySelector('#routing-enabled').checked,
         preset: pop.querySelector('#routing-preset').value,
         autoModel: pop.querySelector('#routing-auto-model').checked,
         autoReasoning: pop.querySelector('#routing-auto-reasoning').checked,
         respectManualPin: pop.querySelector('#routing-respect-pin').checked,
         allowLegacyModels: pop.querySelector('#routing-allow-legacy').checked,
-        ...(modelId || reasoningLevel ? { manualPin: { modelId: modelId || null, reasoningLevel: reasoningLevel || null } } : {}),
       },
+      safety: { profileApplyFailure: pop.querySelector('#routing-profile-failure').value },
     };
     try {
-      await requestJson(`/api/orchestration/workflows/${encodeURIComponent(workflowSelect.value)}/routing`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      closePopover(); toast('AI 智能执行调度已保存'); await loadOrchestration();
-    } catch (error) { toast(error.message || '路由设置保存失败'); }
+      await requestJson('/api/orchestration/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      closePopover(); toast('AI 智能执行调度已保存，下一次托管起生效'); await loadOrchestration();
+    } catch (error) { toast(error.message || '全局设置保存失败'); }
   };
 }
 

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { createSecureStore, providerEnvName } = require('./secure-store');
+const { createSecureStore, providerEnvName, SUPPORTED_PROVIDERS } = require('./secure-store');
 
 function makeStore() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-board-secure-store-'));
@@ -31,6 +31,21 @@ test('secure provider store encrypts credentials and exposes only safe status', 
   assert.doesNotMatch(raw, /sk-test-secret/);
   assert.doesNotMatch(JSON.stringify(store.status()), /sk-test-secret/);
   assert.equal(providerEnvName('openai-compatible'), 'OPENAI_COMPATIBLE_API_KEY');
+});
+
+test('secure provider store accepts shared domestic and voice providers', () => {
+  const { store } = makeStore();
+  for (const provider of ['dashscope', 'zai', 'ark', 'minimax', 'deepgram', 'elevenlabs']) {
+    store.setProviderApiKey(provider, `${provider}-secret`);
+  }
+
+  assert.ok(SUPPORTED_PROVIDERS.includes('dashscope'));
+  assert.ok(SUPPORTED_PROVIDERS.includes('zai'));
+  assert.ok(SUPPORTED_PROVIDERS.includes('ark'));
+  assert.ok(SUPPORTED_PROVIDERS.includes('minimax'));
+  assert.ok(SUPPORTED_PROVIDERS.includes('deepgram'));
+  assert.ok(SUPPORTED_PROVIDERS.includes('elevenlabs'));
+  assert.deepEqual(store.status().configuredProviders, ['dashscope', 'zai', 'ark', 'minimax', 'deepgram', 'elevenlabs']);
 });
 
 test('secure provider store clears credentials without leaving a plaintext secret', () => {

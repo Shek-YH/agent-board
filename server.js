@@ -1198,6 +1198,7 @@ function resolveCodexRoutingCapability() {
 }
 const codexRouting = resolveCodexRoutingCapability();
 const orchestration = createOrchestrationRuntime({
+  sessionStore: store,
   workbuddyCliPath: resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentGuiExecutable('workbuddy') }),
   verifiedDispatchDependencies: (agent) => createVerifiedDispatchDependencies(agent),
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
@@ -1607,7 +1608,7 @@ const server = http.createServer(async (req, res) => {
   // Jarvis / AI 监控 / CLI 共用的编排 API。
   if (pathname.startsWith('/api/orchestration/')) {
     try {
-      const body = req.method === 'POST' ? await readBody(req) : {};
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
       const result = await handleOrchestrationRequest({
         method: req.method, pathname, query: url.searchParams, body, runtime: orchestration,
       });

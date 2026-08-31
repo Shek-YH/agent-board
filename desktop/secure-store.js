@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 
 const STORE_VERSION = 1;
 const SUPPORTED_PROVIDERS = Object.freeze([
+  'dashscope', 'zai', 'ark', 'minimax', 'deepgram', 'elevenlabs',
   'openai', 'anthropic', 'gemini', 'deepseek', 'openrouter', 'openai-compatible',
 ]);
 

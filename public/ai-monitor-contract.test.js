@@ -68,7 +68,8 @@ test('AI monitor exposes routing capability controls and safe catalog actions', 
   assert.match(html, /id="ai-routing-respect-pin"/);
   assert.match(html, /id="ai-routing-allow-legacy"/);
   assert.match(app, /routing\/catalog\/refresh/);
-  assert.match(app, /routing\/test/);
+  assert.match(app, /\/api\/orchestration\/settings/);
+  assert.doesNotMatch(app, /应用到 Workflow/);
   assert.match(app, /Model Discovery|模型发现/);
 });
 
