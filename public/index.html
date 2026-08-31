@@ -178,6 +178,7 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .s-subagent-toggle svg{transition:transform .18s ease}
 .session-card-group.is-expanded .s-subagent-toggle svg{transform:rotate(180deg)}
 .s-title-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;min-width:0}
+.s-title-actions{display:flex;align-items:center;gap:5px;flex:0 0 auto;margin-left:auto}
 .s-title-leading{display:flex;align-items:flex-start;gap:7px;min-width:0;flex:1 1 auto}
 .s-title-leading .agent-tag{margin-top:1px;white-space:nowrap}
 .s-title-row>.s-status{flex:0 0 auto}
@@ -186,6 +187,11 @@ select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15
 .s-sid{font-size:10px;color:var(--text3);font-family:ui-monospace,Consolas,monospace;border:1px dashed var(--border);border-radius:5px;padding:0 5px;background:transparent;line-height:1.6;cursor:copy;transition:.12s;flex-shrink:0}
 .s-sid:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
 .s-status{font-size:11px;padding:2px 8px;border-radius:6px;background:#F1EFE8;color:var(--text2);font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.s-autopilot{border:1px solid var(--border);background:var(--card);color:var(--text2);border-radius:6px;padding:2px 7px;min-height:22px;font-size:10px;line-height:1.2;cursor:pointer;white-space:nowrap;transition:.15s}
+.s-autopilot:hover{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.s-autopilot.running{border-color:#16A34A;background:#F0FDF4;color:#15803D}
+.s-autopilot.paused{border-color:#D97706;background:#FFFBEB;color:#B45309}
+.s-autopilot.done{border-color:#0F766E;background:#F0FDFA;color:#0F766E}
 .s-status.on{background:#DCFCE7;color:#15803D;font-weight:600}
 .s-status .pulse{width:6px;height:6px;border-radius:50%;background:#16A34A;animation:blink 1.6s infinite}
 .s-topology-badge{font-size:10.5px;padding:2px 7px;border-radius:999px;font-weight:650;display:inline-flex;align-items:center;white-space:nowrap}
@@ -640,6 +646,23 @@ input,select,textarea{background:var(--input-background)}
 .s-flow-dismiss:hover{background:var(--session-running);border-color:var(--agent-running)}
 .s-more,.s-jump,.s-subagent-toggle{background:var(--surface);color:var(--surface-foreground);border-color:var(--border)}
 .s-jump:hover,.s-subagent-toggle:hover{background:var(--accent-background);color:var(--accent)}
+.s-autopilot{background:var(--surface);color:var(--surface-foreground);border-color:var(--border)}
+.s-autopilot.running{background:var(--session-running);color:var(--agent-running);border-color:var(--agent-running)}
+.s-autopilot.paused{background:var(--muted);color:var(--agent-waiting);border-color:var(--agent-waiting)}
+.s-autopilot.done{background:var(--session-running);color:var(--agent-completed);border-color:var(--agent-completed)}
+.autopilot-detail{width:min(430px,calc(100vw - 24px));max-height:min(78vh,720px);overflow-y:auto;padding:10px}
+.autopilot-detail-head{display:flex;align-items:center;gap:8px}
+.autopilot-detail-head strong{font-size:14px;color:var(--popover-foreground)}
+.autopilot-detail-close{margin-left:auto}
+.autopilot-detail-section{border-top:1px solid var(--border);padding:9px 2px 0;margin-top:9px}
+.autopilot-detail-section strong{display:block;color:var(--popover-foreground);font-size:11px;letter-spacing:.2px;margin-bottom:5px}
+.autopilot-detail-copy{font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--popover-foreground)}
+.autopilot-detail-list{margin:0;padding-left:18px;color:var(--popover-foreground);font-size:12px;line-height:1.6}
+.autopilot-detail-list li.done{color:var(--agent-completed);text-decoration:line-through}
+.autopilot-detail-progress{height:7px;background:var(--muted);border-radius:999px;overflow:hidden;margin:6px 0 4px}
+.autopilot-detail-progress span{display:block;height:100%;background:var(--accent);border-radius:inherit}
+.autopilot-detail-meta{font-size:11px;color:var(--muted-foreground)}
+.autopilot-detail-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px;margin-top:12px}
 .popover{background:var(--popover-background);color:var(--popover-foreground);border-color:var(--border);box-shadow:var(--shadow-lg)}
 .pop-head{color:var(--muted-foreground);border-color:var(--border)}
 .pop-item{color:var(--popover-foreground)}
@@ -866,6 +889,7 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
 <script src="/api-client.js"></script>
 <script src="/shortcut-utils.js"></script>
 <script src="/recent-completed-jump.js"></script>
+<script src="/autopilot-ui.js"></script>
 <script src="/session-card-stacking.js"></script>
 <script src="/app.js"></script>
 </body>

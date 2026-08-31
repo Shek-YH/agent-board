@@ -45,6 +45,7 @@ const {
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
+const { createCompletionDetector } = require('./lib/orchestrator/completion-detector');
 const { createCodexAppServerCapability } = require('./lib/orchestrator/routing/codex-app-server');
 const { createCodexAppServerClient } = require('./lib/orchestrator/routing/codex-app-server-client');
 const { createJarvisVoiceRuntime } = require('./lib/jarvis-voice');
@@ -578,7 +579,8 @@ function createVerifiedDispatchDependencies(agent) {
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
     verifyDeliveryFingerprint: typeof delivery.verifyFingerprint === 'function'
       ? (target, fingerprint, context) => delivery.verifyFingerprint(target, fingerprint, context) : null,
-    completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.implementation || null,
+    completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.supported
+      ? createCompletionDetector({ getSession: (sessionRef) => store.getSession(sessionRef) }) : null,
   };
 }
 

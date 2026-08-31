@@ -3,6 +3,7 @@
 
 const sessionCardStacking = window.AgentBoardSessionStacking;
 const themeManager = window.AgentBoardThemeManager;
+const autopilotUi = window.AgentBoardAutoPilotUi;
 let subagentStorage = null;
 try {
   subagentStorage = window.localStorage;
@@ -255,6 +256,7 @@ async function loadOrchestration() {
       } : null,
     };
     renderAIMonitor();
+    if (state.board && Object.keys(state.board).length) renderBoard();
   } catch (error) {
     $('ai-readiness').textContent = `AI 监控服务未连接：${error.message || '请求失败'}`;
   }
@@ -410,7 +412,8 @@ function setMonitorMode(mode) {
   document.querySelectorAll('[data-monitor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.monitorMode === state.monitorMode));
   $('manual-monitor-panel').hidden = state.monitorMode !== 'manual';
   $('ai-monitor-panel').hidden = state.monitorMode !== 'ai';
-  if (state.monitorMode === 'ai') loadOrchestration();
+  if (state.monitorMode === 'ai') return loadOrchestration();
+  return Promise.resolve();
 }
 
 let jarvisRecorder = null;
@@ -1187,6 +1190,87 @@ function toggleSubagentGroup(rootRef) {
   syncSubagentGroupExpansion(rootRef);
 }
 
+function workflowForSession(s) {
+  return autopilotUi && typeof autopilotUi.findWorkflowForSession === 'function'
+    ? autopilotUi.findWorkflowForSession(state.orchestration.workflows, s) : null;
+}
+
+function autopilotActionMarkup(workflow) {
+  if (!workflow) return '';
+  const stateName = workflow.autoState || 'OFF';
+  const isAuto = workflow.autopilotMode === 'auto';
+  const actions = [];
+  if (isAuto && ['PAUSED', 'BLOCKED'].includes(stateName)) {
+    actions.push('<button type="button" class="btn primary autopilot-detail-action" data-action="resume">恢复 Auto</button>');
+  } else if (isAuto && !['DONE', 'STOPPED'].includes(stateName) && workflow.controlOwner !== 'human') {
+    actions.push('<button type="button" class="btn autopilot-detail-action" data-action="stop">停止 Auto</button>');
+  }
+  if (!['completed', 'paused'].includes(workflow.status) && workflow.controlOwner !== 'human') {
+    actions.push('<button type="button" class="btn autopilot-detail-action" data-action="takeover">人工接管</button>');
+  }
+  return actions.join('');
+}
+
+function openAutoPilotDetail(workflow) {
+  if (!workflow || !autopilotUi) return;
+  closePopover();
+  state.popoverFor = 'autopilot-detail';
+  const pop = document.createElement('div');
+  pop.className = 'popover autopilot-detail';
+  pop.style.position = 'fixed';
+  pop.style.top = '70px';
+  pop.style.right = '16px';
+  pop.style.zIndex = 60;
+  const latest = null;
+  const detail = autopilotUi.detailForWorkflow(workflow, latest);
+  const summary = autopilotUi.sessionSummary(workflow);
+  const scope = detail.scope.length ? detail.scope : ['未声明'];
+  const dod = detail.dod.length
+    ? detail.dod.map((item) => `<li class="${item.passed ? 'done' : ''}">${item.passed ? '✓ ' : ''}${esc(item.description)}</li>`).join('')
+    : '<li>未声明</li>';
+  const actions = autopilotActionMarkup(workflow);
+  pop.innerHTML = `<div class="autopilot-detail-head"><strong>AutoPilot 详情</strong><span class="ai-badge">${esc(summary.state || 'OFF')}</span><button type="button" class="btn autopilot-detail-close">关闭</button></div>
+    <section class="autopilot-detail-section"><strong>Goal</strong><div class="autopilot-detail-copy">${esc(detail.goal)}</div></section>
+    <section class="autopilot-detail-section"><strong>Scope</strong><ul class="autopilot-detail-list">${scope.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></section>
+    <section class="autopilot-detail-section"><strong>DoD</strong><ul class="autopilot-detail-list">${dod}</ul></section>
+    <section class="autopilot-detail-section"><strong>Progress</strong><div class="autopilot-detail-progress"><span style="width:${Math.max(0, Math.min(100, detail.progress.percent))}%"></span></div><div class="autopilot-detail-meta">${esc(detail.progress.completed)}/${esc(detail.progress.total)} · ${esc(detail.progress.percent)}%</div></section>
+    <section class="autopilot-detail-section"><strong>Current Model / Reasoning</strong><div class="autopilot-detail-copy">${esc(detail.currentModel)} · ${esc(detail.reasoning)}</div><div class="autopilot-detail-meta">原因：${esc(detail.routeReason)}（不展示 Chain of Thought）</div></section>
+    <section class="autopilot-detail-section"><strong>Last Decision</strong><div class="autopilot-detail-copy">${esc(detail.lastDecision)}</div></section>
+    <section class="autopilot-detail-section"><strong>Delivery State</strong><div class="autopilot-detail-copy">${esc(detail.deliveryState)}</div></section>
+    <div class="autopilot-detail-actions">${actions || '<span class="ai-hint">当前状态无需操作</span>'}</div>`;
+  document.body.appendChild(pop);
+  pop.querySelector('.autopilot-detail-close').onclick = closePopover;
+  pop.querySelectorAll('.autopilot-detail-action').forEach((button) => {
+    button.onclick = () => {
+      const action = button.dataset.action;
+      closePopover();
+      void runOrchestrationAction(action, workflow.id);
+    };
+  });
+}
+
+async function openAutoPilotForSession(s) {
+  closePopover();
+  await setMonitorMode('ai');
+  const workflow = workflowForSession(s);
+  if (workflow) {
+    openAutoPilotDetail(workflow);
+    return;
+  }
+  const project = $('ai-project-path');
+  const sessionRef = $('ai-session-ref');
+  const agent = $('ai-agent');
+  const goal = $('ai-goal');
+  if (project) project.value = s.project || '';
+  if (sessionRef) sessionRef.value = s.id || '';
+  if (agent && [...agent.options].some((option) => option.value === s.agent)) agent.value = s.agent;
+  if (goal && !goal.value) goal.value = s.last_user_text || s.title || '';
+  $('ai-autopilot-mode').value = 'auto';
+  $('ai-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  goal?.focus();
+  toast('已带入此 Session；补充 Goal 和 DoD 后即可创建 AutoPilot');
+}
+
 function buildSessionCardGroup(group, colKey) {
   const expanded = state.expandedSubagentGroups.has(group.root.id);
   const childCount = group.children.length;
@@ -1236,6 +1320,10 @@ function buildCard(s, colKey, groupContext = null) {
     ? `<span class="agent-tag" style="background:${meta.color}">${esc(meta.name)}</span>`
     : '';
   const statusHtml = statusMarkup(status);
+  const autopilotWorkflow = typeof workflowForSession === 'function' ? workflowForSession(s) : null;
+  const autopilotSummary = typeof autopilotUi !== 'undefined' && autopilotUi && autopilotUi.sessionSummary
+    ? autopilotUi.sessionSummary(autopilotWorkflow) : { kind: 'setup', label: '配置 AutoPilot', title: '为此 Session 配置 AutoPilot' };
+  const autopilotButton = `<button type="button" class="s-autopilot ${esc(autopilotSummary.kind)}" data-action="autopilot" aria-label="${esc(autopilotSummary.title)}" title="${esc(autopilotSummary.title)}">🤖 ${esc(autopilotSummary.label)}</button>`;
   // 跳转图标：优先用 AGENT_DEFS 里的 logo，否则 fallback 到字母
   const iconHtml = def.icon
     ? `<img src="/icons/${esc(def.icon)}" alt="" style="width:18px;height:18px;object-fit:contain">`
@@ -1254,7 +1342,7 @@ function buildCard(s, colKey, groupContext = null) {
         ${agentTag}
         ${titleHtml}
       </div>
-      ${statusHtml}
+      <div class="s-title-actions">${autopilotButton}${statusHtml}</div>
     </div>
     <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
     <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
@@ -1274,7 +1362,7 @@ function buildCard(s, colKey, groupContext = null) {
     `;
   if (groupContext) card.classList.add('has-subagent-toggle', 'stack-main-card');
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss') || e.target.closest('.s-subagent-toggle')) return;
+    if (e.target.closest('.s-jump') || e.target.closest('.s-more') || e.target.closest('.s-flow-dismiss') || e.target.closest('.s-subagent-toggle') || e.target.closest('.s-autopilot')) return;
     openSession(s.id);
   });
   card.querySelector('.s-jump').addEventListener('click', (e) => {
@@ -1306,6 +1394,10 @@ function buildCard(s, colKey, groupContext = null) {
   card.querySelector('.s-subagent-toggle')?.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleSubagentGroup(s.id);
+  });
+  card.querySelector('.s-autopilot')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void openAutoPilotForSession(s);
   });
   return card;
 }
