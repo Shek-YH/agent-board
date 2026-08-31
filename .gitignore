@@ -23,6 +23,9 @@ dist/
 
 # 构建、测试与增量缓存
 build/
+!build/
+build/*
+!build/installer.nsh
 out/
 coverage/
 .cache/
