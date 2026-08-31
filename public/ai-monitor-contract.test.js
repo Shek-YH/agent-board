@@ -100,6 +100,9 @@ test('AI monitor exposes commercial routing diagnostics, explainability, usage, 
   assert.match(app, /Catalog Diagnostics|Catalog 诊断/);
   assert.match(app, /Cost|成本/);
   assert.match(app, /Quota|配额/);
+  assert.match(app, /quota\.used/);
+  assert.match(app, /quota\.limit/);
+  assert.match(app, /quota\.remaining/);
   assert.match(app, /Receipt|回执/);
   assert.doesNotMatch(app, /JSON\.stringify\([^)]*(instruction|token)/);
 });

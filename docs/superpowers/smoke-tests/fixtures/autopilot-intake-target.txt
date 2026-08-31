@@ -1,6 +1,6 @@
 # AutoPilot Task Intake Smoke Target
 
-status: pending
-label: ORIGINAL
+status: ready
+label: AUTOPILOT_READY
 
 说明：这是一个无敏感信息的真实执行靶文件。只允许把 status 改为 ready，并把 label 改为 AUTOPILOT_READY。

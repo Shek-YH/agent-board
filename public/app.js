@@ -25,6 +25,10 @@ const state = {
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
   recentDone: new Map(),
   completionSounds: { assignments: {}, sounds: [], disabledAgents: [], disabledAgentRoles: [] },
+  // AutoPilot 终态提示去重：同一 Workflow 的多个 SSE 更新只提示一次
+  autoPilotDoneSoundKeys: new Set(),
+  autoPilotCompletedSessionRefs: new Set(),
+  completionSoundLastPlayedAt: new Map(),
   // 用户手动点「已读」取消高亮的 ref 集合（localStorage 持久化，避免刷新后重新点亮）
   dismissedRecent: new Set(),
   loading: false,
@@ -996,12 +1000,40 @@ function markRecentlyCompleted(ref) {
   state.dismissedRecent.delete(ref); // 新一轮完成重新点亮，忽略之前的「已读」
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
+  if (!state.autoPilotCompletedSessionRefs.has(ref)) playAssignedCompletionSound(ref);
+}
+function playAssignedCompletionSound(ref) {
   const agent = String(ref).split(':', 1)[0];
   const role = sessionRoleForRef(ref);
   if (!isSoundRoleEnabled(state.completionSounds, agent, role)) return;
   const soundId = state.completionSounds.assignments[agent];
   const sound = state.completionSounds.sounds.find((item) => item.id === soundId);
+  if (!sound) return;
+  const key = `${ref}:${sound.id}`;
+  const now = Date.now();
+  const lastPlayedAt = state.completionSoundLastPlayedAt.get(key) || 0;
+  if (now - lastPlayedAt < 1500) return;
+  state.completionSoundLastPlayedAt.set(key, now);
   if (sound) playSoundPreview(sound.url);
+}
+function notifyAutoPilotCompletion(workflow) {
+  if (!workflow) return;
+  const sessionRef = String(workflow.binding?.sessionRef || '').trim();
+  if (workflow.autoState !== 'DONE') {
+    // 允许同一个 Session 后续创建新的 Workflow 时重新播放最终完成音。
+    if (sessionRef) state.autoPilotCompletedSessionRefs.delete(sessionRef);
+    return;
+  }
+  const workflowId = String(workflow.id || '').trim();
+  const endedAt = Number(workflow.endedAt) || 0;
+  if (!workflowId || !endedAt) return;
+  const key = `${workflowId}:${endedAt}`;
+  if (state.autoPilotDoneSoundKeys.has(key)) return;
+  state.autoPilotDoneSoundKeys.add(key);
+  if (sessionRef) {
+    state.autoPilotCompletedSessionRefs.add(sessionRef);
+    playAssignedCompletionSound(sessionRef);
+  }
 }
 function dismissRecent(ref) {
   state.recentDone.delete(ref);
@@ -2109,6 +2141,19 @@ function routingValue(value, fallback = '—') {
   return value === undefined || value === null || value === '' ? fallback : esc(value);
 }
 
+function routingUsageDetail(usage) {
+  const quota = usage?.quota || {};
+  if (quota.available) {
+    const used = Number(quota.used);
+    const limit = Number(quota.limit);
+    const remaining = Number(quota.remaining);
+    if ([used, limit, remaining].every(Number.isFinite)) {
+      return `已用 ${used} / 限额 ${limit} · 剩余 ${remaining}`;
+    }
+  }
+  return quota.reasonCode || 'QUOTA_DATA_UNAVAILABLE';
+}
+
 function renderRoutingCommercialOverview(pop, overview) {
   const diagnostics = overview?.diagnostics || {};
   const compatibility = diagnostics.compatibility || {};
@@ -2135,7 +2180,7 @@ function renderRoutingCommercialOverview(pop, overview) {
       <div class="routing-commerce-metric"><span>Compatibility</span><b class="${compatibility.supported ? 'ready' : 'warning'}">${compatibility.supported ? '支持' : '不支持'}</b><small>${esc(compatibility.reasonCode || 'UNKNOWN')}</small></div>
       <div class="routing-commerce-metric"><span>Catalog Diagnostics</span><b>${esc(catalogState)}</b><small>${esc(catalog.reasonCode || '—')} · ${esc(catalog.modelCount ?? 0)} 个模型</small></div>
       <div class="routing-commerce-metric"><span>Cost / 成本</span><b>${usage.cost?.available ? '可用' : '不可用'}</b><small>${esc(usage.cost?.reasonCode || 'COST_DATA_UNAVAILABLE')}</small></div>
-      <div class="routing-commerce-metric"><span>Quota / 配额</span><b>${usage.quota?.available ? '可用' : '不可用'}</b><small>${esc(usage.quota?.reasonCode || 'QUOTA_DATA_UNAVAILABLE')}</small></div>
+      <div class="routing-commerce-metric"><span>Quota / 配额</span><b>${usage.quota?.available ? '可用' : '不可用'}</b><small>${esc(routingUsageDetail(usage))}</small></div>
     </div>
     <section class="routing-commerce-section"><strong>Routing Explainability</strong><div class="routing-commerce-detail">${esc(lastRoute)}</div></section>
     <section class="routing-commerce-section"><strong>Historical success rate · Worktree</strong>
@@ -2738,7 +2783,7 @@ function renderSoundSettings(pop, selectedAgent) {
       <aside class="sound-agent-list" style="padding:8px;border-right:1px solid var(--border);overflow-y:auto"><div class="sound-agent-list-title">各 Agent 子代理通知</div>${agentList || '<div style="padding:8px;color:var(--text3);font-size:13px">暂无可配置 Agent</div>'}</aside>
       <section class="sound-settings-panel" style="padding:14px;overflow-y:auto"><div class="sound-selected-agent" style="font-weight:600;color:var(--text)"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(selectedMeta.color || '#888')};margin-right:6px"></span>${esc(selectedMeta.name || selectedAgent)}</div>
         <div class="sound-subagent-box"><div class="sound-subagent-copy"><strong>子代理任务完成通知</strong><small>仅控制 ${esc(selectedMeta.name || selectedAgent)} 的子代理会话完成时是否播放，主任务提示音不受影响。</small></div><button type="button" class="sound-toggle ${childEnabled ? 'on' : ''}" id="sound-subagent-toggle" role="switch" aria-checked="${childEnabled ? 'true' : 'false'}" aria-label="${esc(selectedMeta.name || selectedAgent)}子代理完成通知开关" title="${childEnabled ? '关闭' : '开启'}子代理完成通知"><span class="sound-toggle-track"><span class="sound-toggle-thumb"></span></span></button></div>
-        <div class="sound-audio-box"><div class="sound-audio-label">当前提示音（主任务与子代理共用）</div><div class="sound-select-row"><select id="completion-sound-select" class="sound-select" ${selectedAgent ? '' : 'disabled'}>${soundOptions}</select><button type="button" class="btn sound-preview-current" data-url="${esc(selectedSound?.url || '')}" ${selectedSound ? '' : 'disabled'}>试听</button></div><div class="sound-audio-help">主任务和子代理使用同一个 Agent 提示音；下拉框选“不播放提示音”即可关闭该 Agent 的声音。</div></div>
+        <div class="sound-audio-box"><div class="sound-audio-label">当前提示音（主任务与子代理共用）</div><div class="sound-select-row"><select id="completion-sound-select" class="sound-select" ${selectedAgent ? '' : 'disabled'}>${soundOptions}</select><button type="button" class="btn sound-preview-current" data-url="${esc(selectedSound?.url || '')}" ${selectedSound ? '' : 'disabled'}>试听</button></div><div class="sound-audio-help">主任务和子代理使用同一个 Agent 提示音；AutoPilot 阶段性进度静默，整个 Workflow 完成时只提示一次；下拉框选“不播放提示音”即可关闭该 Agent 的声音。</div></div>
         ${soundRows ? `<div class="sound-library-label">声音库管理</div><div class="sound-library">${soundRows}</div>` : '<div class="sound-empty">还没有提示音，请上传一个本地音频。</div>'}
         <div class="sound-upload-row"><label class="btn" style="display:inline-flex;align-items:center;min-height:32px;padding:5px 10px;font-size:12px;cursor:pointer">上传本地音频<input id="sound-upload" type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac,.wav,.mp3,.ogg,.m4a,.aac" hidden></label><span>WAV / MP3 / OGG / M4A / AAC，最多 8 MB</span></div>
       </section>
@@ -3603,7 +3648,10 @@ function connectSSE() {
     } catch {}
   });
   es.addEventListener('unhide', () => { loadBoard(); });
-  es.addEventListener('orchestration', () => { loadOrchestration(); });
+  es.addEventListener('orchestration', (ev) => {
+    try { const payload = JSON.parse(ev.data); notifyAutoPilotCompletion(payload.workflow); } catch {}
+    loadOrchestration();
+  });
   es.onerror = () => {
     setRuntimeHealth('实时连接中断 · 正在自动重连', 'warning');
   };

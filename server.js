@@ -579,6 +579,7 @@ function createVerifiedDispatchDependencies(agent) {
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
     verifyDeliveryFingerprint: typeof delivery.verifyFingerprint === 'function'
       ? (target, fingerprint, context) => delivery.verifyFingerprint(target, fingerprint, context) : null,
+    readSession: (sessionRef) => store.getSession(sessionRef),
     completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.supported
       ? createCompletionDetector({ getSession: (sessionRef) => store.getSession(sessionRef) }) : null,
   };

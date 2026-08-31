@@ -85,6 +85,16 @@ test('提示音开关接口支持主会话与子代理作用域', () => {
   assert.match(source, /applyEnabled\(\[selectedAgent\], !childEnabled/);
 });
 
+test('AutoPilot 只在整个 Workflow DONE 时提示一次，阶段性进度不播放提示音', () => {
+  assert.match(source, /autoPilotDoneSoundKeys/);
+  assert.match(source, /autoPilotCompletedSessionRefs/);
+  assert.match(source, /function notifyAutoPilotCompletion\(workflow\)/);
+  assert.match(source, /workflow\.autoState !== ['"]DONE['"]/);
+  assert.match(source, /notifyAutoPilotCompletion\(payload\.workflow\)/);
+  assert.match(source, /AutoPilot 阶段性进度静默，整个 Workflow 完成时只提示一次/);
+  assert.match(source, /if \(state\.autoPilotDoneSoundKeys\.has\(key\)\) return;/);
+});
+
 test('升级修复时一次性清理旧的伪完成标记', () => {
   assert.match(source, /const RECENT_DONE_STATE_VERSION = '2';/);
   assert.match(source, /localStorage\.removeItem\('ab-recent-done'\)/);
