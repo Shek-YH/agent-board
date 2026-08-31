@@ -50,6 +50,10 @@ test('verified dispatch route remains scoped to Codex and Hermes POC agents', ()
   assert.doesNotMatch(route, /retry/i);
 });
 
+test('production routing receives the Hermes adapter capability declaration', () => {
+  assert.match(serverSource, /routingAgentCapabilities:\s*\{\s*hermes:\s*hermes\.createRoutingCapability\(\)/);
+});
+
 test('verified dispatch dependencies are resolved from the capability registry', () => {
   assert.match(serverSource, /require\('\.\/lib\/capability-layer'\)/);
   assert.match(serverSource, /createCapabilityRegistry\(/);

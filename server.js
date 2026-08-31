@@ -1203,6 +1203,7 @@ const orchestration = createOrchestrationRuntime({
   verifiedDispatchDependencies: (agent) => createVerifiedDispatchDependencies(agent),
   onWorkflowChange: (workflow) => sseBroadcast('orchestration', { workflow }),
   routingNativeCapability: codexRouting.capability,
+  routingAgentCapabilities: { hermes: hermes.createRoutingCapability() },
   routingAgentVersion: codexRouting.version,
   routingProbeObserver: (agent) => {
     AGENT_CAPABILITY_REGISTRY.updateMetadata(agent, { modelCatalogProbeAt: Date.now() });
