@@ -106,6 +106,9 @@ test('AI monitor exposes commercial routing diagnostics, explainability, usage, 
 
 test('AI monitor exposes read-only historical routing insights and workspace safety', () => {
   assert.match(app, /routing\/insights/);
+  assert.match(app, /\/api\/orchestration\/routing\/insights/);
+  assert.match(app, /settings-routing-flywheel/);
+  assert.match(app, /Routing Data Flywheel|历史路由数据/);
   assert.match(app, /历史成功率|Historical success/);
   assert.match(app, /Worktree|工作区/);
   assert.match(app, /仅建议|read-only/);

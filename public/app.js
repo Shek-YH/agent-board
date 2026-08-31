@@ -2072,6 +2072,45 @@ async function openRoutingCommercialOverview(id) {
   }
 }
 
+function renderRoutingFlywheel(pop, data) {
+  const totalAttempts = Number(data?.totalAttempts) || 0;
+  const totalSuccesses = Number(data?.totalSuccesses) || 0;
+  const agents = Array.isArray(data?.agents) ? data.agents : [];
+  const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+  const successRate = totalAttempts ? Math.round((totalSuccesses / totalAttempts) * 100) : 0;
+  pop.innerHTML = `<div class="pop-head">Routing Data Flywheel</div>
+    <div class="routing-commerce-copy">只读工作区汇总：按 Agent、模型和 reasoning 统计已验证的历史结果，不会自动修改任何 Workflow 的路由设置。</div>
+    <div class="routing-commerce-grid">
+      <div class="routing-commerce-metric"><span>历史尝试</span><b>${totalAttempts}</b><small>最近有界记录</small></div>
+      <div class="routing-commerce-metric"><span>总体成功率</span><b>${successRate}%</b><small>${totalSuccesses} 次成功 · ${Number(data?.totalFailures) || 0} 次失败</small></div>
+    </div>
+    <section class="routing-commerce-section"><strong>Agent 成功率</strong>
+      ${agents.length ? agents.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')}</span><b>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</b><span>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</span></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
+    </section>
+    <section class="routing-commerce-section"><strong>Agent · Model · Reasoning</strong>
+      ${profiles.length ? profiles.map((item) => `<div class="routing-audit-item"><span>${esc(item.agent || '未识别')} · ${esc(item.modelId || '未命名')}</span><b>${esc(item.reasoningLevel || '未验证')}</b><span>${esc(item.successes ?? 0)}/${esc(item.attempts ?? 0)} 成功</span><em>成功率 ${esc(Math.round(Number(item.successRate || 0) * 100))}%</em></div>`).join('') : '<div class="routing-commerce-detail">暂无足够历史路由数据</div>'}
+    </section>
+    <div class="routing-commerce-actions"><button type="button" class="btn primary" id="routing-flywheel-close">关闭</button></div>`;
+  pop.querySelector('#routing-flywheel-close').onclick = closePopover;
+}
+
+async function openRoutingFlywheel() {
+  closePopover();
+  state.popoverFor = 'routing-flywheel';
+  const pop = document.createElement('div');
+  pop.className = 'popover routing-commerce';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  pop.innerHTML = '<div class="pop-head">Routing Data Flywheel</div><div class="routing-commerce-detail">正在读取工作区历史路由数据…</div>';
+  document.body.appendChild(pop);
+  try {
+    const data = await requestJson('/api/orchestration/routing/insights');
+    renderRoutingFlywheel(pop, data);
+  } catch (error) {
+    pop.innerHTML = `<div class="pop-head">Routing Data Flywheel</div><div class="routing-commerce-error">读取失败：${esc(error.message || '服务暂不可用')}</div><div class="routing-commerce-actions"><button type="button" class="btn" id="routing-flywheel-error-close">关闭</button></div>`;
+    pop.querySelector('#routing-flywheel-error-close').onclick = closePopover;
+  }
+}
+
 function routingConfigFromCreateForm() {
   const enabled = $('ai-routing-enabled')?.checked === true && routingAgentSupported($('ai-agent')?.value);
   const modelId = $('ai-routing-model')?.value || '';
@@ -2188,6 +2227,7 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-theme">主题设置</button>
     <button class="pop-item" id="settings-provider">Provider 配置状态</button>
     <button class="pop-item" id="settings-autopilot-routing">AI 智能执行调度</button>
+    <button class="pop-item" id="settings-routing-flywheel">历史路由数据</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
@@ -2196,6 +2236,7 @@ function openSettingsHub() {
   pop.querySelector('#settings-theme').onclick = openThemeSettings;
   pop.querySelector('#settings-provider').onclick = openProviderSettings;
   pop.querySelector('#settings-autopilot-routing').onclick = openRoutingSettings;
+  pop.querySelector('#settings-routing-flywheel').onclick = openRoutingFlywheel;
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。
