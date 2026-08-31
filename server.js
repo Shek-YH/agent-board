@@ -957,7 +957,7 @@ function completionCapability(adapter) {
 const VERIFIED_CAPABILITY_BINDINGS = {
   codex() {
     const writer = createCodexWriter();
-    const delivery = createCodexDeliveryReader();
+    const delivery = createCodexDeliveryReader({ deliveryWaitMs: 10_000 });
     return {
       sessionActivator: { supported: true, implementation: activateVerifiedSession, source: 'deep-link' },
       identityVerifier: { supported: true, implementation: verifyCodexDesktopSession, source: 'uia' },

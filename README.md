@@ -52,6 +52,28 @@ npm run desktop:dev
 
 Electron 会使用内置的本地 Node 进程启动后端，后端只监听 `127.0.0.1`。如果只需要调试后端，也可以继续使用上面的 `node server.js` 或 `start.bat`。
 
+## AutoPilot Task Intake
+
+Session 卡片的“AI 托管”入口会先由后端重新解析当前 Session 的项目、Agent 和 Session Ref，再将任务判断为 `direct`、`light`、`standard`、`project` 或 `high_risk`。非直接任务沿用现有 Settings、Model Routing 和 WorkflowStore；高风险任务创建后保持暂停，等待人工审批。
+
+PRD 来源支持自动判断、当前项目、允许目录内的手动文件和不使用 PRD。候选只返回文件名、版本、大小、修改时间与可信度；读取限制为 `.md`、`.mdx`、`.txt` 和 5 MB，并使用真实路径校验阻止符号链接越界。Workflow 仅保存白名单化 Task Contract 与 PRD 的 SHA-256 元数据，不保存 PRD 原文。
+
+主要接口：
+
+- `GET /api/orchestration/prd/candidates?sessionRef=...`：只读候选发现；也兼容受允许根校验的 `projectPath`。
+- `POST /api/orchestration/intake/preview`：只读预览 Task Contract，不创建 Workflow、不 dispatch。
+- `POST /api/orchestration/workflows/from-session`：重新执行 Intake；`direct` 返回旁路结果，其他等级创建现有 Workflow，`high_risk` 返回 `202` 和 `requiresApproval: true`。
+- `POST /api/orchestration/prd-draft`：旧 PRD 草稿接口保持兼容。
+
+开发验证可运行：
+
+```bash
+node --test lib/orchestrator/task-intake.test.js lib/orchestrator/project-prd.test.js lib/orchestrator/http.test.js public/autopilot-fast-path.test.js public/autopilot-ui.test.js
+npm test
+```
+
+如果候选接口返回 `PRD_SELECTION_REQUIRED`，必须由用户选择具体版本；`PRD_PATH_OUTSIDE_ALLOWED_ROOTS` 表示文件不在允许根目录。Supervisor 不可用或 AI JSON 校验失败时会回退到确定性解析，并在预览中返回 warning 和缺失字段，不会伪装成 AI 已完成分析。详细设计见 `docs/superpowers/specs/autopilot-task-intake.md`。
+
 ## 构建 Windows 安装包
 
 在 Windows 开发机或 CI 上构建未签名的单用户 NSIS 安装包。`desktop:dist` 会先校验固定版本的 Node 运行时和构建窗口聚焦 DLL，再执行打包。runtime 优先取项目内的 `runtime\\node.exe`，也可通过 `AGENT_BOARD_NODE_SOURCE` 或 `-Source` 指定，不再依赖某台电脑的 WorkBuddy 私有目录：

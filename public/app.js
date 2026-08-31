@@ -1269,14 +1269,27 @@ async function openAutoPilotForSession(s) {
   pop.style.zIndex = 60;
   pop.innerHTML = `<div class="autopilot-fastpath-head"><strong>AI 托管当前 Session</strong><button type="button" class="btn autopilot-fastpath-close">关闭</button></div>
     <div class="autopilot-fastpath-context"><div>Agent：<b>${esc(sessionAgent.name || s.agent || '未知')}</b>（已自动识别）</div><div>项目：<b>${esc(shortProj(sessionProject) || '未检测到项目')}</b>（已自动绑定）</div><div>Session：<b>${esc(displaySessionId(s.id))}</b></div></div>
-    <form id="autopilot-fastpath-form"><label>任务目标<textarea id="autopilot-fast-goal" required placeholder="只描述你希望当前 Session 完成的结果"></textarea></label>
-      <div class="autopilot-fastpath-source"><button type="button" class="btn" id="autopilot-goal-manual">自己填写</button><button type="button" class="btn" id="autopilot-goal-prd">从当前项目 PRD 生成</button></div>
+    <form id="autopilot-fastpath-form"><label>任务目标<textarea id="autopilot-fast-goal" placeholder="描述希望当前 Session 完成的结果；也可从 PRD 提取"></textarea></label>
+      <div class="autopilot-prd-controls"><label>PRD 来源<select id="autopilot-prd-mode"><option value="auto">自动判断</option><option value="current">当前项目 PRD</option><option value="manual">选择其他 PRD</option><option value="none">不使用 PRD</option></select></label>
+        <label id="autopilot-prd-candidate-row" hidden>PRD 候选<select id="autopilot-prd-candidates"><option value="">请选择 PRD 版本</option></select></label>
+        <label id="autopilot-prd-path-row" hidden>PRD 文件路径<input id="autopilot-prd-path" type="text" placeholder="允许目录内的 .md、.mdx 或 .txt 文件"></label></div>
+      <div class="autopilot-fastpath-source"><button type="button" class="btn" id="autopilot-goal-manual">自己填写</button><button type="button" class="btn" id="autopilot-goal-prd">从 PRD 生成任务</button><button type="button" class="btn" id="autopilot-intake-preview">生成任务摘要</button></div>
+      <div class="autopilot-intake-status" id="autopilot-intake-status" hidden></div>
       <div class="autopilot-prd-preview" id="autopilot-prd-preview" hidden></div>
       <div class="autopilot-fastpath-actions"><button type="button" class="btn" id="autopilot-advanced">高级设置 / 手动创建</button><button type="submit" class="btn primary" id="autopilot-fast-start">开始 AI 托管</button></div>
       <div class="autopilot-fastpath-hint">客户端不能修改 Agent、Session 或项目绑定；模式、调度、预算和安全策略使用设置中心的持久化默认值。</div></form>`;
   document.body.appendChild(pop);
   const goal = pop.querySelector('#autopilot-fast-goal');
+  const prdMode = pop.querySelector('#autopilot-prd-mode');
+  const prdPath = pop.querySelector('#autopilot-prd-path');
+  const prdPathRow = pop.querySelector('#autopilot-prd-path-row');
+  const candidateRow = pop.querySelector('#autopilot-prd-candidate-row');
+  const candidateSelect = pop.querySelector('#autopilot-prd-candidates');
+  const preview = pop.querySelector('#autopilot-prd-preview');
+  const status = pop.querySelector('#autopilot-intake-status');
+  let latestTaskContract = null;
   goal.value = initialGoal;
+  goal.dataset.goalSource = initialGoal ? 'session' : 'manual';
   pop.querySelector('.autopilot-fastpath-close').onclick = closePopover;
   pop.querySelector('#autopilot-advanced').onclick = async () => {
     closePopover();
@@ -1285,56 +1298,143 @@ async function openAutoPilotForSession(s) {
   };
   pop.querySelector('#autopilot-goal-manual').onclick = () => {
     goal.dataset.goalSource = 'manual';
+    prdMode.value = 'none';
+    syncPrdControls();
     goal.focus();
+  };
+
+  function syncPrdControls() {
+    prdPathRow.hidden = prdMode.value !== 'manual';
+    if (prdMode.value !== 'manual') candidateRow.hidden = true;
+    latestTaskContract = null;
+  }
+
+  function setIntakeStatus(message, kind = '') {
+    status.hidden = !message;
+    status.className = `autopilot-intake-status${kind ? ` ${kind}` : ''}`;
+    status.textContent = message || '';
+  }
+
+  function showCandidates(candidates) {
+    const items = Array.isArray(candidates) ? candidates : [];
+    candidateSelect.innerHTML = `<option value="">${items.length ? '请选择 PRD 版本' : '未找到可用 PRD'}</option>${items.map((item) => `<option value="${esc(item.path)}">${esc(item.name)}${item.version ? ` · ${esc(item.version)}` : ''}</option>`).join('')}`;
+    candidateRow.hidden = false;
+  }
+
+  function renderTaskContract(contract, warning = '') {
+    const view = autopilotUi.taskContractView(contract);
+    const confidence = `${Math.round(view.confidence * 100)}%`;
+    const sections = view.sections.map((section) => `<section class="autopilot-contract-section"><strong>${esc(section.label)}</strong>${section.items.length ? `<ul>${section.items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '<div class="autopilot-contract-empty">待补充</div>'}</section>`).join('');
+    const gate = view.humanGate.required
+      ? `<div class="autopilot-human-gate"><strong>需要人工审批</strong><div>${esc(view.humanGate.reason || '高风险任务不会自动执行')}</div></div>` : '';
+    preview.hidden = false;
+    preview.innerHTML = `<div class="autopilot-contract-head"><strong>${esc(view.kindLabel)}</strong><span>置信度 ${esc(confidence)}</span></div>
+      <div class="autopilot-contract-goal"><b>Goal</b><div>${esc(view.goal || '待补充')}</div></div>
+      ${view.sourceLabel ? `<div class="autopilot-contract-source">来源：${esc(view.sourceLabel)}</div>` : ''}${sections}${gate}
+      ${view.missingFields.length ? `<small>待补字段：${esc(view.missingFields.join('、'))}</small>` : ''}
+      ${warning ? `<small>${esc(warning)}</small>` : ''}`;
+  }
+
+  async function previewTask() {
+    setIntakeStatus('正在分析任务…', 'loading');
+    latestTaskContract = null;
+    const body = { sessionRef: s.id, goal: goal.value.trim(), prdMode: prdMode.value };
+    if (prdMode.value === 'manual') body.prdPath = prdPath.value.trim();
+    try {
+      const data = await requestJson('/api/orchestration/intake/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true,
+        body: JSON.stringify(body),
+      });
+      if (!data.ok) {
+        if (data.code === 'PRD_SELECTION_REQUIRED') {
+          showCandidates(data.candidates);
+          setIntakeStatus('发现多个 PRD，请选择要使用的版本。', 'error');
+        } else if (data.code === 'PRD_NOT_FOUND') {
+          showCandidates([]);
+          setIntakeStatus('未找到可用 PRD，请选择其他文件或自己填写任务。', 'error');
+        } else {
+          setIntakeStatus(data.error || '任务分析失败', 'error');
+        }
+        const error = new Error(data.error || '任务分析失败');
+        error.code = data.code;
+        throw error;
+      }
+      latestTaskContract = data.taskContract;
+      renderTaskContract(data.taskContract, data.warning);
+      setIntakeStatus('任务摘要已生成，请确认后继续。', 'success');
+      return data;
+    } catch (error) {
+      if (!status.textContent || status.classList.contains('loading')) setIntakeStatus(error.message || '任务分析失败', 'error');
+      throw error;
+    }
+  }
+
+  prdMode.onchange = syncPrdControls;
+  candidateSelect.onchange = () => {
+    if (!candidateSelect.value) return;
+    prdMode.value = 'manual';
+    prdPath.value = candidateSelect.value;
+    prdPathRow.hidden = false;
+    latestTaskContract = null;
+  };
+  goal.oninput = () => { latestTaskContract = null; };
+  prdPath.oninput = () => { latestTaskContract = null; };
+  pop.querySelector('#autopilot-intake-preview').onclick = () => {
+    void previewTask().catch((error) => toast(error.message || '任务分析失败'));
   };
   pop.querySelector('#autopilot-goal-prd').onclick = async () => {
     const button = pop.querySelector('#autopilot-goal-prd');
     button.disabled = true;
-    button.textContent = '正在读取 PRD…';
+    button.textContent = '正在分析任务…';
+    if (prdMode.value === 'auto' || prdMode.value === 'none') prdMode.value = 'current';
+    syncPrdControls();
     try {
-      const data = await requestJson('/api/orchestration/prd-draft', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionRef: s.id }),
-      });
-      if (!data.draft?.goal) throw new Error('PRD 未生成可用目标');
-      goal.value = data.draft.goal;
-      goal.dataset.goalSource = 'prd';
-      const preview = pop.querySelector('#autopilot-prd-preview');
-      preview.hidden = false;
-      preview.innerHTML = `<strong>PRD 草稿预览 · ${esc(data.source === 'model' ? 'AI 生成' : '本地提取')}</strong><div>Goal：${esc(data.draft.goal)}</div><div>DoD：</div><ul>${(data.draft.dod || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul>${data.warning ? `<small>${esc(data.warning)}</small>` : ''}`;
-      toast('已生成 Goal 草稿，请确认后开始 AI 托管');
+      const data = await previewTask();
+      if (data.taskContract?.goal) {
+        goal.value = data.taskContract.goal;
+        goal.dataset.goalSource = 'prd';
+      }
+      toast('已从 PRD 生成任务摘要，请确认后继续');
       goal.focus();
     } catch (error) {
-      toast(error.message || 'PRD 目标生成失败');
+      toast(error.message || 'PRD 任务生成失败');
     } finally {
       button.disabled = false;
-      button.textContent = '从当前项目 PRD 生成';
+      button.textContent = '从 PRD 生成任务';
     }
   };
   pop.querySelector('#autopilot-fastpath-form').onsubmit = async (event) => {
     event.preventDefault();
-    const value = goal.value.trim();
-    if (!value) { toast('请先填写任务目标'); goal.focus(); return; }
     const start = pop.querySelector('#autopilot-fast-start');
     start.disabled = true;
     try {
+      const intake = latestTaskContract ? { taskContract: latestTaskContract } : await previewTask();
+      if (!goal.value.trim() && intake.taskContract?.goal) {
+        goal.value = intake.taskContract.goal;
+        goal.dataset.goalSource = 'prd';
+      }
+      const requestBody = { sessionRef: s.id, goal: goal.value.trim(), goalSource: goal.dataset.goalSource || 'manual', prdMode: prdMode.value };
+      if (prdMode.value === 'manual') requestBody.prdPath = prdPath.value.trim();
       const data = await requestJson('/api/orchestration/workflows/from-session', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionRef: s.id, goal: value, goalSource: goal.dataset.goalSource || 'manual' }),
+        body: JSON.stringify(requestBody),
       });
-      if (data.workflow?.autopilotMode === 'auto') {
+      if (data.workflow?.autopilotMode === 'auto' && !data.requiresApproval) {
         await requestJson(`/api/orchestration/workflows/${encodeURIComponent(data.workflow.id)}/run`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
         });
       }
       closePopover();
-      toast('已开始托管当前 Session');
+      if (data.bypass) toast('任务已判断为直接处理，无需创建复杂 Workflow');
+      else if (data.requiresApproval) toast('高风险任务已暂停，等待人工审批');
+      else toast('已开始托管当前 Session');
       await loadOrchestration();
     } catch (error) {
       start.disabled = false;
-      toast(error.message || 'AI 托管启动失败');
+      if (error.code !== 'PRD_SELECTION_REQUIRED') toast(error.message || 'AI 托管启动失败');
     }
   };
+  syncPrdControls();
   goal.focus();
 }
 

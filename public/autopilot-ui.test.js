@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { findWorkflowForSession, sessionSummary, detailForWorkflow } = require('./autopilot-ui');
+const { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView } = require('./autopilot-ui');
 
 test('matches only the Auto workflow bound to the same session and project', () => {
   const workflows = [
@@ -28,4 +28,25 @@ test('builds safe card and detail summaries from workflow state', () => {
     progress: { completed: 0, total: 1, percent: 0 }, currentModel: 'sol', reasoning: 'high', routeReason: 'ROUTE_ESCALATED',
     lastDecision: '继续收集证据', deliveryState: 'committed',
   });
+});
+
+test('builds a dynamic Task Contract view without copying unknown or sensitive fields', () => {
+  const direct = taskContractView({
+    classification: { kind: 'direct', confidence: 0.95, reasons: ['问答'] }, goal: '解释代码',
+    inScope: ['不应展示'], dod: ['不应展示'], evidence: ['不应展示'], source: { selectedBy: 'none' },
+    humanGate: { required: false, reason: '' }, apiKey: 'secret-value', prompt: 'hidden',
+  });
+  assert.deepEqual(direct.sections, []);
+  assert.equal(direct.kindLabel, '直接处理');
+  assert.doesNotMatch(JSON.stringify(direct), /secret-value|apiKey|prompt|hidden/);
+
+  const project = taskContractView({
+    classification: { kind: 'project', confidence: 0.9, reasons: ['PRD'] }, goal: '完成项目',
+    inScope: ['Phase 0'], outOfScope: ['真实发布'], dod: ['测试通过'], evidence: ['node --test'], risks: ['需审批'],
+    source: { fileName: 'PRD.md', version: 'v1.0', selectedBy: 'user' },
+    humanGate: { required: true, reason: '等待人工审批' },
+  });
+  assert.deepEqual(project.sections.map((item) => item.key), ['inScope', 'outOfScope', 'dod', 'evidence', 'risks']);
+  assert.equal(project.sourceLabel, 'PRD.md · v1.0');
+  assert.equal(project.humanGate.required, true);
 });

@@ -67,5 +67,42 @@
     };
   }
 
-  return { findWorkflowForSession, sessionSummary, detailForWorkflow, samePath };
+  function taskContractView(contract) {
+    const safe = contract && typeof contract === 'object' ? contract : {};
+    const classification = safe.classification && typeof safe.classification === 'object' ? safe.classification : {};
+    const kind = ['direct', 'light', 'standard', 'project', 'high_risk'].includes(classification.kind)
+      ? classification.kind
+      : 'standard';
+    const labels = {
+      direct: '直接处理', light: '轻任务', standard: '标准任务',
+      project: '项目任务', high_risk: '高风险任务',
+    };
+    const sectionDefinitions = {
+      direct: [],
+      light: [['dod', '完成标准'], ['evidence', '验证证据']],
+      standard: [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据']],
+      project: [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据'], ['risks', '风险']],
+      high_risk: [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据'], ['risks', '风险']],
+    };
+    const stringList = (value) => (Array.isArray(value)
+      ? value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+      : []);
+    const source = safe.source && typeof safe.source === 'object' ? safe.source : {};
+    const sourceParts = [text(source.fileName), text(source.version)].filter(Boolean);
+    const humanGate = safe.humanGate && typeof safe.humanGate === 'object' ? safe.humanGate : {};
+    return {
+      kind,
+      kindLabel: labels[kind],
+      confidence: Number.isFinite(Number(classification.confidence)) ? Number(classification.confidence) : 0,
+      reasons: stringList(classification.reasons),
+      goal: text(safe.goal),
+      sourceLabel: sourceParts.join(' · '),
+      sections: sectionDefinitions[kind].map(([key, label]) => ({ key, label, items: stringList(safe[key]) })),
+      humanGate: { required: humanGate.required === true, reason: text(humanGate.reason) },
+      missingFields: stringList(safe.missingFields),
+      inferredFields: stringList(safe.inferredFields),
+    };
+  }
+
+  return { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView, samePath };
 }));

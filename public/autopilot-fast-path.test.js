@@ -19,10 +19,31 @@ test('Session fast path submits only the current session reference and Goal', ()
   assert.match(app, /sessionRef: s\.id/);
   assert.match(app, /goalSource/);
   assert.match(app, /AI 托管当前 Session/);
-  assert.match(app, /从当前项目 PRD 生成/);
+  assert.match(app, /从 PRD 生成任务/);
   assert.match(app, /开始 AI 托管/);
   assert.match(app, /autopilot-prd-preview/);
-  assert.match(app, /data\.draft\.dod/);
+  assert.match(app, /\/api\/orchestration\/intake\/preview/);
+  assert.match(app, /taskContract/);
+});
+
+test('Session Task Intake supports every PRD source and an explicit candidate/manual selector', () => {
+  assert.match(app, /id="autopilot-prd-mode"/);
+  assert.match(app, /value="auto"[^>]*>自动判断/);
+  assert.match(app, /value="current"[^>]*>当前项目 PRD/);
+  assert.match(app, /value="manual"[^>]*>选择其他 PRD/);
+  assert.match(app, /value="none"[^>]*>不使用 PRD/);
+  assert.match(app, /id="autopilot-prd-candidates"/);
+  assert.match(app, /id="autopilot-prd-path"/);
+  assert.match(app, /PRD_SELECTION_REQUIRED/);
+});
+
+test('Session Task Intake renders dynamic summaries and explicit loading, empty, error, and approval states', () => {
+  assert.match(app, /正在分析任务/);
+  assert.match(app, /未找到可用 PRD|未找到 PRD/);
+  assert.match(app, /humanGate/);
+  assert.match(app, /requiresApproval/);
+  assert.match(app, /taskContractView/);
+  assert.match(app, /classification/);
 });
 
 test('Session fast path keeps the current Agent and project as locked context', () => {
