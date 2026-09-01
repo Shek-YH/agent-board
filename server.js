@@ -5,6 +5,18 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { exec, execFile, spawn, spawnSync } = require('child_process');
+const { loadFirstEnvFile } = require('./lib/env-loader');
+
+loadFirstEnvFile({
+  candidates: [
+    process.env.AGENT_BOARD_ENV_FILE,
+    path.join(process.cwd(), '.env'),
+    path.resolve(__dirname, '..', '.env'),
+    path.join(__dirname, '.env'),
+    path.resolve(__dirname, '..', '..', '.env'),
+  ].filter(Boolean),
+});
+
 const store = require('./lib/store');
 const account = require('./lib/account');
 const { clearAuthCache } = require('./lib/auth-cache');

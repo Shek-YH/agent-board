@@ -126,6 +126,8 @@
     const route = workflow && workflow.lastRouting || {};
     const accepted = workflow && workflow.acceptedTurnSnapshot || {};
     const profile = accepted.resolvedProfile || {};
+    const supervisorReview = workflow && workflow.lastDecision && workflow.lastDecision.review;
+    const evidenceSnapshot = workflow && workflow.lastEvidence && typeof workflow.lastEvidence === 'object' ? workflow.lastEvidence : {};
     const evidence = Array.isArray(progress.evidence) ? progress.evidence : [];
     const byIndex = new Map(evidence.map((item) => [item.dodIndex, item]));
     const dod = Array.isArray(contract.verify?.dod) ? contract.verify.dod : [];
@@ -138,11 +140,22 @@
       reasoning: text(route.reasoningLevel, text(profile.reasoningLevel, '未应用')),
       routeReason: text(route.reasonCode, '当前配置'),
       lastDecision: text(workflow.lastDecision?.summary, text(workflow.lastDecision?.decision, '尚无监督决策')),
+      supervisorReview: supervisorReview ? {
+        source: text(supervisorReview.source, 'deterministic'),
+        decision: text(supervisorReview.decision, 'UNKNOWN'),
+        summary: text(supervisorReview.summary, '未提供复核说明'),
+      } : null,
+      evidence: {
+        checks: Array.isArray(evidenceSnapshot.checks) ? evidenceSnapshot.checks.slice(0, 12).map((item) => ({
+          operation: text(item && item.operation, 'check'), status: text(item && item.status, 'unknown'),
+        })) : [],
+        skipped: Array.isArray(evidenceSnapshot.skipped) ? evidenceSnapshot.skipped.length : 0,
+      },
       deliveryState: text(latestDispatch?.state, text(workflow.autoState, '未开始')),
     };
   }
 
-  function taskContractView(contract) {
+  function taskContractView(contract, options = {}) {
     const safe = contract && typeof contract === 'object' ? contract : {};
     const classification = safe.classification && typeof safe.classification === 'object' ? safe.classification : {};
     const kind = ['direct', 'light', 'standard', 'project', 'high_risk'].includes(classification.kind)
@@ -153,7 +166,7 @@
       project: '项目任务', high_risk: '高风险任务',
     };
     const sectionDefinitions = {
-      direct: [],
+      direct: options.complete === true ? [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据']] : [],
       light: [['dod', '完成标准'], ['evidence', '验证证据']],
       standard: [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据']],
       project: [['inScope', '范围内'], ['outOfScope', '范围外'], ['dod', '完成标准'], ['evidence', '验证证据'], ['risks', '风险']],
@@ -165,16 +178,40 @@
     const source = safe.source && typeof safe.source === 'object' ? safe.source : {};
     const sourceParts = [text(source.fileName), text(source.version)].filter(Boolean);
     const humanGate = safe.humanGate && typeof safe.humanGate === 'object' ? safe.humanGate : {};
+    const complexityLabels = { simple: '简单', standard: '标准', complex: '复杂' };
+    const riskLabels = { low: '低风险', medium: '中风险', high: '高风险', critical: '极高风险' };
+    const sourceLabels = {
+      'goal-only': '仅根据任务目标', 'prd+safety': 'PRD + 默认安全策略',
+      'goal+prd+safety': '任务目标 + PRD + 默认安全策略',
+    };
+    const missingFields = stringList(safe.missingFields);
+    const missingFieldLabels = stringList(safe.missingFieldLabels).length
+      ? stringList(safe.missingFieldLabels) : missingFields.map((field) => ({
+        goal: '任务目标', inScope: '范围内', outOfScope: '范围外', dod: '完成标准（DoD）', evidence: '验证证据',
+      }[field] || field));
     return {
       kind,
       kindLabel: labels[kind],
       confidence: Number.isFinite(Number(classification.confidence)) ? Number(classification.confidence) : 0,
+      complexity: ['simple', 'standard', 'complex'].includes(classification.complexity) ? classification.complexity : 'standard',
+      complexityLabel: complexityLabels[classification.complexity] || '标准',
+      riskLevel: ['low', 'medium', 'high', 'critical'].includes(classification.riskLevel) ? classification.riskLevel : 'low',
+      riskLabel: riskLabels[classification.riskLevel] || '低风险',
+      riskReasons: stringList(classification.riskReasons),
       reasons: stringList(classification.reasons),
       goal: text(safe.goal),
-      sourceLabel: sourceParts.join(' · '),
+      sourceLabel: sourceParts.join(' · ') || sourceLabels[text(safe.sourceSummary)] || text(safe.sourceSummary),
+      sourceSummary: sourceLabels[text(safe.sourceSummary)] || text(safe.sourceSummary) || '仅根据任务目标',
       sections: sectionDefinitions[kind].map(([key, label]) => ({ key, label, items: stringList(safe[key]) })),
+      assumptions: stringList(safe.assumptions),
+      requiredPermissions: stringList(safe.requiredPermissions),
+      allowedOperations: stringList(safe.allowedOperations),
+      blockedOperations: stringList(safe.blockedOperations),
+      generationSources: safe.generationSources && typeof safe.generationSources === 'object' ? { ...safe.generationSources } : {},
       humanGate: { required: humanGate.required === true, reason: text(humanGate.reason) },
-      missingFields: stringList(safe.missingFields),
+      needsHumanReason: text(safe.needsHumanReason),
+      missingFields,
+      missingFieldLabels,
       inferredFields: stringList(safe.inferredFields),
     };
   }

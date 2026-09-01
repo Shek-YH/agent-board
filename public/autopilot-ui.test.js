@@ -26,7 +26,7 @@ test('builds safe card and detail summaries from workflow state', () => {
   assert.deepEqual(detailForWorkflow(workflow, { state: 'committed' }), {
     goal: '修复 E2E', scope: ['tests', '范围外：部署'], dod: [{ description: '测试通过', passed: false }],
     progress: { completed: 0, total: 1, percent: 0 }, currentModel: 'sol', reasoning: 'high', routeReason: 'ROUTE_ESCALATED',
-    lastDecision: '继续收集证据', deliveryState: 'committed',
+    lastDecision: '继续收集证据', supervisorReview: null, evidence: { checks: [], skipped: 0 }, deliveryState: 'committed',
   });
 });
 

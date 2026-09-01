@@ -48,6 +48,39 @@ test('确认按钮首次点击会先生成草稿并明确提示再次确认', ()
   assert.match(html, /hosted-task-confirm-hint/);
 });
 
+test('合同需要人工处理时确认仍创建 Session，并将 Workflow 暂停', () => {
+  assert.match(app, /点击确认即可创建 Session/);
+  assert.match(app, /Session 会先进入 NEED_HUMAN/);
+});
+
+test('自动生成合同展示分析阶段、独立风险信息和具体缺失字段', () => {
+  assert.match(app, /分析目标并生成 Task Contract/);
+  assert.match(app, /正在校验项目目录/);
+  assert.match(app, /正在读取 PRD/);
+  assert.match(app, /正在分析任务复杂度和风险/);
+  assert.match(app, /正在生成 Task Contract/);
+  assert.match(app, /正在应用安全边界/);
+  assert.match(app, /正在校验 Task Contract/);
+  assert.match(app, /view\.complexityLabel/);
+  assert.match(app, /view\.riskLabel/);
+  assert.match(app, /view\.riskReasons/);
+  assert.match(app, /view\.assumptions/);
+  assert.match(app, /view\.requiredPermissions/);
+  assert.match(app, /missingFieldLabels/);
+  assert.match(app, /confirmButton\.disabled = true/);
+  assert.match(app, /previewButton\.disabled = true/);
+  assert.match(app, /本合同仅根据任务目标生成，未读取 PRD。/);
+});
+
+test('Task Contract 错误会展示具体字段、权限、原因和建议', () => {
+  assert.match(app, /const formatHostedTaskError/);
+  assert.match(app, /permissionViolations/);
+  assert.match(app, /缺少字段：/);
+  assert.match(app, /越界权限：/);
+  assert.match(app, /原因：/);
+  assert.match(app, /建议：/);
+});
+
 test('确认真实 Session 后打开 Codex，并在真实卡片出现前显示承接状态', () => {
   assert.match(app, /data\.session\?\.sessionRef/);
   assert.match(app, /openCodexThread\(data\.session\.sessionRef\)/);

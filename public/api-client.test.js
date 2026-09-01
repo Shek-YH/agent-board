@@ -42,3 +42,24 @@ test('requestJson preserves a stable server error code and recovery metadata', a
     (error) => error && error.code === 'SUGGEST_ONLY' && error.status === 409 && error.recovery.action === 'suggest',
   );
 });
+
+test('requestJson 保留 Task Contract 的具体错误详情', async () => {
+  await assert.rejects(
+    requestJson('/api/orchestration/intake/confirm', {
+      fetchImpl: async () => response(422, {
+        ok: false,
+        code: 'TASK_CONTRACT_INCOMPLETE',
+        error: 'Task Contract 尚未完成',
+        missingFieldLabels: ['完成标准（DoD）'],
+        reasons: ['所需权限未包含在当前预授权范围：访问网络'],
+        suggestedActions: ['调整安全策略或减少任务权限'],
+        permissionViolations: ['访问网络'],
+      }),
+    }),
+    (error) => error
+      && error.code === 'TASK_CONTRACT_INCOMPLETE'
+      && error.missingFieldLabels[0] === '完成标准（DoD）'
+      && error.permissionViolations[0] === '访问网络'
+      && error.suggestedActions[0].includes('安全策略'),
+  );
+});
