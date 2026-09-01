@@ -36,3 +36,10 @@ test('Electron 主进程使用 safeStorage 管理 Provider Key，并只向渲染
   assert.match(preload, /setApiKey/);
   assert.match(preload, /clearApiKey/);
 });
+
+test('Electron 主进程为托管任务提供本地项目文件夹选择器', () => {
+  assert.match(source, /project:select-folder/);
+  assert.match(source, /showOpenDialog/);
+  assert.match(source, /openDirectory/);
+  assert.match(preload, /selectProjectFolder/);
+});

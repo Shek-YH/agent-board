@@ -48,6 +48,7 @@ const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
 const { createCompletionDetector } = require('./lib/orchestrator/completion-detector');
 const { createCodexAppServerCapability } = require('./lib/orchestrator/routing/codex-app-server');
 const { createCodexAppServerClient } = require('./lib/orchestrator/routing/codex-app-server-client');
+const { createCodexSessionProvisioner } = require('./lib/orchestrator/session-provisioner');
 const { createJarvisVoiceRuntime } = require('./lib/jarvis-voice');
 const watcher = require('./lib/watcher');
 const claude = require('./lib/adapters/claude');
@@ -569,6 +570,9 @@ function createVerifiedDispatchDependencies(agent) {
   const verifier = set.get('identityVerifier').implementation;
   const writer = set.get('messageWriter').implementation;
   const delivery = set.get('deliveryVerifier').implementation;
+  const nativeTurn = agent === 'codex' && codexRouting && codexRouting.sessionProvisioner
+    && typeof codexRouting.sessionProvisioner.startTurn === 'function'
+    ? codexRouting.sessionProvisioner.startTurn.bind(codexRouting.sessionProvisioner) : null;
   return {
     resolveSession: locator,
     verifySession: verifier,
@@ -579,6 +583,49 @@ function createVerifiedDispatchDependencies(agent) {
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
     verifyDeliveryFingerprint: typeof delivery.verifyFingerprint === 'function'
       ? (target, fingerprint, context) => delivery.verifyFingerprint(target, fingerprint, context) : null,
+    nativeDispatch: nativeTurn ? async (request) => {
+      try {
+        const result = await nativeTurn({ sessionRef: request.sessionRef, message: request.message });
+        const accepted = result && result.ok === true;
+        const terminal = ['completed', 'interrupted', 'failed'].includes(String(result && result.status || ''));
+        let desktopOpen = null;
+        if (terminal) {
+          // 首轮 app-server 已经结束并释放 writer lock；此时再 deep-link，
+          // Codex Desktop 才能接管同一个真实 thread，而不会弹出“已在另一个应用中打开”。
+          try {
+            desktopOpen = await activateVerifiedSession({ agent: 'codex', sessionRef: request.sessionRef });
+          } catch (error) {
+            desktopOpen = { ok: false, error: error.message || 'Codex Desktop 深链失败' };
+          }
+        }
+        const proof = {
+          verified: accepted,
+          delivered: accepted,
+          source: 'codex-app-server',
+          threadId: result && result.threadId,
+          turnId: result && result.turnId,
+          status: result && result.status,
+        };
+        return {
+          ok: accepted,
+          status: accepted ? 'committed' : 'failed',
+          phase: accepted ? 'COMMIT' : 'SEND',
+          phases: [{ phase: 'SEND', status: accepted ? 'ok' : 'failed' }],
+          evidence: {
+            VERIFY_SESSION: { verified: accepted, strongAnchor: accepted, source: 'codex-app-server', threadId: result && result.threadId },
+            VERIFY_DELIVERY: proof,
+          },
+          desktopOpen,
+          ...(accepted ? {} : { failure: { code: result && result.code || 'TURN_FAILED', reason: result && result.reason || 'Codex turn 启动失败' } }),
+        };
+      } catch (error) {
+        return {
+          ok: false, status: 'failed', phase: 'SEND', phases: [{ phase: 'SEND', status: 'failed' }],
+          evidence: { VERIFY_SESSION: { verified: false, strongAnchor: false, source: 'codex-app-server' } },
+          failure: { code: error.code || 'TURN_START_FAILED', reason: error.message || 'Codex turn 启动失败' },
+        };
+      }
+    } : null,
     readSession: (sessionRef) => store.getSession(sessionRef),
     completionDetector: AGENT_CAPABILITY_REGISTRY.get(agent)?.get('completionDetector')?.supported
       ? createCompletionDetector({ getSession: (sessionRef) => store.getSession(sessionRef) }) : null,
@@ -1183,12 +1230,22 @@ function resolveCodexRoutingCapability() {
   try {
     const probe = detect.probeAgent(codex, { userOverrides: detect.loadUserOverrides() }) || {};
     if (!probe.executablePath) return { capability: null, version: null };
-    const client = createCodexAppServerClient({ executablePath: probe.executablePath, clientVersion: String(probe.version || 'agent-board') });
+    const routingClient = createCodexAppServerClient({ executablePath: probe.executablePath, clientVersion: String(probe.version || 'agent-board-routing') });
+    // 托管首轮会话独立于路由连接：首轮完成后需要关闭它释放 Codex writer lock，
+    // 但不能因此中断仍在使用的模型目录/Profile 路由能力。
+    const sessionClient = createCodexAppServerClient({ executablePath: probe.executablePath, clientVersion: String(probe.version || 'agent-board-session') });
     return {
       capability: createCodexAppServerCapability({
-        request: client.request.bind(client),
-        waitForNotification: client.waitForNotification.bind(client),
+        request: routingClient.request.bind(routingClient),
+        waitForNotification: routingClient.waitForNotification.bind(routingClient),
+        close: routingClient.close.bind(routingClient),
         agentVersion: probe.version || null,
+      }),
+      sessionProvisioner: createCodexSessionProvisioner({
+        request: sessionClient.request.bind(sessionClient),
+        waitForNotification: sessionClient.waitForNotification.bind(sessionClient),
+        close: sessionClient.close.bind(sessionClient),
+        releaseAfterCreate: true,
       }),
       version: probe.version || null,
     };
@@ -1206,6 +1263,7 @@ const orchestration = createOrchestrationRuntime({
   routingNativeCapability: codexRouting.capability,
   routingAgentCapabilities: { hermes: hermes.createRoutingCapability() },
   routingAgentVersion: codexRouting.version,
+  sessionProvisioners: codexRouting.sessionProvisioner ? { codex: codexRouting.sessionProvisioner } : {},
   routingProbeObserver: (agent) => {
     AGENT_CAPABILITY_REGISTRY.updateMetadata(agent, { modelCatalogProbeAt: Date.now() });
   },

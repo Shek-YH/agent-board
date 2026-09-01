@@ -165,3 +165,38 @@ test('buildCard preserves child identity while its jump uses the durable parent'
   assert.deepEqual(jumped, ['conv']);
   assert.equal(child.session_id, 'conv:subagent:sa');
 });
+
+test('buildCard keeps a manually completed session completed despite a stale running runtime snapshot', () => {
+  const session = {
+    id: 'codex:01a04ee4-4c26-7680-a583-42518889dee3',
+    agent: 'codex', session_id: '01a04ee4-4c26-7680-a583-42518889dee3',
+    session_role: 'child', title: 'worker', project: 'C:/work', msg_count: 1,
+    last_seen: Date.now(), last_user_text: 'inspect file', manual_done: true,
+  };
+  const state = {
+    agentsDef: { codex: { name: 'Codex', color: '#123456' } },
+    liveRefs: new Set([session.id]),
+    runtimeStatuses: new Map([[session.id, { state: 'running' }]]),
+    recentDone: new Map(), dismissedRecent: new Set(),
+  };
+  const context = {
+    state,
+    document: { createElement: () => new FakeElement() },
+    window: {}, navigator: { clipboard: { writeText: async () => true } },
+    esc: (value) => String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
+    RUNTIME_STATUS_LABELS: { completed: '已完成', running: '进行中', unknown: '状态未知' },
+    openSession() {}, openCodexThread() {}, openClaudeSession() {}, openWorkBuddySession() {},
+    openDeepSeekSession() {}, openZCodeSession() {}, openPiAgentSession() {}, openHermesSession() {},
+    launchAgent() {}, dismissRecent() {}, syncFlowDecor() {}, toast() {}, openPopover() {},
+  };
+  const { buildCard } = loadFunctions([
+    'displaySessionId', 'fmtTimeLabel', 'agentMeta', 'shortProj', 'topologyRoleMarkup', 'isRecentCompleted',
+    'extractCodexThreadId', 'runtimeStatusFor', 'statusClass', 'statusMarkup', 'sessionNavigationId', 'jumpToAgentSession', 'buildCard',
+  ], context);
+
+  const card = buildCard(session, 'codex');
+  assert.equal(card.dataset.manualDone, '1');
+  assert.equal(card.dataset.runtimeStatus, 'completed');
+  assert.match(card.className, /done/);
+  assert.match(card.innerHTML, /已完成/);
+});

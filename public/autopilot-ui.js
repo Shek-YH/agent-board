@@ -12,6 +12,81 @@
     return normalize(left) === normalize(right);
   }
 
+  function createHostedSessionHandoffState({ now = () => Date.now() } = {}) {
+    const pending = new Map();
+
+    function copy(item) {
+      return item ? { ...item } : null;
+    }
+
+    function add(input = {}) {
+      const sessionRef = text(input.sessionRef);
+      if (!sessionRef) throw new TypeError('hosted sessionRef is required');
+      const previous = pending.get(sessionRef);
+      const item = {
+        kind: 'hosted-session-handoff',
+        sessionRef,
+        agent: text(input.agent).toLowerCase(),
+        projectPath: text(input.projectPath),
+        workflowId: text(input.workflowId),
+        title: text(input.title, '新建 Session'),
+        state: text(input.state, previous?.state || 'created'),
+        error: text(input.error, previous?.error),
+        createdAt: previous?.createdAt || now(),
+        updatedAt: now(),
+      };
+      pending.set(sessionRef, item);
+      return copy(item);
+    }
+
+    function update(sessionRef, patch = {}) {
+      const key = text(sessionRef);
+      const current = pending.get(key);
+      if (!current) return null;
+      const next = {
+        ...current,
+        ...patch,
+        kind: current.kind,
+        sessionRef: current.sessionRef,
+        updatedAt: now(),
+      };
+      pending.set(key, next);
+      return copy(next);
+    }
+
+    function get(sessionRef) {
+      return copy(pending.get(text(sessionRef)));
+    }
+
+    function list() {
+      return [...pending.values()].map(copy);
+    }
+
+    function listForAgent(agent) {
+      const id = text(agent).toLowerCase();
+      return list().filter((item) => item.agent === id);
+    }
+
+    function remove(sessionRef) {
+      return pending.delete(text(sessionRef));
+    }
+
+    function reconcile(sessions) {
+      const indexed = new Set((Array.isArray(sessions) ? sessions : [])
+        .map((session) => text(session && (session.id || session.sessionRef)))
+        .filter(Boolean));
+      let removed = 0;
+      for (const sessionRef of pending.keys()) {
+        if (!indexed.has(sessionRef)) continue;
+        pending.delete(sessionRef);
+        removed++;
+      }
+      return removed;
+    }
+
+    return { add, update, get, list, listForAgent, remove, reconcile };
+  }
+
   function findWorkflowForSession(workflows, session) {
     const list = Array.isArray(workflows) ? workflows : [];
     const sessionRef = text(session && (session.id || session.sessionRef));
@@ -104,5 +179,5 @@
     };
   }
 
-  return { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView, samePath };
+  return { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView, samePath, createHostedSessionHandoffState };
 }));
