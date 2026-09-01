@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     return () => ipcRenderer.removeListener('shortcut:jump-latest-completed', listener);
   },
   notifyCompletion: (sessionId) => ipcRenderer.invoke('notification:completion', { sessionId }),
+  selectProjectFolder: () => ipcRenderer.invoke('project:select-folder'),
   provider: Object.freeze({
     getStatus: () => ipcRenderer.invoke('provider:status'),
     setApiKey: (provider, apiKey) => ipcRenderer.invoke('provider:set-api-key', { provider, apiKey }),

@@ -35,6 +35,8 @@ const state = {
   stats: { total: 0, today: 0, active: 0 },
   popoverFor: null,
   monitorMode: 'manual',
+  hostedSessionHandoff: autopilotUi.createHostedSessionHandoffState(),
+  hostedSessionWatchers: new Map(),
   orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null, secureProvider: null },
 };
 
@@ -189,16 +191,18 @@ async function loadBoard() {
     if (state.onlyUser) params.set('onlyUser', '1');
     const d = await requestJson('/api/board?' + params);
     state.board = d.groups || state.board;
+    state.hostedSessionHandoff.reconcile(Object.values(state.board || {}).flatMap((sessions) => Array.isArray(sessions) ? sessions : []));
     for (const sessions of Object.values(state.board || {})) {
       for (const session of sessions || []) {
         const role = session?.session_role === 'child' || session?.session_role === 'main' ? session.session_role : null;
         if (session?.id && role) state.sessionRoles.set(session.id, role);
       }
     }
-    state.agentIds = d.agentIds || [];
+    const pendingAgents = state.hostedSessionHandoff.list().map((item) => item.agent).filter(Boolean);
+    state.agentIds = [...new Set([...(d.agentIds || []), ...pendingAgents])];
     // defaultAgentIds：探测为已安装 或 有历史数据的 agent 子集，只用来算「默认列」，
     // 不影响 state.agentIds（列设置弹窗仍然要能看到全部 agent，供手动勾选恢复）
-    state.defaultAgentIds = d.defaultAgentIds || d.agentIds || [];
+    state.defaultAgentIds = [...new Set([...(d.defaultAgentIds || d.agentIds || []), ...pendingAgents])];
     // 后端返回的是一次完整的实时活跃快照。必须整体替换，
     // 否则 SSE 丢失/断线时，旧 live ref 会被永久并回去，已完成卡片就会一直显示进行中。
     if (Array.isArray(d.liveRefs)) {
@@ -209,6 +213,7 @@ async function loadBoard() {
     }
     // 首次加载：把当前配置的列存好（默认 = all + 探测/历史数据过滤后的 agent）
     if (!state.colOrder) state.colOrder = loadColOrder() || ['all', ...state.defaultAgentIds];
+    for (const agent of pendingAgents) if (!state.colOrder.includes(agent)) state.colOrder.push(agent);
     renderBoard();
   } catch (error) {
     setRuntimeHealth(`会话读取失败 · ${error.message || '请检查服务'}`, 'error');
@@ -260,6 +265,7 @@ async function loadOrchestration() {
         capabilities: routingCatalog.capabilities || {},
       } : null,
     };
+    syncHostedSessionHandoffs();
     renderAIMonitor();
     if (state.board && Object.keys(state.board).length) renderBoard();
   } catch (error) {
@@ -376,6 +382,7 @@ function renderAIMonitor() {
     const suggestion = workflow.lastSuggestion || {};
     const autoState = workflow.autoState || 'OFF';
     const isAuto = workflow.autopilotMode === 'auto';
+    const modeLabel = isAuto ? 'Auto' : workflow.autopilotMode === 'guarded' ? 'Guarded' : 'Suggest';
     const canSuggest = status !== 'completed' && autoState !== 'STOPPED';
     const canAutoRun = isAuto && !['DONE', 'STOPPED', 'PAUSED', 'BLOCKED'].includes(autoState) && workflow.controlOwner !== 'human';
     const canResume = isAuto && ['PAUSED', 'BLOCKED'].includes(autoState);
@@ -399,7 +406,7 @@ function renderAIMonitor() {
       ? `<div class="ai-route-summary">智能路由：${esc(route.modelId || '未应用')} · ${esc(route.reasoningLevel || '未验证')} · ${esc(route.source || '未应用')} · ${esc(routeReason[route.reasonCode] || route.reasonCode || '当前配置')} ${route.catalogStale ? '· Catalog stale' : ''}</div>`
       : routingConfig.enabled ? '<div class="ai-route-summary">智能路由已启用，等待下一轮 Catalog 与 Profile 验证。</div>' : '';
     return `<article class="ai-workflow-card ${esc(status)}">
-      <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(isAuto ? 'Auto' : 'Suggest')}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
+      <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(modeLabel)}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
       <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')} · FSM：${esc(ORCHESTRATION_AUTO_STATE_LABELS[autoState] || autoState)}</div>
       ${isAuto && workflow.binding?.sessionRef ? `<div class="ai-workflow-meta" title="${esc(workflow.binding.sessionRef)}">Session：${esc(workflow.binding.sessionRef)}</div>` : ''}
       <div class="ai-workflow-meta">进度：${esc(progressLabel)} · DoD ${esc(dodPassed)}/${esc(dodTotal)} · ${esc(progress.percent || 0)}%</div>
@@ -579,12 +586,15 @@ function renderQuickAgents() {
   const defs = state.agentsDef || {};
   for (const id of Object.keys(defs)) {
     const def = defs[id];
+    const item = document.createElement('div');
+    item.className = 'qa-agent';
     const btn = document.createElement('button');
     btn.className = 'qa-btn';
     btn.title = def.name + '（点击：未运行则启动，已运行则跳转）';
     btn.innerHTML = agentIconMarkup(def);
     btn.onclick = () => launchAgent(id);
-    box.appendChild(btn);
+    item.append(btn);
+    box.appendChild(item);
   }
 }
 
@@ -872,7 +882,8 @@ function renderProjectRail() {
   const items = projectItems();
   rail.innerHTML = '<div class="project-rail-head">全部项目</div>';
   if (!items.length) {
-    rail.innerHTML += '<div class="project-empty">暂无项目路径</div>';
+    rail.innerHTML += '<div class="project-empty">暂无项目路径</div><button type="button" class="btn primary project-empty-new-task">新建托管任务</button>';
+    rail.querySelector('.project-empty-new-task').onclick = () => void openNewHostedTask('codex');
     return;
   }
   for (const item of items) {
@@ -896,6 +907,14 @@ function renderProjectRail() {
       toast(ok ? '已复制完整路径' : '复制失败，请手动复制');
     });
     row.append(button, copyButton);
+    const newTask = document.createElement('button');
+    newTask.type = 'button';
+    newTask.className = 'project-path-new-task';
+    newTask.title = '以当前项目新建托管任务';
+    newTask.setAttribute('aria-label', '以当前项目新建托管任务');
+    newTask.textContent = '+';
+    newTask.onclick = (event) => { event.stopPropagation(); void openNewHostedTask('codex', { project: item.project }); };
+    row.appendChild(newTask);
     rail.appendChild(row);
   }
 }
@@ -1107,7 +1126,20 @@ function renderBoard() {
     const head = document.createElement('div');
     head.className = 'col-head';
     head.style.setProperty('--colc', meta.color);
-    head.innerHTML = `<span class="col-name">${esc(meta.name)}</span>`;
+    const name = document.createElement('span');
+    name.className = 'col-name';
+    name.textContent = meta.name;
+    head.append(name);
+    if (key !== 'all' && state.agentsDef[key]) {
+      const newTask = document.createElement('button');
+      newTask.type = 'button';
+      newTask.className = 'col-new-task';
+      newTask.textContent = '+';
+      newTask.title = `为 ${meta.name} 新建托管任务`;
+      newTask.setAttribute('aria-label', `为 ${meta.name} 新建托管任务`);
+      newTask.addEventListener('click', (e) => { e.stopPropagation(); void openNewHostedTask(key); });
+      head.append(newTask);
+    }
 
     const cardsBox = document.createElement('div');
     cardsBox.className = 'col-cards';
@@ -1116,25 +1148,39 @@ function renderBoard() {
     board.appendChild(col);
 
     const list = state.board[key] || [];
+    const boardItems = boardListWithHostedHandoffs(key);
     if (!list.length) {
-      const empty = document.createElement('div');
-      empty.className = 'col-empty';
-      empty.textContent = key === 'all' ? '暂无会话' : '暂无该 agent 的会话';
-      if (key !== 'all' && state.agentsDef[key]) {
-        const quickOpen = document.createElement('button');
-        quickOpen.type = 'button';
-        quickOpen.className = 'col-empty-action';
-        quickOpen.textContent = `启动 ${meta.name}`;
-        quickOpen.title = `启动 ${meta.name}；如果没有窗口会自动显示恢复指引`;
-        quickOpen.addEventListener('click', (e) => {
-          e.stopPropagation();
-          launchAgent(key);
-        });
-        empty.appendChild(quickOpen);
+      if (!boardItems.length) {
+        const empty = document.createElement('div');
+        empty.className = 'col-empty';
+        empty.textContent = key === 'all' ? '暂无会话' : '暂无该 agent 的会话';
+        if (key !== 'all' && state.agentsDef[key]) {
+          const quickOpen = document.createElement('button');
+          quickOpen.type = 'button';
+          quickOpen.className = 'col-empty-action';
+          quickOpen.textContent = `启动 ${meta.name}`;
+          quickOpen.title = `启动 ${meta.name}；如果没有窗口会自动显示恢复指引`;
+          quickOpen.addEventListener('click', (e) => {
+            e.stopPropagation();
+            launchAgent(key);
+          });
+          const newTask = document.createElement('button');
+          newTask.type = 'button';
+          newTask.className = 'col-empty-action primary';
+          newTask.textContent = '新建托管任务';
+          newTask.title = `为 ${meta.name} 选择项目并新建托管任务`;
+          newTask.addEventListener('click', (e) => { e.stopPropagation(); void openNewHostedTask(key); });
+          empty.append(quickOpen, newTask);
+        }
+        cardsBox.appendChild(empty);
+      } else {
+        for (const handoff of boardItems.filter(isHostedSessionHandoff)) cardsBox.appendChild(buildHostedSessionHandoffCard(handoff));
       }
-      cardsBox.appendChild(empty);
       continue;
     }
+    const handoffs = boardItems.filter(isHostedSessionHandoff);
+    for (const handoff of handoffs) cardsBox.appendChild(buildHostedSessionHandoffCard(handoff));
+    if (!list.length) continue;
     if (state.subagentCardStyle === 'stacked') {
       const groups = sessionCardStacking.groupSessions(list);
       for (const item of groups) {
@@ -1173,6 +1219,7 @@ const RUNTIME_STATUS_LABELS = {
 };
 
 function runtimeStatusFor(s, live) {
+  if (s?.manual_done === true) return 'completed';
   const runtime = state.runtimeStatuses.get(s.id) || s.runtime_status;
   return runtime && runtime.state ? runtime.state : (live ? 'running' : 'completed');
 }
@@ -1221,6 +1268,152 @@ function toggleSubagentGroup(rootRef) {
   if (state.expandedSubagentGroups.has(rootRef)) state.expandedSubagentGroups.delete(rootRef);
   else state.expandedSubagentGroups.add(rootRef);
   syncSubagentGroupExpansion(rootRef);
+}
+
+function isHostedSessionHandoff(item) {
+  return item && item.kind === 'hosted-session-handoff';
+}
+
+function hostedSessionWorkflow(handoff) {
+  const workflows = state.orchestration && Array.isArray(state.orchestration.workflows)
+    ? state.orchestration.workflows : [];
+  return handoff.workflowId ? workflows.find((workflow) => workflow && workflow.id === handoff.workflowId) : null;
+}
+
+function syncHostedSessionHandoffs() {
+  for (const handoff of state.hostedSessionHandoff.list()) {
+    const workflow = hostedSessionWorkflow(handoff);
+    if (!workflow) continue;
+    const autoState = String(workflow.autoState || '');
+    const reason = String(workflow.lastError || workflow.stopReason || '').trim();
+    if (['PAUSED', 'BLOCKED'].includes(autoState) && reason) {
+      const error = `托管已暂停：${reason}`;
+      if (handoff.state !== 'start_failed' || handoff.error !== error) {
+        state.hostedSessionHandoff.update(handoff.sessionRef, { state: 'start_failed', error });
+      }
+      continue;
+    }
+    if (handoff.state === 'start_failed' && String(handoff.error || '').startsWith('托管已暂停：')) {
+      state.hostedSessionHandoff.update(handoff.sessionRef, { state: 'starting', error: '' });
+    }
+  }
+}
+
+function hostedSessionHandoffPresentation(handoff) {
+  const workflow = hostedSessionWorkflow(handoff);
+  const workflowState = workflow && workflow.autoState;
+  if (workflowState && workflowState !== 'OFF') {
+    return `托管：${ORCHESTRATION_AUTO_STATE_LABELS[workflowState] || workflowState}`;
+  }
+  return {
+    created: '已创建 · 等待打开 Codex',
+    starting: '已创建 · 托管启动中',
+    waiting_for_index: '已打开 · 等待看板采集',
+    open_failed: '已创建 · 打开 Codex 失败',
+    start_failed: '已创建 · 托管启动失败',
+    index_timeout: '已创建 · 等待采集超时',
+  }[handoff.state] || 'Session 创建中';
+}
+
+function pendingHostedSessionsForColumn(key) {
+  return key === 'all'
+    ? state.hostedSessionHandoff.list()
+    : state.hostedSessionHandoff.listForAgent(key);
+}
+
+function boardListWithHostedHandoffs(key) {
+  const list = Array.isArray(state.board[key]) ? [...state.board[key]] : [];
+  const refs = new Set(list.map((session) => session && (session.id || session.sessionRef)).filter(Boolean));
+  for (const handoff of pendingHostedSessionsForColumn(key)) {
+    if (!refs.has(handoff.sessionRef)) list.push(handoff);
+  }
+  return list;
+}
+
+function rememberHostedSessionHandoff(session, workflow = null) {
+  const sessionRef = String(session?.sessionRef || '').trim();
+  if (!sessionRef) return null;
+  const handoff = state.hostedSessionHandoff.add({
+    sessionRef,
+    agent: session.agent,
+    projectPath: session.projectPath,
+    title: session.title || '新建 Session',
+    workflowId: workflow?.id || '',
+  });
+  if (handoff.agent && !state.agentIds.includes(handoff.agent)) state.agentIds.push(handoff.agent);
+  if (handoff.agent && !state.defaultAgentIds.includes(handoff.agent)) state.defaultAgentIds.push(handoff.agent);
+  if (Array.isArray(state.colOrder) && handoff.agent && !state.colOrder.includes(handoff.agent)) state.colOrder.push(handoff.agent);
+  renderBoard();
+  return handoff;
+}
+
+function dismissHostedSessionHandoff(sessionRef) {
+  const ref = String(sessionRef || '').trim();
+  if (!ref) return false;
+  const timer = state.hostedSessionWatchers.get(ref);
+  if (timer) clearTimeout(timer);
+  state.hostedSessionWatchers.delete(ref);
+  const removed = state.hostedSessionHandoff.remove(ref);
+  if (removed) {
+    renderBoard();
+    toast('已隐藏承接卡，真实 Session 和托管任务不受影响');
+  }
+  return removed;
+}
+
+function watchHostedSessionHandoff(sessionRef) {
+  const ref = String(sessionRef || '').trim();
+  if (!ref) return;
+  const oldTimer = state.hostedSessionWatchers.get(ref);
+  if (oldTimer) clearTimeout(oldTimer);
+  const deadline = Date.now() + 5 * 60_000;
+  const check = async () => {
+    if (!state.hostedSessionHandoff.get(ref)) { state.hostedSessionWatchers.delete(ref); return; }
+    await loadBoard();
+    if (!state.hostedSessionHandoff.get(ref)) { state.hostedSessionWatchers.delete(ref); return; }
+    if (Date.now() >= deadline) {
+      state.hostedSessionHandoff.update(ref, { state: 'index_timeout', error: '真实 Session 已创建，但暂未进入看板索引' });
+      renderBoard();
+      // 超时只改变提示，不停止收敛；Windows 文件监听/扫描可能晚于首轮等待窗口。
+      // 后续 loadBoard 一旦看到真实 ref，reconcile 会自动移除承接卡。
+      const timer = setTimeout(check, 10_000);
+      state.hostedSessionWatchers.set(ref, timer);
+      return;
+    }
+    const timer = setTimeout(check, 1_000);
+    state.hostedSessionWatchers.set(ref, timer);
+  };
+  const timer = setTimeout(check, 350);
+  state.hostedSessionWatchers.set(ref, timer);
+}
+
+function buildHostedSessionHandoffCard(handoff) {
+  const card = document.createElement('div');
+  card.className = 's-card hosted-session-handoff-card attention';
+  card.dataset.handoffRef = handoff.sessionRef;
+  const status = hostedSessionHandoffPresentation(handoff);
+  const nativeTurnPending = handoff.agent === 'codex' && handoff.state === 'starting';
+  const actionLabel = nativeTurnPending ? '首轮托管完成后自动打开 Codex' : handoff.state === 'open_failed' ? '重试打开 Codex' : '打开 Codex';
+  card.innerHTML = `<div class="s-row1"><span class="s-topology-badge topology-main">托管承接</span><span class="s-status wait">${esc(status)}</span></div>
+    <div class="s-title-row"><div class="s-title-leading"><span class="s-title">${esc(handoff.title)}</span></div></div>
+    <div class="s-proj" title="${esc(handoff.projectPath)}">${esc(shortProj(handoff.projectPath) || '（无项目路径）')}</div>
+    <div class="s-cmd" title="${esc(handoff.sessionRef)}">真实 Session：${esc(handoff.sessionRef)}</div>
+    ${handoff.error ? `<div class="s-handoff-error">${esc(handoff.error)}</div>` : ''}
+    <div class="s-handoff-row"><span class="s-msg">${nativeTurnPending ? '首轮完成后自动接入 Codex Desktop' : '等待真实卡片'}</span><span class="s-time">${fmtTimeLabel(handoff.createdAt)}</span></div>
+    <div class="s-actions"><button type="button" class="s-more hosted-session-handoff-dismiss" title="隐藏承接卡（不删除真实 Session，不停止托管）" aria-label="隐藏承接卡">×</button><button type="button" class="s-jump hosted-session-handoff-open" title="${esc(actionLabel)}"${nativeTurnPending ? ' disabled' : ''}>↗</button></div>`;
+  card.querySelector('.hosted-session-handoff-dismiss').addEventListener('click', (event) => {
+    event.stopPropagation();
+    dismissHostedSessionHandoff(handoff.sessionRef);
+  });
+  card.querySelector('.hosted-session-handoff-open').addEventListener('click', async (event) => {
+    event.stopPropagation();
+    if (nativeTurnPending) return;
+    const opened = handoff.agent === 'codex' && await openCodexThread(handoff.sessionRef);
+    state.hostedSessionHandoff.update(handoff.sessionRef, { state: opened ? 'waiting_for_index' : 'open_failed', error: opened ? '' : 'Codex 深链未成功投递' });
+    renderBoard();
+    if (opened) watchHostedSessionHandoff(handoff.sessionRef);
+  });
+  return card;
 }
 
 function workflowForSession(s) {
@@ -1282,7 +1475,206 @@ function openAutoPilotDetail(workflow) {
   });
 }
 
-async function openAutoPilotForSession(s) {
+function hostedTaskSettingsFrom(pop) {
+  const current = state.orchestration.settings || {};
+  return {
+    ...current,
+    autopilot: {
+      ...(current.autopilot || {}),
+      defaultMode: pop.querySelector('#hosted-mode')?.value || current.autopilot?.defaultMode || 'auto',
+      defaultModel: pop.querySelector('#hosted-model')?.value.trim() || current.autopilot?.defaultModel || 'auto',
+      defaultReasoning: pop.querySelector('#hosted-reasoning')?.value || current.autopilot?.defaultReasoning || 'auto',
+      maxIterations: Number(pop.querySelector('#hosted-max-iterations')?.value || current.autopilot?.maxIterations || 20),
+      maxRuntimeMs: Number(pop.querySelector('#hosted-max-runtime')?.value || current.autopilot?.maxRuntimeMs || 3_600_000),
+      maxBudget: Number(pop.querySelector('#hosted-max-budget')?.value || current.autopilot?.maxBudget || 0),
+    },
+    safety: {
+      ...(current.safety || {}),
+      allowSecrets: pop.querySelector('#hosted-allow-secrets')?.checked === true,
+      allowTests: pop.querySelector('#hosted-allow-tests')?.checked !== false,
+      allowGit: pop.querySelector('#hosted-allow-git')?.checked !== false,
+      allowedCommands: (pop.querySelector('#hosted-allowed-commands')?.value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
+      allowNetwork: pop.querySelector('#hosted-allow-network')?.checked === true,
+      allowedNetworkDomains: (pop.querySelector('#hosted-network-domains')?.value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
+      allowInstall: pop.querySelector('#hosted-allow-install')?.checked === true,
+      allowGitPush: pop.querySelector('#hosted-allow-git-push')?.checked === true,
+    },
+  };
+}
+
+async function selectHostedProjectFolder(input) {
+  if (window.AgentBoardDesktop && typeof window.AgentBoardDesktop.selectProjectFolder === 'function') {
+    const selected = await window.AgentBoardDesktop.selectProjectFolder();
+    if (selected?.ok && selected.path) input.value = selected.path;
+    return Boolean(selected?.ok && selected.path);
+  }
+  const fallback = window.prompt('请输入本地项目文件夹路径', input.value || '');
+  if (fallback !== null) input.value = fallback.trim();
+  return Boolean(fallback && fallback.trim());
+}
+
+function renderHostedTaskContract(node, contract, warning = '', context = {}) {
+  const view = autopilotUi.taskContractView(contract);
+  const sections = view.sections.map((section) => `<section class="autopilot-contract-section"><strong>${esc(section.label)}</strong>${section.items.length ? `<ul>${section.items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '<div class="autopilot-contract-empty">待补充</div>'}</section>`).join('');
+  const settings = context.settings || {};
+  const autopilot = settings.autopilot || {};
+  const safety = settings.safety || {};
+  const project = context.projectContext || {};
+  const allowed = ['读取项目文件', '修改项目文件', ...(safety.allowTests !== false ? ['运行已允许测试'] : []), ...(safety.allowGit !== false ? ['本地 Git 状态检查'] : [])];
+  const blocked = ['项目目录之外', 'Secrets / .env / 私钥（始终需要人工）', ...(safety.allowInstall ? [] : ['安装依赖']), ...(safety.allowNetwork ? [] : ['网络访问']), 'Git Push（始终需要人工）', '外部副作用 / 发布（始终需要人工）'];
+  node.hidden = false;
+  node.innerHTML = `<div class="autopilot-contract-head"><strong>${esc(view.kindLabel)}</strong><span>置信度 ${esc(Math.round(view.confidence * 100))}%</span></div>
+    <div class="autopilot-contract-meta"><div><b>Agent</b> ${esc(context.agent || '—')}</div><div><b>项目</b> ${esc(project.projectPath || '—')}</div><div><b>Git</b> ${project.git?.isGit ? `是 · ${esc(project.git.branch || '分支未知')}${project.git.dirty ? ' · 有未提交修改' : ''}` : '否 / 待人工确认'}</div><div><b>模式</b> ${esc(autopilot.defaultMode || 'auto')} · <b>模型</b> ${esc(autopilot.defaultModel || 'auto')} · <b>Reasoning</b> ${esc(autopilot.defaultReasoning || 'auto')}</div><div><b>预算</b> ${esc(autopilot.maxBudget ?? 0)} · <b>运行时限</b> ${esc(autopilot.maxRuntimeMs ?? '—')} ms · <b>Loop</b> ${esc(autopilot.maxIterations ?? '—')}</div></div>
+    <div class="autopilot-contract-goal"><b>Goal</b><div>${esc(view.goal || '待补充')}</div></div>
+    ${view.sourceLabel ? `<div class="autopilot-contract-source">来源：${esc(view.sourceLabel)}</div>` : ''}${sections}
+    <div class="autopilot-contract-permissions"><strong>本次任务允许</strong><ul>${allowed.map((item) => `<li>${esc(item)}</li>`).join('')}</ul><strong>本次任务禁止 / 越界即 NEED_HUMAN</strong><ul>${blocked.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
+    ${view.humanGate.required ? `<div class="autopilot-human-gate"><strong>需要人工审批</strong><div>${esc(view.humanGate.reason || '高风险任务不会自动执行')}</div></div>` : ''}
+    ${view.missingFields.length ? `<small>待补字段：${esc(view.missingFields.join('、'))}</small>` : ''}${warning ? `<small>${esc(warning)}</small>` : ''}`;
+}
+
+async function openNewHostedTask(agentId, seedSession = null) {
+  closePopover();
+  const agent = String(agentId || 'codex').trim().toLowerCase();
+  const meta = agentMeta(agent);
+  const settings = state.orchestration.settings || {};
+  const autopilot = settings.autopilot || {};
+  const safety = settings.safety || {};
+  const hasSeedSession = Boolean(seedSession && seedSession.id);
+  state.popoverFor = 'hosted-task-drawer';
+  const pop = document.createElement('div');
+  pop.className = 'popover hosted-task-drawer';
+  pop.style.position = 'fixed'; pop.style.top = '58px'; pop.style.right = '16px'; pop.style.bottom = '16px'; pop.style.zIndex = 60;
+  pop.innerHTML = `<div class="hosted-task-head"><strong>新建托管任务</strong><button type="button" class="btn" id="hosted-task-close">关闭</button></div>
+    <div class="hosted-task-context"><span>Agent：<b>${esc(meta.name || agent)}</b></span>${hasSeedSession ? `<span>入口：当前 Session（默认仍创建新 Session）</span>` : '<span>入口：Agent 导航 / 项目页 / 空状态</span>'}</div>
+    <form id="hosted-task-form" class="hosted-task-form">
+      <label>本地项目文件夹<div class="hosted-task-path"><input id="hosted-project-path" required placeholder="选择或填写本地项目路径" value="${esc(seedSession?.project || '')}"><button type="button" class="btn" id="hosted-pick-folder">选择文件夹</button></div></label>
+      <div class="hosted-task-hint">确认时会再次校验存在、可读写、Git 状态和预授权目录；非 Git 文件夹允许继续但会显示警告。</div>
+      <label>详细任务目标<textarea id="hosted-goal" required placeholder="描述希望 Agent 完成的结果、边界和验收方式">${esc(seedSession?.last_user_text || '')}</textarea></label>
+      <div class="autopilot-prd-controls"><label>PRD 来源<select id="hosted-prd-mode"><option value="auto">自动判断</option><option value="current">当前项目 PRD</option><option value="manual">选择其他 PRD</option><option value="none">不使用 PRD</option></select></label>
+        <label id="hosted-prd-path-row" hidden>PRD 文件路径<input id="hosted-prd-path" type="text" placeholder="允许目录内的 .md、.mdx 或 .txt 文件"></label></div>
+      <div class="hosted-task-settings"><strong>AutoPilot 配置（本任务快照）</strong>
+        <label>模式<select id="hosted-mode"><option value="auto"${autopilot.defaultMode === 'auto' ? ' selected' : ''}>Auto：预授权范围内自动执行</option><option value="guarded"${autopilot.defaultMode === 'guarded' ? ' selected' : ''}>Guarded：每轮需人工确认</option><option value="suggest"${autopilot.defaultMode === 'suggest' ? ' selected' : ''}>Suggest：只生成建议</option></select></label>
+        <label>模型<input id="hosted-model" value="${esc(autopilot.defaultModel || 'auto')}" placeholder="auto 或指定模型 ID"></label>
+        <label>Reasoning<select id="hosted-reasoning"><option value="auto">自动</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option><option value="ultra">Ultra</option></select></label>
+        <label>最大循环<input id="hosted-max-iterations" type="number" min="1" max="100" value="${esc(autopilot.maxIterations ?? 20)}"></label>
+        <label>预算上限<input id="hosted-max-budget" type="number" min="0" step="0.01" value="${esc(autopilot.maxBudget ?? 0)}"></label>
+        <label>最大运行时间（毫秒）<input id="hosted-max-runtime" type="number" min="1000" max="86400000" value="${esc(autopilot.maxRuntimeMs ?? 3600000)}"></label>
+        <div class="hosted-task-safety"><span>安全策略（默认拒绝）</span><label><input id="hosted-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>允许测试</label><label><input id="hosted-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>允许本地 Git</label><label>允许命令（逗号分隔）<input id="hosted-allowed-commands" value="${esc((safety.allowedCommands || ['node --test', 'npm test']).join(', '))}" placeholder="node --test, npm test"></label><label><input id="hosted-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>记录敏感权限请求（仍需人工）</label><label><input id="hosted-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>允许网络</label><label>允许网络域名（逗号分隔）<input id="hosted-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="例如 api.example.com"></label><label><input id="hosted-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>允许安装依赖</label><label><input id="hosted-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>记录 Git Push 请求（仍需人工）</label></div>
+      </div>
+      <div class="hosted-task-actions"><button type="button" class="btn" id="hosted-preview">生成 Task Contract 草稿</button><button type="submit" class="btn primary" id="hosted-confirm" title="首次点击会先生成草稿，检查后再次点击确认">确认 Task Contract 并创建 Session</button></div>
+      <div class="hosted-task-confirm-hint" id="hosted-confirm-hint">首次点击“确认”会先生成 Task Contract 草稿；请检查 Goal / Scope / DoD 后再次点击确认，才会创建 Session。</div>
+      <div class="autopilot-intake-status" id="hosted-status" hidden></div><div class="hosted-task-duplicates" id="hosted-duplicates" hidden></div><div class="autopilot-prd-preview" id="hosted-contract" hidden></div>
+      <div class="hosted-task-hint">生成的 Goal/Scope/DoD 只是草稿；未点击确认前不会创建 Session、Run、发送任务或执行代码。</div>
+    </form>`;
+  document.body.appendChild(pop);
+  const form = pop.querySelector('#hosted-task-form');
+  const projectInput = pop.querySelector('#hosted-project-path');
+  const goalInput = pop.querySelector('#hosted-goal');
+  const prdMode = pop.querySelector('#hosted-prd-mode');
+  const prdPath = pop.querySelector('#hosted-prd-path');
+  const prdPathRow = pop.querySelector('#hosted-prd-path-row');
+  const status = pop.querySelector('#hosted-status');
+  const contractNode = pop.querySelector('#hosted-contract');
+  const duplicatesNode = pop.querySelector('#hosted-duplicates');
+  const confirmButton = pop.querySelector('#hosted-confirm');
+  let draftId = '';
+  let taskContract = null;
+  let existingSessions = [];
+
+  const setStatus = (message, kind = '') => {
+    status.hidden = !message; status.className = `autopilot-intake-status${kind ? ` ${kind}` : ''}`; status.textContent = message || '';
+  };
+  const invalidate = () => { draftId = ''; taskContract = null; contractNode.hidden = true; duplicatesNode.hidden = true; };
+  const renderDuplicates = (items) => {
+    existingSessions = Array.isArray(items) ? items : [];
+    if (!existingSessions.length) { duplicatesNode.hidden = true; duplicatesNode.innerHTML = ''; return; }
+    duplicatesNode.hidden = false;
+    duplicatesNode.innerHTML = `<strong>发现同 Agent + 同项目 Session</strong><label><input type="radio" name="hosted-session-choice" value="new" checked>创建新 Session（默认）</label><label><input type="radio" name="hosted-session-choice" value="continue">继续已有 Session</label><select id="hosted-session-ref" disabled>${existingSessions.map((item) => `<option value="${esc(item.sessionRef)}">${esc(item.title || item.sessionRef)}</option>`).join('')}</select>`;
+    duplicatesNode.querySelectorAll('input[name="hosted-session-choice"]').forEach((radio) => radio.onchange = () => { duplicatesNode.querySelector('#hosted-session-ref').disabled = radio.value !== 'continue' || !radio.checked; });
+  };
+  const previewTask = async () => {
+    invalidate(); setStatus('正在校验项目并生成 Task Contract…', 'loading');
+    const body = { agent, projectPath: projectInput.value.trim(), goal: goalInput.value.trim(), prdMode: prdMode.value };
+    if (prdMode.value === 'manual') body.prdPath = prdPath.value.trim();
+    try {
+      const data = await requestJson('/api/orchestration/intake/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true, body: JSON.stringify(body) });
+      if (!data.ok) {
+        if (data.code === 'PRD_SELECTION_REQUIRED') setStatus('发现多个 PRD，请改用“选择其他 PRD”后填写路径。', 'error');
+        else setStatus(data.error || '项目校验或任务分析失败', 'error');
+        throw Object.assign(new Error(data.error || '任务分析失败'), { code: data.code });
+      }
+      draftId = data.draftId; taskContract = data.taskContract; existingSessions = data.existingSessions || [];
+      renderHostedTaskContract(contractNode, taskContract, [...(data.projectContext?.warnings || []), data.warning || ''].filter(Boolean).join(' '), { agent, projectContext: data.projectContext, settings: hostedTaskSettingsFrom(pop) });
+      renderDuplicates(existingSessions);
+      confirmButton.disabled = false; setStatus('草稿已生成，请检查并明确确认 Task Contract。', 'success');
+      return data;
+    } catch (error) { if (!status.textContent || status.classList.contains('loading')) setStatus(error.message || '任务分析失败', 'error'); throw error; }
+  };
+  pop.querySelector('#hosted-task-close').onclick = closePopover;
+  pop.querySelector('#hosted-pick-folder').onclick = async () => { if (await selectHostedProjectFolder(projectInput)) invalidate(); };
+  pop.querySelector('#hosted-preview').onclick = () => void previewTask().catch((error) => toast(error.message || '任务分析失败'));
+  prdMode.onchange = () => { prdPathRow.hidden = prdMode.value !== 'manual'; invalidate(); };
+  projectInput.oninput = invalidate; goalInput.oninput = invalidate; prdPath.oninput = invalidate;
+  pop.querySelectorAll('.hosted-task-settings input, .hosted-task-settings select').forEach((input) => {
+    input.addEventListener('input', invalidate);
+    input.addEventListener('change', invalidate);
+  });
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!draftId || !taskContract) {
+      setStatus('尚未生成 Task Contract 草稿，正在先生成；请检查后再次点击确认。', 'loading');
+      try { await previewTask(); } catch (error) { setStatus(error.message || '任务分析失败', 'error'); }
+      return;
+    }
+    const choice = duplicatesNode.querySelector('input[name="hosted-session-choice"]:checked')?.value || 'new';
+    const sessionRef = choice === 'continue' ? duplicatesNode.querySelector('#hosted-session-ref')?.value || '' : '';
+    confirmButton.disabled = true; setStatus('正在确认并创建真实 Session…', 'loading');
+    try {
+      const data = await requestJson('/api/orchestration/intake/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId, confirmed: true, decision: 'confirm', taskContract, sessionChoice: choice, sessionRef, settings: hostedTaskSettingsFrom(pop) }) });
+      const nativeCodexSession = data.session?.agent === 'codex' && data.session?.transport === 'codex-app-server';
+      // Native 首轮由 app-server 先独占执行；等 turn 完成并释放 writer lock 后，
+      // server 会自动把同一个真实 thread deep-link 到 Codex Desktop。
+      // 如果此时先打开 Desktop，后续 thread/resume 会被 Desktop 的锁拒绝。
+      const deferNativeCodexOpen = nativeCodexSession && data.workflow?.autopilotMode === 'auto' && !data.requiresApproval;
+      const handoff = data.session?.sessionRef ? rememberHostedSessionHandoff(data.session, data.workflow) : null;
+      const codexOpened = data.session?.agent === 'codex'
+        ? (deferNativeCodexOpen ? true : await openCodexThread(data.session.sessionRef)) : true;
+      if (handoff) {
+        state.hostedSessionHandoff.update(handoff.sessionRef, {
+          state: deferNativeCodexOpen ? 'starting' : codexOpened ? 'waiting_for_index' : nativeCodexSession ? 'starting' : 'open_failed',
+          error: deferNativeCodexOpen ? '首轮托管完成后自动打开 Codex Desktop' : codexOpened ? '' : nativeCodexSession ? 'Codex 窗口打开结果待确认；已通过 app-server 准备启动托管' : 'Codex 深链未成功投递；托管尚未启动',
+        });
+        renderBoard();
+      }
+      let runError = null;
+      if (data.workflow?.autopilotMode === 'auto' && !data.requiresApproval && (codexOpened || nativeCodexSession)) {
+        try {
+          await requestJson(`/api/orchestration/workflows/${encodeURIComponent(data.workflow.id)}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+          if (handoff) state.hostedSessionHandoff.update(handoff.sessionRef, { state: 'starting' });
+        } catch (error) {
+          runError = error;
+          if (handoff) state.hostedSessionHandoff.update(handoff.sessionRef, { state: 'start_failed', error: `Session 已创建并打开，但托管启动失败：${error.message || '请求失败'}` });
+        }
+      }
+      if (handoff) {
+        renderBoard();
+        if (codexOpened || nativeCodexSession) watchHostedSessionHandoff(handoff.sessionRef);
+      }
+      closePopover();
+      toast(!codexOpened && !nativeCodexSession ? '真实 Session 已创建，但未能打开 Codex；托管尚未启动，可点击承接卡重试' : runError ? `真实 Session 已打开，但托管启动失败：${runError.message || '请查看 AI 监控'}` : data.bypass ? '已创建真实 Session，任务属于直接处理' : data.requiresApproval ? '真实 Session 已创建，高风险任务等待人工审批' : deferNativeCodexOpen ? '已确认 Task Contract，托管完成后自动打开 Codex Desktop' : '已确认 Task Contract，已通过 Codex app-server 开始托管');
+      await Promise.allSettled([loadBoard(), loadOrchestration()]);
+    } catch (error) { confirmButton.disabled = false; setStatus(error.message || '托管任务创建失败', 'error'); }
+  };
+  goalInput.focus();
+}
+
+function openAutoPilotForSession(s) {
+  const existingWorkflow = workflowForSession(s);
+  if (existingWorkflow) { openAutoPilotDetail(existingWorkflow); return; }
+  return openNewHostedTask(s.agent, s);
+}
+
+async function openLegacyAutoPilotForSession(s) {
   closePopover();
   const workflow = workflowForSession(s);
   if (workflow) {
@@ -1503,6 +1895,7 @@ function buildCard(s, colKey, groupContext = null) {
   card.className = 's-card ' + statusClass(status) + ` topology-${topologyRole}` + (live ? ' flow-red' : '') + (recent ? ' flow-green' : '');
   card.dataset.live = live ? '1' : '0'; // 记录当前状态，供 SSE 差异化更新对比
   card.dataset.runtimeStatus = status;
+  card.dataset.manualDone = s.manual_done === true ? '1' : '0';
   card.dataset.topologyRole = topologyRole;
   const rawSessionId = String(s.session_id || '');
   const sessionId = s.agent === 'codex' ? extractCodexThreadId(rawSessionId) : rawSessionId;
@@ -2310,9 +2703,12 @@ function openRoutingSettings() {
   pop.innerHTML = `<div class="pop-head">AI 智能执行调度</div>
     <div class="routing-settings-copy">这里保存的是跨 Workflow 生效的默认设置；当前 Turn 的 Profile 快照不会被中途改写。</div>
     <form class="routing-settings-form" id="routing-settings-form">
-      <label>默认模式<select id="routing-default-mode"><option value="auto"${autopilot.defaultMode === 'auto' ? ' selected' : ''}>Auto：自动循环</option><option value="suggest"${autopilot.defaultMode === 'suggest' ? ' selected' : ''}>Suggest：只生成建议</option></select></label>
+      <label>默认模式<select id="routing-default-mode"><option value="auto"${autopilot.defaultMode === 'auto' ? ' selected' : ''}>Auto：自动循环</option><option value="guarded"${autopilot.defaultMode === 'guarded' ? ' selected' : ''}>Guarded：每轮人工确认</option><option value="suggest"${autopilot.defaultMode === 'suggest' ? ' selected' : ''}>Suggest：只生成建议</option></select></label>
+      <label>默认模型<input id="routing-default-model" value="${esc(autopilot.defaultModel || 'auto')}" placeholder="auto 或模型 ID"></label>
+      <label>默认 Reasoning<input id="routing-default-reasoning" value="${esc(autopilot.defaultReasoning || 'auto')}" placeholder="auto / low / medium / high"></label>
       <label>最大循环轮数<input id="routing-max-iterations" type="number" min="1" max="100" value="${esc(autopilot.maxIterations ?? 20)}"></label>
       <label>最大运行时间（毫秒）<input id="routing-max-runtime" type="number" min="1000" max="86400000" value="${esc(autopilot.maxRuntimeMs ?? 3600000)}"></label>
+      <label>预算上限<input id="routing-max-budget" type="number" min="0" step="0.01" value="${esc(autopilot.maxBudget ?? 0)}"></label>
       <label>周期复核间隔（毫秒）<input id="routing-reconcile-ms" type="number" min="1000" max="3600000" value="${esc(autopilot.reconciliationIntervalMs ?? 30000)}"></label>
       <label class="routing-checkbox"><input id="routing-enabled" type="checkbox"${routing.enabled !== false ? ' checked' : ''}>启用智能路由</label>
       <label>路由预设<select id="routing-preset"><option value="balanced"${routing.preset === 'balanced' ? ' selected' : ''}>Balanced</option><option value="quality"${routing.preset === 'quality' ? ' selected' : ''}>Quality First</option><option value="save"${routing.preset === 'save' ? ' selected' : ''}>Economy</option><option value="custom"${routing.preset === 'custom' ? ' selected' : ''}>Custom</option></select></label>
@@ -2321,6 +2717,7 @@ function openRoutingSettings() {
       <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${routing.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
       <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${routing.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
       <label>模型切换无法验证<select id="routing-profile-failure"><option value="pause"${safety.profileApplyFailure !== 'continue' ? ' selected' : ''}>暂停并等待人工</option><option value="continue"${safety.profileApplyFailure === 'continue' ? ' selected' : ''}>继续使用当前模型</option></select></label>
+      <div class="routing-safety-grid"><span>安全策略</span><label class="routing-checkbox"><input id="routing-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>测试</label><label class="routing-checkbox"><input id="routing-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>本地 Git</label><label class="routing-checkbox"><input id="routing-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>敏感文件（仍需人工）</label><label class="routing-checkbox"><input id="routing-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>网络</label><label>网络域名<input id="routing-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="api.example.com"></label><label class="routing-checkbox"><input id="routing-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>安装依赖</label><label class="routing-checkbox"><input id="routing-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>Git Push（仍需人工）</label></div>
       <div class="routing-settings-copy">${catalog.available ? `Codex Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型${catalog.agentVersion ? ` · Agent ${esc(catalog.agentVersion)}` : ''}` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
       <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新 Codex 模型</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存全局设置</button></div>
     </form>`;
@@ -2336,8 +2733,11 @@ function openRoutingSettings() {
     const body = {
       autopilot: {
         defaultMode: pop.querySelector('#routing-default-mode').value,
+        defaultModel: pop.querySelector('#routing-default-model').value.trim(),
+        defaultReasoning: pop.querySelector('#routing-default-reasoning').value.trim(),
         maxIterations: Number(pop.querySelector('#routing-max-iterations').value),
         maxRuntimeMs: Number(pop.querySelector('#routing-max-runtime').value),
+        maxBudget: Number(pop.querySelector('#routing-max-budget').value),
         reconciliationIntervalMs: Number(pop.querySelector('#routing-reconcile-ms').value),
       },
       routing: {
@@ -2348,7 +2748,14 @@ function openRoutingSettings() {
         respectManualPin: pop.querySelector('#routing-respect-pin').checked,
         allowLegacyModels: pop.querySelector('#routing-allow-legacy').checked,
       },
-      safety: { profileApplyFailure: pop.querySelector('#routing-profile-failure').value },
+      safety: { profileApplyFailure: pop.querySelector('#routing-profile-failure').value,
+        allowTests: pop.querySelector('#routing-allow-tests').checked,
+        allowGit: pop.querySelector('#routing-allow-git').checked,
+        allowedNetworkDomains: pop.querySelector('#routing-network-domains').value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
+        allowSecrets: pop.querySelector('#routing-allow-secrets').checked,
+        allowNetwork: pop.querySelector('#routing-allow-network').checked,
+        allowInstall: pop.querySelector('#routing-allow-install').checked,
+        allowGitPush: pop.querySelector('#routing-allow-git-push').checked },
     };
     try {
       await requestJson('/api/orchestration/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -3610,7 +4017,9 @@ function connectSSE() {
         const nowLive = liveSet.has(ref);
         const prevLive = el.dataset.live === '1';
         const runtime = state.runtimeStatuses.get(ref);
-        const status = runtime && runtime.state ? runtime.state : (nowLive ? 'running' : 'completed');
+        const status = el.dataset.manualDone === '1'
+          ? 'completed'
+          : (runtime && runtime.state ? runtime.state : (nowLive ? 'running' : 'completed'));
         const prevStatus = el.dataset.runtimeStatus || (prevLive ? 'running' : 'completed');
         if (nowLive !== prevLive || status !== prevStatus) {
           // 状态变化：单独更新这一张卡

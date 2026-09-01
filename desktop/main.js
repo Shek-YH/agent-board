@@ -324,6 +324,21 @@ function showWorkBuddyCompletionNotification(input = {}) {
 
 ipcMain.handle('notification:completion', (_event, input) => showWorkBuddyCompletionNotification(input));
 
+ipcMain.handle('project:select-folder', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择 AutoPilot 项目文件夹',
+      properties: ['openDirectory'],
+    });
+    return result.canceled || !result.filePaths[0]
+      ? { ok: false, canceled: true }
+      : { ok: true, path: result.filePaths[0] };
+  } catch (error) {
+    writeDesktopLog(`项目文件夹选择失败：${error.message || '未知错误'}`);
+    return { ok: false, code: 'PROJECT_FOLDER_PICKER_FAILED', error: '无法打开项目文件夹选择器' };
+  }
+});
+
 ipcMain.handle('provider:status', () => ({ ok: true, ...getProviderStoreStatus() }));
 
 ipcMain.handle('provider:set-api-key', async (_event, input) => {

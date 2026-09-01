@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView } = require('./autopilot-ui');
+const { findWorkflowForSession, sessionSummary, detailForWorkflow, taskContractView, createHostedSessionHandoffState } = require('./autopilot-ui');
 
 test('matches only the Auto workflow bound to the same session and project', () => {
   const workflows = [
@@ -49,4 +49,36 @@ test('builds a dynamic Task Contract view without copying unknown or sensitive f
   assert.deepEqual(project.sections.map((item) => item.key), ['inScope', 'outOfScope', 'dod', 'evidence', 'risks']);
   assert.equal(project.sourceLabel, 'PRD.md · v1.0');
   assert.equal(project.humanGate.required, true);
+});
+
+test('hosted session handoff keeps a temporary UI item until the real session is indexed', () => {
+  const handoff = createHostedSessionHandoffState({ now: () => 10_000 });
+  const pending = handoff.add({
+    sessionRef: 'codex:11111111-1111-4111-8111-111111111111',
+    agent: 'codex', projectPath: 'C:/work/app', workflowId: 'wf-1',
+  });
+
+  assert.equal(pending.kind, 'hosted-session-handoff');
+  assert.equal(pending.state, 'created');
+  assert.equal(handoff.listForAgent('codex')[0].sessionRef, pending.sessionRef);
+
+  handoff.update(pending.sessionRef, { state: 'starting' });
+  assert.equal(handoff.get(pending.sessionRef).state, 'starting');
+  assert.equal(handoff.reconcile([{ id: 'codex:other-session' }]), 0);
+  assert.equal(handoff.get(pending.sessionRef).state, 'starting');
+
+  assert.equal(handoff.reconcile([{ id: pending.sessionRef }]), 1);
+  assert.equal(handoff.get(pending.sessionRef), null);
+});
+
+test('hosted session handoff can be manually hidden without changing the real session reference', () => {
+  const handoff = createHostedSessionHandoffState({ now: () => 10_000 });
+  const pending = handoff.add({
+    sessionRef: 'codex:22222222-2222-4222-8222-222222222222',
+    agent: 'codex', projectPath: 'C:/work/app', workflowId: 'wf-2',
+  });
+
+  assert.equal(handoff.remove(pending.sessionRef), true);
+  assert.equal(handoff.get(pending.sessionRef), null);
+  assert.equal(handoff.remove(pending.sessionRef), false);
 });
