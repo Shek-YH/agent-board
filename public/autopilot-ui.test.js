@@ -26,7 +26,8 @@ test('builds safe card and detail summaries from workflow state', () => {
   assert.deepEqual(detailForWorkflow(workflow, { state: 'committed' }), {
     goal: '修复 E2E', scope: ['tests', '范围外：部署'], dod: [{ description: '测试通过', passed: false }],
     progress: { completed: 0, total: 1, percent: 0 }, currentModel: 'sol', reasoning: 'high', routeReason: 'ROUTE_ESCALATED',
-    lastDecision: '继续收集证据', supervisorReview: null, evidence: { checks: [], skipped: 0 }, deliveryState: 'committed',
+    lastDecision: '继续收集证据', supervisorReview: null, evidence: { checks: [], skipped: 0 },
+    handoffProgress: { completed: 0, total: 0, percent: 0 }, currentStep: null, blockReason: '', needHumanReason: '', deliveryState: 'committed',
   });
 });
 
@@ -49,6 +50,52 @@ test('builds a dynamic Task Contract view without copying unknown or sensitive f
   assert.deepEqual(project.sections.map((item) => item.key), ['inScope', 'outOfScope', 'dod', 'evidence', 'risks']);
   assert.equal(project.sourceLabel, 'PRD.md · v1.0');
   assert.equal(project.humanGate.required, true);
+});
+
+test('exposes safe handoff progress and blocking reason in the workflow detail', () => {
+  const detail = detailForWorkflow({
+    runContract: { goal: '接力任务', verify: { dod: ['当前步骤'] } },
+    handoffChain: [
+      { id: 'build', order: 1, agent: 'codex', status: 'done' },
+      { id: 'review', order: 2, agent: 'claude', status: 'need_human', result: { reason: '身份需要确认' } },
+    ],
+    lastError: 'HANDOFF_NEED_HUMAN',
+  });
+  assert.deepEqual(detail.handoffProgress, { completed: 1, total: 2, percent: 50 });
+  assert.deepEqual(detail.currentStep, { id: 'review', order: 2, agent: 'claude', status: 'need_human' });
+  assert.equal(detail.blockReason, 'HANDOFF_NEED_HUMAN');
+  assert.equal(detail.needHumanReason, '身份需要确认');
+});
+
+test('exposes hosted round state without exposing Agent reply text', () => {
+  const detail = detailForWorkflow({
+    autopilotMode: 'auto', autoState: 'WAITING_AGENT',
+    runContract: { goal: '托管任务', verify: { dod: ['完成'] } },
+    hostedControl: {
+      enabled: true, sourceTaskId: 'source-1', targetTaskId: 'target-1', hostId: 'host-1', round: 3,
+      lastAgentMessageStatus: 'question', blockedReason: 'raw=secret should not be shown', lastAgentMessageText: '不要输出',
+    },
+  });
+  assert.deepEqual(detail.hostedControl, {
+    enabled: true, sourceTaskId: 'source-1', targetTaskId: 'target-1', hostId: 'host-1', round: 3,
+    lastAgentMessageStatus: 'question', blockedReason: 'raw=secret should not be shown',
+  });
+  assert.doesNotMatch(JSON.stringify(detail), /不要输出|lastAgentMessageText/);
+});
+
+test('exposes research progress while keeping raw source material out of the UI view', () => {
+  const view = taskContractView({
+    classification: { kind: 'standard', confidence: 0.62 }, goal: '完成目标', generationStatus: 'research_required', confidence: 0.62,
+    researchableFields: ['inScope', 'dod'], humanRequiredFields: [],
+    research: {
+      status: 'researching', confidence: 0.45, unresolvedQuestions: ['需要确认范围'],
+      sources: [{ kind: 'external', url: 'https://docs.example.com/a', title: 'Docs', content: 'token=secret' }],
+    },
+  });
+  assert.equal(view.generationStatus, 'research_required');
+  assert.equal(view.research.status, 'researching');
+  assert.deepEqual(view.researchableFields, ['inScope', 'dod']);
+  assert.doesNotMatch(JSON.stringify(view), /token=secret|content/);
 });
 
 test('hosted session handoff keeps a temporary UI item until the real session is indexed', () => {

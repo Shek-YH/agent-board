@@ -34,6 +34,8 @@ test('托管任务抽屉包含目录选择、PRD 草稿、配置快照和人工�
   assert.match(app, /hosted-model/);
   assert.match(app, /hosted-max-budget/);
   assert.match(app, /hosted-allow-network/);
+  assert.match(app, /hosted-research-read/);
+  assert.match(app, /hosted-research-domains/);
   assert.match(app, /api\/orchestration\/intake\/preview/);
   assert.match(app, /api\/orchestration\/intake\/confirm/);
   assert.match(app, /confirmed: true/);
@@ -70,6 +72,8 @@ test('自动生成合同展示分析阶段、独立风险信息和具体缺失�
   assert.match(app, /confirmButton\.disabled = true/);
   assert.match(app, /previewButton\.disabled = true/);
   assert.match(app, /本合同仅根据任务目标生成，未读取 PRD。/);
+  assert.match(app, /资料研究：/);
+  assert.match(app, /AI 正在研究/);
 });
 
 test('Task Contract 错误会展示具体字段、权限、原因和建议', () => {

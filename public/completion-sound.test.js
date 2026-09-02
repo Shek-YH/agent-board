@@ -95,6 +95,11 @@ test('AutoPilot 只在整个 Workflow DONE 时提示一次，阶段性进度不�
   assert.match(source, /if \(state\.autoPilotDoneSoundKeys\.has\(key\)\) return;/);
 });
 
+test('托管 Workflow 仍在进行时不播放 Agent 阶段性完成音', () => {
+  assert.match(source, /function isHostedWorkflowActiveForSession\(ref\)/);
+  assert.match(source, /!isHostedWorkflowActiveForSession\(ref\)/);
+});
+
 test('升级修复时一次性清理旧的伪完成标记', () => {
   assert.match(source, /const RECENT_DONE_STATE_VERSION = '2';/);
   assert.match(source, /localStorage\.removeItem\('ab-recent-done'\)/);

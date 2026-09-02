@@ -131,7 +131,12 @@
     const evidence = Array.isArray(progress.evidence) ? progress.evidence : [];
     const byIndex = new Map(evidence.map((item) => [item.dodIndex, item]));
     const dod = Array.isArray(contract.verify?.dod) ? contract.verify.dod : [];
-    return {
+    const handoffChain = Array.isArray(workflow?.handoffChain) ? workflow.handoffChain : [];
+    const currentStep = handoffChain.find((step) => step && step.status !== 'done') || null;
+    const completedSteps = handoffChain.filter((step) => step && step.status === 'done').length;
+    const research = workflow && (workflow.researchState || workflow.taskContract?.research);
+    const hosted = workflow && workflow.hostedControl;
+    const detail = {
       goal: text(contract.goal, '未声明'),
       scope: [...(scope.inScope || []), ...(scope.outOfScope || []).map((item) => `范围外：${item}`)],
       dod: dod.map((item, index) => ({ description: item, passed: byIndex.get(index)?.passed === true })),
@@ -151,8 +156,45 @@
         })) : [],
         skipped: Array.isArray(evidenceSnapshot.skipped) ? evidenceSnapshot.skipped.length : 0,
       },
+      handoffProgress: {
+        completed: completedSteps, total: handoffChain.length,
+        percent: handoffChain.length ? Math.round((completedSteps / handoffChain.length) * 100) : 0,
+      },
+      currentStep: currentStep ? {
+        id: text(currentStep.id), order: Number.isInteger(currentStep.order) ? currentStep.order : 0,
+        agent: text(currentStep.agent), status: text(currentStep.status, 'pending'),
+      } : null,
+      blockReason: text(workflow?.lastError, text(workflow?.stopReason, text(currentStep?.result?.reason))),
+      needHumanReason: text(currentStep?.result?.reason),
       deliveryState: text(latestDispatch?.state, text(workflow.autoState, '未开始')),
     };
+    if (research && typeof research === 'object') {
+      detail.research = {
+        status: text(research.status, 'not_started'),
+        confidence: Number.isFinite(Number(research.confidence)) ? Number(research.confidence) : 0,
+        confidenceLevel: text(research.confidenceLevel, 'low'),
+        errorCode: text(research.errorCode),
+        unresolvedQuestions: Array.isArray(research.unresolvedQuestions) ? research.unresolvedQuestions.filter((item) => typeof item === 'string').slice(0, 12) : [],
+      };
+    }
+    if (currentStep?.researchState) {
+      detail.currentStep.research = {
+        status: text(currentStep.researchState.status, 'not_started'),
+        confidence: Number.isFinite(Number(currentStep.researchState.confidence)) ? Number(currentStep.researchState.confidence) : 0,
+      };
+    }
+    if (hosted && hosted.enabled === true) {
+      detail.hostedControl = {
+        enabled: true,
+        sourceTaskId: text(hosted.sourceTaskId),
+        targetTaskId: text(hosted.targetTaskId),
+        hostId: text(hosted.hostId),
+        round: Number.isInteger(hosted.round) ? hosted.round : 0,
+        lastAgentMessageStatus: text(hosted.lastAgentMessageStatus, 'unknown'),
+        blockedReason: text(hosted.blockedReason),
+      };
+    }
+    return detail;
   }
 
   function taskContractView(contract, options = {}) {
@@ -178,6 +220,7 @@
     const source = safe.source && typeof safe.source === 'object' ? safe.source : {};
     const sourceParts = [text(source.fileName), text(source.version)].filter(Boolean);
     const humanGate = safe.humanGate && typeof safe.humanGate === 'object' ? safe.humanGate : {};
+    const research = safe.research && typeof safe.research === 'object' ? safe.research : {};
     const complexityLabels = { simple: '简单', standard: '标准', complex: '复杂' };
     const riskLabels = { low: '低风险', medium: '中风险', high: '高风险', critical: '极高风险' };
     const sourceLabels = {
@@ -192,7 +235,9 @@
     return {
       kind,
       kindLabel: labels[kind],
-      confidence: Number.isFinite(Number(classification.confidence)) ? Number(classification.confidence) : 0,
+      confidence: Number.isFinite(Number(safe.confidence)) ? Number(safe.confidence) : (Number.isFinite(Number(classification.confidence)) ? Number(classification.confidence) : 0),
+      confidenceLevel: text(safe.confidenceLevel, 'low'),
+      generationStatus: text(safe.generationStatus, 'draft'),
       complexity: ['simple', 'standard', 'complex'].includes(classification.complexity) ? classification.complexity : 'standard',
       complexityLabel: complexityLabels[classification.complexity] || '标准',
       riskLevel: ['low', 'medium', 'high', 'critical'].includes(classification.riskLevel) ? classification.riskLevel : 'low',
@@ -210,6 +255,17 @@
       generationSources: safe.generationSources && typeof safe.generationSources === 'object' ? { ...safe.generationSources } : {},
       humanGate: { required: humanGate.required === true, reason: text(humanGate.reason) },
       needsHumanReason: text(safe.needsHumanReason),
+      research: {
+        status: text(research.status, 'not_started'),
+        confidence: Number.isFinite(Number(research.confidence)) ? Number(research.confidence) : 0,
+        confidenceLevel: text(research.confidenceLevel, 'low'),
+        unresolvedQuestions: stringList(research.unresolvedQuestions),
+        sources: Array.isArray(research.sources) ? research.sources.slice(0, 8).map((item) => ({
+          kind: text(item && item.kind), title: text(item && (item.title || item.name)), path: text(item && item.path), url: text(item && item.url),
+        })) : [],
+      },
+      researchableFields: stringList(safe.researchableFields),
+      humanRequiredFields: stringList(safe.humanRequiredFields),
       missingFields,
       missingFieldLabels,
       inferredFields: stringList(safe.inferredFields),

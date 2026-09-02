@@ -26,6 +26,10 @@ test('Electron 主进程接入最近完成任务快捷键事件和独立配置',
   assert.match(preload, /shortcut:jump-latest-completed/);
 });
 
+test('托盘退出时不拦截 Electron 的最终退出事件', () => {
+  assert.match(source, /window-all-closed['"]\s*,\s*\(event\)\s*=>\s*\{\s*if\s*\(!quitting\)\s*event\.preventDefault\(\)\s*;?\s*\}/s);
+});
+
 test('Electron 主进程使用 safeStorage 管理 Provider Key，并只向渲染层暴露安全状态', () => {
   assert.match(source, /createSecureStore/);
   assert.match(source, /safeStorage/);

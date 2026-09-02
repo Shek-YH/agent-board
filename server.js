@@ -42,7 +42,7 @@ const { repairCredentialsFile } = require('./lib/dsh-credentials');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
 const { focusZCodeSessionWithUiAutomation } = require('./lib/zcode-desktop-uia');
 const { runAgentInstall, getAgentInstallDefinitions } = require('./lib/agent-installer');
-const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
+const { createOrchestrationRuntime, parseAllowedRoots } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const { buildRuntimeIdentity } = require('./lib/runtime-identity');
 const { getDataDir, getConfigDir } = require('./lib/runtime-paths');
@@ -56,7 +56,7 @@ const {
 } = require('./lib/workbuddy-http');
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
-const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
+const { createHeadlessCapabilityBinding, resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
 const { createCompletionDetector } = require('./lib/orchestrator/completion-detector');
 const { createCodexAppServerCapability } = require('./lib/orchestrator/routing/codex-app-server');
 const { createCodexAppServerClient } = require('./lib/orchestrator/routing/codex-app-server-client');
@@ -589,7 +589,8 @@ function createVerifiedDispatchDependencies(agent) {
     resolveSession: locator,
     verifySession: verifier,
     activateSession: activator,
-    captureDeliverySnapshot: (target) => delivery.snapshot(target),
+    ...(agent === 'codex' ? { prepareSession: activator } : {}),
+    ...(typeof delivery.snapshot === 'function' ? { captureDeliverySnapshot: (target) => delivery.snapshot(target) } : {}),
     writer,
     verifyDraft: (target, message) => writer.verifyDraft(target, message),
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
@@ -1049,6 +1050,41 @@ const VERIFIED_CAPABILITY_BINDINGS = {
         source: 'uia',
       },
       deliveryVerifier: { supported: true, implementation: delivery, source: 'delivery-reader' },
+    };
+  },
+  claude() {
+    if (process.env.AGENT_BOARD_HEADLESS_EXECUTION !== '1') return {};
+    let cliPath = '';
+    try {
+      const probe = detect.probeAgent(claude, { userOverrides: detect.loadUserOverrides() }) || {};
+      cliPath = probe.executablePath || '';
+    } catch { return {}; }
+    if (!cliPath) return {};
+    const binding = createHeadlessCapabilityBinding({
+      agent: 'claude', enabled: true, claudeCliPath: cliPath,
+      allowedRoots: parseAllowedRoots(process.env.AGENT_BOARD_ALLOWED_ROOTS),
+    });
+    if (!binding.supported) return {};
+    return {
+      sessionActivator: { supported: true, implementation: binding.capabilities.sessionActivator, source: binding.source },
+      identityVerifier: { supported: true, implementation: binding.capabilities.identityVerifier, source: binding.source },
+      messageWriter: { supported: true, implementation: binding.capabilities.messageWriter, source: binding.source },
+      deliveryVerifier: { supported: true, implementation: binding.capabilities.deliveryVerifier, source: binding.source },
+    };
+  },
+  workbuddy() {
+    if (process.env.AGENT_BOARD_HEADLESS_EXECUTION !== '1') return {};
+    const cliPath = resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentGuiExecutable('workbuddy') });
+    const binding = createHeadlessCapabilityBinding({
+      agent: 'workbuddy', enabled: true, workbuddyCliPath: cliPath || '',
+      allowedRoots: parseAllowedRoots(process.env.AGENT_BOARD_ALLOWED_ROOTS),
+    });
+    if (!binding.supported) return {};
+    return {
+      sessionActivator: { supported: true, implementation: binding.capabilities.sessionActivator, source: binding.source },
+      identityVerifier: { supported: true, implementation: binding.capabilities.identityVerifier, source: binding.source },
+      messageWriter: { supported: true, implementation: binding.capabilities.messageWriter, source: binding.source },
+      deliveryVerifier: { supported: true, implementation: binding.capabilities.deliveryVerifier, source: binding.source },
     };
   },
 };
@@ -1902,7 +1938,7 @@ const server = http.createServer(async (req, res) => {
       }
       const dependencies = createVerifiedDispatchDependencies(request.agent);
       if (!dependencies) {
-        const error = new Error('Slice 0 只支持 Codex Desktop 与 Hermes Desktop');
+        const error = new Error('当前 Agent 的 Verified Dispatch capability 未完整可用');
         error.statusCode = 400;
         throw error;
       }

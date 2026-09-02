@@ -33,7 +33,7 @@ test('verified dispatch route delegates to strict resolution and reports reconci
   assert.doesNotMatch(serverSource, /verified-dispatch[\s\S]{0,800}setTimeout\([^)]*retry/i);
 });
 
-test('verified dispatch route remains scoped to Codex and Hermes POC agents', () => {
+test('verified dispatch route is scoped by the capability registry, including guarded headless Agents', () => {
   const routeStart = serverSource.indexOf("pathname === '/api/verified-dispatch'");
   assert.ok(routeStart >= 0);
   const routeEnd = serverSource.indexOf("\n  // 按 threadId 打开指定 Codex 会话", routeStart);
@@ -44,6 +44,9 @@ test('verified dispatch route remains scoped to Codex and Hermes POC agents', ()
   const factoryEnd = serverSource.indexOf('\nfunction verifiedDispatchHttpStatus', factoryStart);
   const dependencyFactory = serverSource.slice(factoryStart, factoryEnd);
   assert.match(dependencyFactory, /AGENT_CAPABILITY_REGISTRY\.get\(agent\)/);
+  assert.match(serverSource, /AGENT_BOARD_HEADLESS_EXECUTION/);
+  assert.match(serverSource, /createHeadlessCapabilityBinding/);
+  assert.match(dependencyFactory, /prepareSession/);
   assert.doesNotMatch(dependencyFactory, /if \(agent === 'codex'\)/);
   assert.doesNotMatch(dependencyFactory, /if \(agent === 'hermes'\)/);
   assert.doesNotMatch(route, /model/);

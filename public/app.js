@@ -422,11 +422,17 @@ function renderAIMonitor() {
     const routeSummary = route && (route.modelId || route.reasonCode)
       ? `<div class="ai-route-summary">智能路由：${esc(route.modelId || '未应用')} · ${esc(route.reasoningLevel || '未验证')} · ${esc(route.source || '未应用')} · ${esc(routeReason[route.reasonCode] || route.reasonCode || '当前配置')} ${route.catalogStale ? '· Catalog stale' : ''}</div>`
       : routingConfig.enabled ? '<div class="ai-route-summary">智能路由已启用，等待下一轮 Catalog 与 Profile 验证。</div>' : '';
+    const hosted = workflow.hostedControl && workflow.hostedControl.enabled === true ? workflow.hostedControl : null;
+    const hostedStatus = { unknown: '未读到回复', working: '执行中', question: '普通问题，自动决策', waiting_for_host: '等待托管决策', blocked: '已阻塞', completed: '已完成' };
+    const hostedSummary = hosted
+      ? `<div class="ai-workflow-meta">托管闭环：第 ${esc(Number.isInteger(hosted.round) ? hosted.round : 0)} 轮 · Agent 回复 ${esc(hostedStatus[hosted.lastAgentMessageStatus] || hosted.lastAgentMessageStatus || '未读到回复')}${hosted.blockedReason ? ` · 阻塞：${esc(hosted.blockedReason)}` : ''}</div>`
+      : '';
     return `<article class="ai-workflow-card ${esc(status)}">
       <div class="ai-workflow-top"><strong title="${esc(goal)}">${esc(smartTitle(goal, 80))}</strong><span class="ai-badge status">${esc(ORCHESTRATION_STATUS_LABELS[status] || status)}</span><span class="ai-badge">${esc(modeLabel)}</span><span class="ai-badge">${esc(ORCHESTRATION_KIND_LABELS[classification.kind] || classification.kind || '待识别')}</span></div>
       <div class="ai-workflow-meta" title="${esc(workflow.projectPath)}">${esc(workflow.projectPath)} · ${esc(workflow.mode === 'global' ? '全局策略' : '单项目')} · ${esc(workflow.agent || '未指定 Agent')} · 控制：${esc(workflow.controlOwner || '无')} · FSM：${esc(ORCHESTRATION_AUTO_STATE_LABELS[autoState] || autoState)}</div>
       ${isAuto && workflow.binding?.sessionRef ? `<div class="ai-workflow-meta" title="${esc(workflow.binding.sessionRef)}">Session：${esc(workflow.binding.sessionRef)}</div>` : ''}
       <div class="ai-workflow-meta">进度：${esc(progressLabel)} · DoD ${esc(dodPassed)}/${esc(dodTotal)} · ${esc(progress.percent || 0)}%</div>
+      ${hostedSummary}
       ${routeSummary}
       <div class="ai-workflow-meta">下一步建议：${esc(suggestionText)}</div>
       ${suggestion.receipt?.generatedAt ? `<div class="ai-workflow-meta">最近回执：${esc(suggestion.receipt.generatedAt)}</div>` : ''}
@@ -1032,11 +1038,19 @@ function isRecentCompleted(ref) {
   if (Date.now() - t > RECENT_DONE_TTL) { state.recentDone.delete(ref); persistRecentDone(); return false; }
   return true;
 }
+function isHostedWorkflowActiveForSession(ref) {
+  const workflows = state.orchestration && Array.isArray(state.orchestration.workflows)
+    ? state.orchestration.workflows : [];
+  return workflows.some((workflow) => workflow && workflow.autopilotMode === 'auto'
+    && workflow.hostedControl && workflow.hostedControl.enabled === true
+    && workflow.binding && String(workflow.binding.sessionRef || '') === String(ref || '')
+    && !['DONE', 'STOPPED', 'PAUSED', 'BLOCKED'].includes(String(workflow.autoState || '')));
+}
 function markRecentlyCompleted(ref) {
   state.dismissedRecent.delete(ref); // 新一轮完成重新点亮，忽略之前的「已读」
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
-  if (!state.autoPilotCompletedSessionRefs.has(ref)) playAssignedCompletionSound(ref);
+  if (!state.autoPilotCompletedSessionRefs.has(ref) && !isHostedWorkflowActiveForSession(ref)) playAssignedCompletionSound(ref);
 }
 function playAssignedCompletionSound(ref) {
   const agent = String(ref).split(':', 1)[0];
@@ -1472,14 +1486,19 @@ function openAutoPilotDetail(workflow) {
     ? detail.dod.map((item) => `<li class="${item.passed ? 'done' : ''}">${item.passed ? '✓ ' : ''}${esc(item.description)}</li>`).join('')
     : '<li>未声明</li>';
   const actions = autopilotActionMarkup(workflow);
+  const hosted = detail.hostedControl;
+  const hostedStatus = { unknown: '未读到回复', working: '执行中', question: '普通问题，自动决策', waiting_for_host: '等待托管决策', blocked: '已阻塞', completed: '已完成' };
   pop.innerHTML = `<div class="autopilot-detail-head"><strong>AutoPilot 详情</strong><span class="ai-badge">${esc(summary.state || 'OFF')}</span><button type="button" class="btn autopilot-detail-close">关闭</button></div>
     <section class="autopilot-detail-section"><strong>Goal</strong><div class="autopilot-detail-copy">${esc(detail.goal)}</div></section>
     <section class="autopilot-detail-section"><strong>Scope</strong><ul class="autopilot-detail-list">${scope.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></section>
     <section class="autopilot-detail-section"><strong>DoD</strong><ul class="autopilot-detail-list">${dod}</ul></section>
     <section class="autopilot-detail-section"><strong>Progress</strong><div class="autopilot-detail-progress"><span style="width:${Math.max(0, Math.min(100, detail.progress.percent))}%"></span></div><div class="autopilot-detail-meta">${esc(detail.progress.completed)}/${esc(detail.progress.total)} · ${esc(detail.progress.percent)}%</div></section>
+    ${detail.research ? `<section class="autopilot-detail-section"><strong>资料研究</strong><div class="autopilot-detail-copy">${esc(detail.research.status)} · 置信度 ${esc(Math.round(detail.research.confidence * 100))}%</div>${detail.research.errorCode ? `<div class="autopilot-detail-meta">研究状态：${esc(detail.research.errorCode)}</div>` : ''}${detail.research.unresolvedQuestions.length ? `<div class="autopilot-detail-meta">未决：${detail.research.unresolvedQuestions.map((item) => esc(item)).join(' · ')}</div>` : ''}</section>` : ''}
     <section class="autopilot-detail-section"><strong>Current Model / Reasoning</strong><div class="autopilot-detail-copy">${esc(detail.currentModel)} · ${esc(detail.reasoning)}</div><div class="autopilot-detail-meta">原因：${esc(detail.routeReason)}（不展示 Chain of Thought）</div></section>
     <section class="autopilot-detail-section"><strong>Last Decision</strong><div class="autopilot-detail-copy">${esc(detail.lastDecision)}</div>${detail.supervisorReview ? `<div class="autopilot-detail-meta">AI Supervisor：${esc(detail.supervisorReview.decision)} · ${esc(detail.supervisorReview.summary)}</div>` : ''}</section>
-    <section class="autopilot-detail-section"><strong>Evidence</strong><div class="autopilot-detail-copy">${detail.evidence.checks.length ? detail.evidence.checks.map((item) => `${esc(item.operation)}：${esc(item.status)}`).join(' · ') : '尚未采集'}${detail.evidence.skipped ? ` · 跳过 ${esc(detail.evidence.skipped)} 项未授权检查` : ''}</div></section>
+     ${detail.currentStep ? `<section class="autopilot-detail-section"><strong>当前接力步骤</strong><div class="autopilot-detail-copy">${esc(detail.currentStep.order)} · ${esc(detail.currentStep.id)} · ${esc(detail.currentStep.agent)} · ${esc(detail.currentStep.status)}</div><div class="autopilot-detail-meta">链路进度：${esc(detail.handoffProgress.completed)}/${esc(detail.handoffProgress.total)} · ${esc(detail.handoffProgress.percent)}%</div>${detail.blockReason ? `<div class="autopilot-detail-meta">阻塞原因：${esc(detail.blockReason)}</div>` : ''}${detail.needHumanReason ? `<div class="autopilot-detail-meta">NEED_HUMAN 原因：${esc(detail.needHumanReason)}</div>` : ''}</section>` : ''}
+     ${hosted ? `<section class="autopilot-detail-section"><strong>托管闭环</strong><div class="autopilot-detail-copy">第 ${esc(hosted.round)} 轮 · Agent 回复：${esc(hostedStatus[hosted.lastAgentMessageStatus] || hosted.lastAgentMessageStatus)}</div>${hosted.targetTaskId ? `<div class="autopilot-detail-meta">目标任务：${esc(hosted.targetTaskId)}</div>` : ''}${hosted.blockedReason ? `<div class="autopilot-detail-meta">阻塞原因：${esc(hosted.blockedReason)}</div>` : ''}</section>` : ''}
+     <section class="autopilot-detail-section"><strong>Evidence</strong><div class="autopilot-detail-copy">${detail.evidence.checks.length ? detail.evidence.checks.map((item) => `${esc(item.operation)}：${esc(item.status)}`).join(' · ') : '尚未采集'}${detail.evidence.skipped ? ` · 跳过 ${esc(detail.evidence.skipped)} 项未授权检查` : ''}</div></section>
     <section class="autopilot-detail-section"><strong>Delivery State</strong><div class="autopilot-detail-copy">${esc(detail.deliveryState)}</div></section>
     <div class="autopilot-detail-actions">${actions || '<span class="ai-hint">当前状态无需操作</span>'}</div>`;
   document.body.appendChild(pop);
@@ -1514,6 +1533,8 @@ function hostedTaskSettingsFrom(pop) {
       allowedCommands: (pop.querySelector('#hosted-allowed-commands')?.value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
       allowNetwork: pop.querySelector('#hosted-allow-network')?.checked === true,
       allowedNetworkDomains: (pop.querySelector('#hosted-network-domains')?.value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
+      researchRead: pop.querySelector('#hosted-research-read')?.checked === true,
+      allowedResearchDomains: (pop.querySelector('#hosted-research-domains')?.value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
       allowInstall: pop.querySelector('#hosted-allow-install')?.checked === true,
       allowGitPush: pop.querySelector('#hosted-allow-git-push')?.checked === true,
     },
@@ -1547,6 +1568,10 @@ function renderHostedTaskContract(node, contract, warning = '', context = {}) {
   const validation = analysis.validation && typeof analysis.validation === 'object' ? analysis.validation : {};
   const reasons = Array.isArray(validation.reasons) ? validation.reasons.filter(Boolean) : [];
   const actions = Array.isArray(validation.suggestedActions) ? validation.suggestedActions.filter(Boolean) : [];
+  const research = view.research || {};
+  const researchLabels = { not_started: '未开始', required: '待研究', researching: 'AI 正在研究', completed: '研究完成', unresolved: '仍有未决问题', permission_required: '等待研究权限', timeout: '研究超时', budget_exceeded: '研究预算耗尽', conflict: '资料冲突', failed: '研究不可用' };
+  const researchNotice = research.status && research.status !== 'not_started'
+    ? `<div class="autopilot-contract-research"><strong>资料研究：${esc(researchLabels[research.status] || research.status)}</strong><span>置信度 ${esc(Math.round(Number(research.confidence || 0) * 100))}%</span>${research.unresolvedQuestions?.length ? `<ul>${research.unresolvedQuestions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>` : '';
   const missing = view.missingFieldLabels.length ? `<div class="autopilot-contract-missing"><strong>Task Contract 尚未完成</strong><div>缺少：</div><ul>${view.missingFieldLabels.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>${reasons.length ? `<div>原因：</div><ul>${reasons.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}${actions.length ? `<div>建议：</div><ul>${actions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>` : '';
   const riskReasons = view.riskReasons.length ? `<div class="autopilot-contract-risk"><strong>风险原因</strong><ul>${view.riskReasons.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>` : '';
   const noPrdNotice = '本合同仅根据任务目标生成，未读取 PRD。';
@@ -1557,6 +1582,7 @@ function renderHostedTaskContract(node, contract, warning = '', context = {}) {
   node.innerHTML = `<div class="autopilot-contract-head"><strong>${esc(view.kindLabel)}</strong><span>复杂度：${esc(view.complexityLabel)} · 风险等级：${esc(view.riskLabel)} · 置信度 ${esc(Math.round(view.confidence * 100))}%</span></div>
     <div class="autopilot-contract-meta"><div><b>Agent</b> ${esc(context.agent || '—')}</div><div><b>项目</b> ${esc(project.projectPath || '—')}</div><div><b>Git</b> ${project.git?.isGit ? `是 · ${esc(project.git.branch || '分支未知')}${project.git.dirty ? ' · 有未提交修改' : ''}` : '否 / 待人工确认'}</div><div><b>模式</b> ${esc(autopilot.defaultMode || 'auto')} · <b>模型</b> ${esc(autopilot.defaultModel || 'auto')} · <b>Reasoning</b> ${esc(autopilot.defaultReasoning || 'auto')}</div><div><b>预算</b> ${esc(autopilot.maxBudget ?? 0)} · <b>运行时限</b> ${esc(autopilot.maxRuntimeMs ?? '—')} ms · <b>Loop</b> ${esc(autopilot.maxIterations ?? '—')}</div></div>
     <div class="autopilot-contract-goal"><b>Goal</b><div>${esc(view.goal || '待补充')}</div></div>
+    ${researchNotice}
     <div class="autopilot-contract-source">生成来源：${esc(view.sourceSummary || view.sourceLabel || '仅根据任务目标')} · ${esc(compilerNotice)}</div>${sections}${extraSections}${riskReasons}
     <div class="autopilot-contract-permissions"><strong>本次任务允许</strong><ul>${allowed.map((item) => `<li>${esc(item)}</li>`).join('')}</ul><strong>本次任务禁止 / 越界即 NEED_HUMAN</strong><ul>${blocked.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
     ${view.humanGate.required || view.needsHumanReason ? `<div class="autopilot-human-gate"><strong>${view.needsHumanReason ? 'NEED_HUMAN' : '需要人工审批'}</strong><div>${esc(view.needsHumanReason || view.humanGate.reason || '高风险任务不会自动执行')}</div></div>` : ''}
@@ -1590,7 +1616,7 @@ async function openNewHostedTask(agentId, seedSession = null) {
         <label>最大循环<input id="hosted-max-iterations" type="number" min="1" max="100" value="${esc(autopilot.maxIterations ?? 20)}"></label>
         <label>预算上限<input id="hosted-max-budget" type="number" min="0" step="0.01" value="${esc(autopilot.maxBudget ?? 0)}"></label>
         <label>最大运行时间（毫秒）<input id="hosted-max-runtime" type="number" min="1000" max="86400000" value="${esc(autopilot.maxRuntimeMs ?? 3600000)}"></label>
-        <div class="hosted-task-safety"><span>安全策略（默认拒绝）</span><label><input id="hosted-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>允许测试</label><label><input id="hosted-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>允许本地 Git</label><label>允许命令（逗号分隔）<input id="hosted-allowed-commands" value="${esc((safety.allowedCommands || ['node --test', 'npm test']).join(', '))}" placeholder="node --test, npm test"></label><label><input id="hosted-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>记录敏感权限请求（仍需人工）</label><label><input id="hosted-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>允许网络</label><label>允许网络域名（逗号分隔）<input id="hosted-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="例如 api.example.com"></label><label><input id="hosted-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>允许安装依赖</label><label><input id="hosted-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>记录 Git Push 请求（仍需人工）</label></div>
+        <div class="hosted-task-safety"><span>安全策略（默认拒绝）</span><label><input id="hosted-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>允许测试</label><label><input id="hosted-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>允许本地 Git</label><label>允许命令（逗号分隔）<input id="hosted-allowed-commands" value="${esc((safety.allowedCommands || ['node --test', 'npm test']).join(', '))}" placeholder="node --test, npm test"></label><label><input id="hosted-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>记录敏感权限请求（仍需人工）</label><label><input id="hosted-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>允许网络</label><label>允许网络域名（逗号分隔）<input id="hosted-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="例如 api.example.com"></label><label><input id="hosted-research-read" type="checkbox"${safety.researchRead === true ? ' checked' : ''}>允许只读外部研究</label><label>允许研究域名（逗号分隔）<input id="hosted-research-domains" value="${esc((safety.allowedResearchDomains || []).join(', '))}" placeholder="例如 docs.example.com"></label><label><input id="hosted-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>允许安装依赖</label><label><input id="hosted-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>记录 Git Push 请求（仍需人工）</label></div>
       </div>
       <div class="hosted-task-actions"><button type="button" class="btn" id="hosted-preview">分析目标并生成 Task Contract</button><button type="submit" class="btn primary" id="hosted-confirm" title="首次点击会先分析目标，检查合同后再次点击确认">确认 Task Contract 并创建 Session</button></div>
       <div class="hosted-task-confirm-hint" id="hosted-confirm-hint">首次点击“确认”会先分析并自动补齐可安全推断的字段；检查任务目标后再次点击确认，即可创建 Session。</div>
@@ -1638,7 +1664,7 @@ async function openNewHostedTask(agentId, seedSession = null) {
     if (prdMode.value === 'custom') body.prdPath = prdPath.value.trim();
     try {
       setStage(1);
-      const request = requestJson('/api/orchestration/intake/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true, body: JSON.stringify(body) });
+      const request = requestJson('/api/orchestration/intake/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true, timeoutMs: 90_000, body: JSON.stringify(body) });
       setStage(2);
       await Promise.resolve();
       setStage(3);
@@ -1655,7 +1681,12 @@ async function openNewHostedTask(agentId, seedSession = null) {
       draftId = data.draftId; taskContract = data.taskContract; existingSessions = data.existingSessions || [];
       renderHostedTaskContract(contractNode, taskContract, [...(data.projectContext?.warnings || []), data.warning || ''].filter(Boolean).join(' '), { agent, projectContext: data.projectContext, settings: hostedTaskSettingsFrom(pop), analysis: data.analysis });
       renderDuplicates(existingSessions);
-      confirmButton.disabled = false; setStatus(data.analysis?.validation?.valid === false ? '合同已生成，点击确认即可创建 Session；如需人工处理，Session 会先进入 NEED_HUMAN。' : 'Task Contract 已生成，请检查任务目标后确认。', 'success');
+      confirmButton.disabled = false;
+      const intakeValidation = data.analysis?.validation || {};
+      const intakeStatus = intakeValidation.researchRequired && !intakeValidation.needsHuman
+        ? 'AI 正在研究项目资料；研究完成并验证通过后才能创建 Session。'
+        : intakeValidation.valid === false ? '合同已生成，点击确认即可创建 Session；如需人工处理，Session 会先进入 NEED_HUMAN。' : 'Task Contract 已生成，请检查任务目标后确认。';
+      setStatus(intakeStatus, 'success');
       return data;
     } catch (error) { if (!status.textContent || status.classList.contains('loading')) setStatus(formatHostedTaskError(error, '任务分析失败'), 'error'); throw error; }
     finally {
@@ -1684,7 +1715,7 @@ async function openNewHostedTask(agentId, seedSession = null) {
     const sessionRef = choice === 'continue' ? duplicatesNode.querySelector('#hosted-session-ref')?.value || '' : '';
     confirmButton.disabled = true; setStatus('正在确认并创建真实 Session…', 'loading');
     try {
-      const data = await requestJson('/api/orchestration/intake/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId, confirmed: true, decision: 'confirm', taskContract, sessionChoice: choice, sessionRef, settings: hostedTaskSettingsFrom(pop) }) });
+      const data = await requestJson('/api/orchestration/intake/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, timeoutMs: 90_000, body: JSON.stringify({ draftId, confirmed: true, decision: 'confirm', taskContract, sessionChoice: choice, sessionRef, settings: hostedTaskSettingsFrom(pop) }) });
       const nativeCodexSession = data.session?.agent === 'codex' && data.session?.transport === 'codex-app-server';
       // Native 首轮由 app-server 先独占执行；等 turn 完成并释放 writer lock 后，
       // server 会自动把同一个真实 thread deep-link 到 Codex Desktop。
@@ -1802,13 +1833,16 @@ async function openLegacyAutoPilotForSession(s) {
   function renderTaskContract(contract, warning = '') {
     const view = autopilotUi.taskContractView(contract);
     const confidence = `${Math.round(view.confidence * 100)}%`;
+    const researchLabels = { required: 'AI 正在研究项目资料', researching: 'AI 正在研究项目资料', unresolved: '研究仍有未决问题', permission_required: '需要开启只读研究权限', completed: '研究已完成' };
+    const researchNotice = researchLabels[view.research.status]
+      ? `<div class="autopilot-contract-research">${esc(researchLabels[view.research.status])} · 置信度 ${esc(Math.round(view.research.confidence * 100))}%${view.research.unresolvedQuestions.length ? ` · ${view.research.unresolvedQuestions.map((item) => esc(item)).join('；')}` : ''}</div>` : '';
     const sections = view.sections.map((section) => `<section class="autopilot-contract-section"><strong>${esc(section.label)}</strong>${section.items.length ? `<ul>${section.items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '<div class="autopilot-contract-empty">待补充</div>'}</section>`).join('');
     const gate = view.humanGate.required
       ? `<div class="autopilot-human-gate"><strong>需要人工审批</strong><div>${esc(view.humanGate.reason || '高风险任务不会自动执行')}</div></div>` : '';
     preview.hidden = false;
     preview.innerHTML = `<div class="autopilot-contract-head"><strong>${esc(view.kindLabel)}</strong><span>置信度 ${esc(confidence)}</span></div>
       <div class="autopilot-contract-goal"><b>Goal</b><div>${esc(view.goal || '待补充')}</div></div>
-      ${view.sourceLabel ? `<div class="autopilot-contract-source">来源：${esc(view.sourceLabel)}</div>` : ''}${sections}${gate}
+      ${researchNotice}${view.sourceLabel ? `<div class="autopilot-contract-source">来源：${esc(view.sourceLabel)}</div>` : ''}${sections}${gate}
       ${view.missingFields.length ? `<small>待补字段：${esc(view.missingFields.join('、'))}</small>` : ''}
       ${warning ? `<small>${esc(warning)}</small>` : ''}`;
   }
@@ -1820,7 +1854,7 @@ async function openLegacyAutoPilotForSession(s) {
     if (prdMode.value === 'manual') body.prdPath = prdPath.value.trim();
     try {
       const data = await requestJson('/api/orchestration/intake/preview', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true,
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, allowFailure: true, timeoutMs: 90_000,
         body: JSON.stringify(body),
       });
       if (!data.ok) {
@@ -2771,7 +2805,7 @@ function openRoutingSettings() {
       <label class="routing-checkbox"><input id="routing-respect-pin" type="checkbox"${routing.respectManualPin !== false ? ' checked' : ''}>尊重人工模型锁定</label>
       <label class="routing-checkbox"><input id="routing-allow-legacy" type="checkbox"${routing.allowLegacyModels === true ? ' checked' : ''}>允许使用 Legacy Models</label>
       <label>模型切换无法验证<select id="routing-profile-failure"><option value="pause"${safety.profileApplyFailure !== 'continue' ? ' selected' : ''}>暂停并等待人工</option><option value="continue"${safety.profileApplyFailure === 'continue' ? ' selected' : ''}>继续使用当前模型</option></select></label>
-      <div class="routing-safety-grid"><span>安全策略</span><label class="routing-checkbox"><input id="routing-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>测试</label><label class="routing-checkbox"><input id="routing-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>本地 Git</label><label class="routing-checkbox"><input id="routing-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>敏感文件（仍需人工）</label><label class="routing-checkbox"><input id="routing-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>网络</label><label>网络域名<input id="routing-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="api.example.com"></label><label class="routing-checkbox"><input id="routing-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>安装依赖</label><label class="routing-checkbox"><input id="routing-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>Git Push（仍需人工）</label></div>
+      <div class="routing-safety-grid"><span>安全策略</span><label class="routing-checkbox"><input id="routing-allow-tests" type="checkbox"${safety.allowTests !== false ? ' checked' : ''}>测试</label><label class="routing-checkbox"><input id="routing-allow-git" type="checkbox"${safety.allowGit !== false ? ' checked' : ''}>本地 Git</label><label class="routing-checkbox"><input id="routing-allow-secrets" type="checkbox"${safety.allowSecrets === true ? ' checked' : ''}>敏感文件（仍需人工）</label><label class="routing-checkbox"><input id="routing-allow-network" type="checkbox"${safety.allowNetwork === true ? ' checked' : ''}>网络</label><label>网络域名<input id="routing-network-domains" value="${esc((safety.allowedNetworkDomains || []).join(', '))}" placeholder="api.example.com"></label><label class="routing-checkbox"><input id="routing-research-read" type="checkbox"${safety.researchRead === true ? ' checked' : ''}>只读外部研究</label><label>研究域名<input id="routing-research-domains" value="${esc((safety.allowedResearchDomains || []).join(', '))}" placeholder="docs.example.com"></label><label class="routing-checkbox"><input id="routing-allow-install" type="checkbox"${safety.allowInstall === true ? ' checked' : ''}>安装依赖</label><label class="routing-checkbox"><input id="routing-allow-git-push" type="checkbox"${safety.allowGitPush === true ? ' checked' : ''}>Git Push（仍需人工）</label></div>
       <div class="routing-settings-copy">${catalog.available ? `Codex Catalog：${esc(catalog.source || 'native')}${catalog.stale ? ' · stale' : ''} · ${models.length} 个模型${catalog.agentVersion ? ` · Agent ${esc(catalog.agentVersion)}` : ''}` : 'Catalog 不可用；保存配置不会阻止基础 AutoPilot。'}</div>
       <div class="routing-settings-actions"><button type="button" class="btn" id="routing-catalog-refresh">刷新 Codex 模型</button><button type="button" class="btn" id="routing-settings-cancel">取消</button><button type="submit" class="btn primary">保存全局设置</button></div>
     </form>`;
@@ -2806,6 +2840,8 @@ function openRoutingSettings() {
         allowTests: pop.querySelector('#routing-allow-tests').checked,
         allowGit: pop.querySelector('#routing-allow-git').checked,
         allowedNetworkDomains: pop.querySelector('#routing-network-domains').value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
+        researchRead: pop.querySelector('#routing-research-read').checked,
+        allowedResearchDomains: pop.querySelector('#routing-research-domains').value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 100),
         allowSecrets: pop.querySelector('#routing-allow-secrets').checked,
         allowNetwork: pop.querySelector('#routing-allow-network').checked,
         allowInstall: pop.querySelector('#routing-allow-install').checked,
@@ -2825,16 +2861,57 @@ function openProviderSettings() {
   pop.className = 'popover provider-settings';
   pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
   const provider = state.orchestration.providerConfig || {};
+  const secureProvider = state.orchestration.secureProvider || {};
   const supervisor = provider.supervisor || {};
   const worker = provider.workerRouting || {};
+  const providerLabels = { dashscope: '阿里云百炼', zai: '智谱', ark: '火山方舟', minimax: 'MiniMax', deepgram: 'Deepgram', elevenlabs: 'ElevenLabs', openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', deepseek: 'DeepSeek', openrouter: 'OpenRouter', 'openai-compatible': 'OpenAI-compatible' };
+  const providerOptions = Object.entries(providerLabels).map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
   const line = (label, value) => `<div class="provider-settings-line"><span>${esc(label)}</span><b>${esc(value || '—')}</b></div>`;
+  const bridge = window.AgentBoardDesktop?.provider;
+  const configured = Array.isArray(secureProvider.configuredProviders) ? secureProvider.configuredProviders : [];
+  const configuredLabel = configured.length ? configured.map((item) => providerLabels[item] || item).join('、') : '暂无';
+  const storageNote = secureProvider.available === true
+    ? `安全存储：Electron safeStorage 可用 · 已配置：${esc(configuredLabel)}${secureProvider.activeProvider ? ` · 当前 Supervisor：${esc(providerLabels[secureProvider.activeProvider] || secureProvider.activeProvider)}` : ''}`
+    : (secureProvider.available === false ? '安全存储：不可用（加密能力未就绪）' : '安全存储：未检测到桌面端，Key 请通过服务端环境变量配置');
+  const editor = bridge
+    ? `<form class="provider-settings-form" id="provider-settings-form"><label class="provider-settings-field" for="provider-settings-provider">供应商<select id="provider-settings-provider">${providerOptions}</select></label><label class="provider-settings-field" for="provider-settings-key">API Key<input id="provider-settings-key" type="password" autocomplete="new-password" placeholder="保存一次，所有 Agent 共用" required></label><div class="provider-settings-note">Key 通过 Electron safeStorage 加密保存，不会回显、不进入 workflow/日志/Audit；保存或清除后后端将重启以生效。</div><div class="provider-settings-actions"><button type="submit" class="btn primary">安全保存</button><button type="button" class="btn" id="provider-settings-clear">清除所选 Key</button></div></form>`
+    : '<div class="provider-settings-note">当前为浏览器模式；Provider Key 请通过服务端环境变量（如 AGENT_BOARD_SUPERVISOR_API_KEY / ZAI_API_KEY / DASHSCOPE_API_KEY 等）配置。</div>';
   pop.innerHTML = `<div class="pop-head">Provider 配置状态</div>
-    <div class="provider-settings-copy">此处只展示安全状态。桌面端 Provider Key 通过 Electron safeStorage 管理，不进入 workflow、日志、Audit 或浏览器持久化；详细管理请在 AI 监控面板操作。</div>
+    <div class="provider-settings-copy">${storageNote}。Supervisor 与语音/图像能力共用凭据；Key 不会回显。</div>
     <div class="provider-settings-section"><strong>Supervisor</strong>${line('供应商', supervisor.providerName || supervisor.provider)}${line('模型', supervisor.model)}${line('Base URL', supervisor.baseUrl)}${line('Temperature', supervisor.temperature)}${line('Context Budget', supervisor.contextBudget)}${line('状态', supervisor.reasonCode)}</div>
     <div class="provider-settings-section"><strong>Worker Routing</strong>${line('供应商', worker.providerName || worker.provider)}${line('模型', worker.model)}${line('状态', worker.reasonCode)}</div>
+    ${editor}
     <div class="routing-settings-actions"><button type="button" class="btn" id="provider-settings-close">关闭</button></div>`;
   document.body.appendChild(pop);
   pop.querySelector('#provider-settings-close').onclick = closePopover;
+  if (bridge) {
+    const select = pop.querySelector('#provider-settings-provider');
+    if (secureProvider.activeProvider && providerLabels[secureProvider.activeProvider]) select.value = secureProvider.activeProvider;
+    pop.querySelector('#provider-settings-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = pop.querySelector('#provider-settings-key');
+      try {
+        const result = await bridge.setApiKey(select.value, input.value);
+        if (!result?.ok) throw new Error(result?.error || 'Provider Key 保存失败');
+        input.value = '';
+        toast('Provider Key 已通过 safeStorage 保存，后端已重启');
+        await loadOrchestration();
+        closePopover();
+        openProviderSettings();
+      } catch (error) { toast(error.message || 'Provider Key 保存失败'); }
+    });
+    pop.querySelector('#provider-settings-clear').addEventListener('click', async () => {
+      if (!window.confirm('确认清除当前 Provider 的本机安全凭据？')) return;
+      try {
+        const result = await bridge.clearApiKey(select.value);
+        if (!result?.ok) throw new Error(result?.error || 'Provider Key 清除失败');
+        toast('Provider Key 已清除，后端已重启');
+        await loadOrchestration();
+        closePopover();
+        openProviderSettings();
+      } catch (error) { toast(error.message || 'Provider Key 清除失败'); }
+    });
+  }
 }
 
 function openSettingsHub() {

@@ -411,6 +411,8 @@ if (!gotLock) {
     shortcutController.dispose();
     latestCompletedShortcutController.dispose();
   });
-  app.on('window-all-closed', (event) => event.preventDefault());
+  app.on('window-all-closed', (event) => {
+    if (!quitting) event.preventDefault();
+  });
   app.whenReady().then(startApplication).catch(showStartupError);
 }
