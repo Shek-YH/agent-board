@@ -31,6 +31,19 @@ test('AI monitor uses orchestration API and does not use desktop open endpoints'
   assert.doesNotMatch(app, /ai-workflow-action[^\n]*open-with/);
 });
 
+test('AI monitor renders the current handoff step, chain progress, and blocking reason', () => {
+  assert.match(app, /handoffProgress/);
+  assert.match(app, /currentStep/);
+  assert.match(app, /blockReason/);
+  assert.match(app, /当前接力步骤|Handoff/);
+});
+
+test('AI monitor renders hosted multi-turn state without raw Agent replies', () => {
+  assert.match(app, /hostedControl/);
+  assert.match(app, /托管闭环|lastAgentMessageStatus/);
+  assert.doesNotMatch(app, /lastAgentMessageText/);
+});
+
 test('AI monitor captures the Suggest Mode run contract', () => {
   assert.match(html, /id="ai-in-scope"/);
   assert.match(html, /id="ai-out-of-scope"/);
@@ -91,6 +104,19 @@ test('AI monitor exposes provider readiness without rendering credentials', () =
   assert.match(app, /clearApiKey/);
   assert.doesNotMatch(app, /secureProvider\.apiKey/);
   assert.doesNotMatch(app, /providerConfig[^\n]*(apiKey|token|secret)/i);
+});
+
+test('settings provider panel exposes an editable API Key form wired to safeStorage', () => {
+  assert.match(app, /function openProviderSettings\(\)/);
+  assert.match(app, /id="provider-settings-form"/);
+  assert.match(app, /id="provider-settings-provider"/);
+  assert.match(app, /id="provider-settings-key"/);
+  assert.match(app, /id="provider-settings-clear"/);
+  assert.match(app, /window\.AgentBoardDesktop\?\.provider/);
+  assert.match(app, /setApiKey\(select\.value, input\.value\)/);
+  assert.match(app, /clearApiKey\(select\.value\)/);
+  assert.match(app, /type="password"/);
+  assert.doesNotMatch(app, /id="provider-settings-key"[^>]*value=/);
 });
 
 test('AI monitor exposes commercial routing diagnostics, explainability, usage, and receipt views', () => {

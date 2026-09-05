@@ -5,6 +5,18 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { exec, execFile, spawn, spawnSync } = require('child_process');
+const { loadFirstEnvFile } = require('./lib/env-loader');
+
+loadFirstEnvFile({
+  candidates: [
+    process.env.AGENT_BOARD_ENV_FILE,
+    path.join(process.cwd(), '.env'),
+    path.resolve(__dirname, '..', '.env'),
+    path.join(__dirname, '.env'),
+    path.resolve(__dirname, '..', '..', '.env'),
+  ].filter(Boolean),
+});
+
 const store = require('./lib/store');
 const account = require('./lib/account');
 const { clearAuthCache } = require('./lib/auth-cache');
@@ -30,7 +42,7 @@ const { repairCredentialsFile } = require('./lib/dsh-credentials');
 const { focusClaudeSessionWithUiAutomation, isClaudeDesktopRunning } = require('./lib/claude-desktop-uia');
 const { focusZCodeSessionWithUiAutomation } = require('./lib/zcode-desktop-uia');
 const { runAgentInstall, getAgentInstallDefinitions } = require('./lib/agent-installer');
-const { createOrchestrationRuntime } = require('./lib/orchestrator/runtime');
+const { createOrchestrationRuntime, parseAllowedRoots } = require('./lib/orchestrator/runtime');
 const { handleOrchestrationRequest } = require('./lib/orchestrator/http');
 const { buildRuntimeIdentity } = require('./lib/runtime-identity');
 const { getDataDir, getConfigDir } = require('./lib/runtime-paths');
@@ -44,7 +56,7 @@ const {
 } = require('./lib/workbuddy-http');
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
-const { resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
+const { createHeadlessCapabilityBinding, resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
 const { createCompletionDetector } = require('./lib/orchestrator/completion-detector');
 const { createCodexAppServerCapability } = require('./lib/orchestrator/routing/codex-app-server');
 const { createCodexAppServerClient } = require('./lib/orchestrator/routing/codex-app-server-client');
@@ -59,6 +71,10 @@ const marvis = require('./lib/adapters/marvis');
 const zcode = require('./lib/adapters/zcode');
 const pi = require('./lib/adapters/pi');
 const hermes = require('./lib/adapters/hermes');
+const {
+  DAY_MS,
+  createScanScheduler,
+} = require('./lib/scan-scheduler');
 const { dispatchVerifiedMessage } = require('./lib/verified-dispatch');
 const { createCodexWriter, verifyCodexDraft, verifyCodexDesktopSession } = require('./lib/codex-desktop-uia');
 const { createHermesWriter, verifyHermesDraft, verifyHermesDesktopSession } = require('./lib/hermes-desktop-uia');
@@ -75,6 +91,7 @@ const WORKBUDDY_HTTP_CONFIG_PATH = path.join(getDataDir(), 'workbuddy', 'http-ho
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
 const WORKBUDDY_STATUS_SCAN_INTERVAL_MS = 1000;
+const SCAN_LAST_FULL_AT_KEY = 'scan:last-full-at';
 const RUNTIME_IDENTITY = buildRuntimeIdentity({
   serverRoot: __dirname,
   serverEntry: __filename,
@@ -577,7 +594,8 @@ function createVerifiedDispatchDependencies(agent) {
     resolveSession: locator,
     verifySession: verifier,
     activateSession: activator,
-    captureDeliverySnapshot: (target) => delivery.snapshot(target),
+    ...(agent === 'codex' ? { prepareSession: activator } : {}),
+    ...(typeof delivery.snapshot === 'function' ? { captureDeliverySnapshot: (target) => delivery.snapshot(target) } : {}),
     writer,
     verifyDraft: (target, message) => writer.verifyDraft(target, message),
     verifyDelivery: (target, message, context) => delivery.verify(target, message, context),
@@ -1039,6 +1057,41 @@ const VERIFIED_CAPABILITY_BINDINGS = {
       deliveryVerifier: { supported: true, implementation: delivery, source: 'delivery-reader' },
     };
   },
+  claude() {
+    if (process.env.AGENT_BOARD_HEADLESS_EXECUTION !== '1') return {};
+    let cliPath = '';
+    try {
+      const probe = detect.probeAgent(claude, { userOverrides: detect.loadUserOverrides() }) || {};
+      cliPath = probe.executablePath || '';
+    } catch { return {}; }
+    if (!cliPath) return {};
+    const binding = createHeadlessCapabilityBinding({
+      agent: 'claude', enabled: true, claudeCliPath: cliPath,
+      allowedRoots: parseAllowedRoots(process.env.AGENT_BOARD_ALLOWED_ROOTS),
+    });
+    if (!binding.supported) return {};
+    return {
+      sessionActivator: { supported: true, implementation: binding.capabilities.sessionActivator, source: binding.source },
+      identityVerifier: { supported: true, implementation: binding.capabilities.identityVerifier, source: binding.source },
+      messageWriter: { supported: true, implementation: binding.capabilities.messageWriter, source: binding.source },
+      deliveryVerifier: { supported: true, implementation: binding.capabilities.deliveryVerifier, source: binding.source },
+    };
+  },
+  workbuddy() {
+    if (process.env.AGENT_BOARD_HEADLESS_EXECUTION !== '1') return {};
+    const cliPath = resolveWorkBuddyCliPath({ desktopExecutable: resolveAgentGuiExecutable('workbuddy') });
+    const binding = createHeadlessCapabilityBinding({
+      agent: 'workbuddy', enabled: true, workbuddyCliPath: cliPath || '',
+      allowedRoots: parseAllowedRoots(process.env.AGENT_BOARD_ALLOWED_ROOTS),
+    });
+    if (!binding.supported) return {};
+    return {
+      sessionActivator: { supported: true, implementation: binding.capabilities.sessionActivator, source: binding.source },
+      identityVerifier: { supported: true, implementation: binding.capabilities.identityVerifier, source: binding.source },
+      messageWriter: { supported: true, implementation: binding.capabilities.messageWriter, source: binding.source },
+      deliveryVerifier: { supported: true, implementation: binding.capabilities.deliveryVerifier, source: binding.source },
+    };
+  },
 };
 
 function capabilityDefinitionsForAdapter(adapter) {
@@ -1276,18 +1329,56 @@ let isScanning = false;
 let baselineWorkBuddyStatusScan = false;
 const SCAN_DAYS = 30;          // 首次只扫近 30 天，老文件由增量/rescan 补齐
 const BIG_FILE = 2 * 1024 * 1024;   // 大于 2MB 的文件只取末尾（最近消息）
-async function scanAll({ full = false } = {}) {
+const pendingChangedPaths = new Map();
+let drainingChangedPaths = false;
+let lastScanSummary = null;
+
+function queueChangedPath(adapter, filePath) {
+  if (!pendingChangedPaths.has(adapter.ID)) pendingChangedPaths.set(adapter.ID, new Set());
+  pendingChangedPaths.get(adapter.ID).add(filePath);
+  if (!isScanning && !drainingChangedPaths) drainChangedPaths();
+}
+
+function drainChangedPaths() {
+  if (isScanning || drainingChangedPaths) return;
+  drainingChangedPaths = true;
+  try {
+    while (!isScanning && pendingChangedPaths.size) {
+      const [adapterId, paths] = pendingChangedPaths.entries().next().value;
+      pendingChangedPaths.delete(adapterId);
+      const adapter = ADAPTERS.find((candidate) => candidate.ID === adapterId);
+      if (!adapter || !paths.size) continue;
+      try { pollChanged(adapter, [...paths]); }
+      catch (error) { console.error(`[${adapterId}] queued poll failed:`, error.message); }
+    }
+  } finally {
+    drainingChangedPaths = false;
+  }
+}
+
+async function scanAll({ full = false, maxAgeMs = SCAN_DAYS * DAY_MS, mode = 'recent' } = {}) {
   if (isScanning) return;
   isScanning = true;
-  const cutoff = full ? 0 : Date.now() - SCAN_DAYS * 24 * 3600 * 1000;
+  const startedAt = Date.now();
+  const cutoff = full ? 0 : Date.now() - maxAgeMs;
   const jobs = [];
   const scanCounts = new Map(ADAPTERS.map((adapter) => [adapter.ID, 0]));
+  let discoveredFiles = 0;
+  let skippedFiles = 0;
+  try {
   for (const a of ADAPTERS) {
     updateCollectorHealth(a.ID, { rootExists: fs.existsSync(a.ROOT), lastError: null });
     if (!fs.existsSync(a.ROOT)) continue;
     for (const f of watcher.collectFiles(a.ROOT, a.isSessionFile)) {
+      discoveredFiles++;
       const mtime = watcher.fileMtime(f);
-      if (!full && mtime < cutoff) continue; // 老文件跳过，等增量或手动 rescan
+      const knownIdentity = store.stmts.getMeta.get(fileMetaKey('file-id', a, f))?.v || '';
+      const knownSize = store.stmts.getMeta.get(fileMetaKey('file-size', a, f))?.v;
+      const knownFile = Boolean(knownIdentity || knownSize !== undefined);
+      if (!full && mtime < cutoff && knownFile) {
+        skippedFiles++;
+        continue; // 已知老文件跳过，新文件即使时间戳异常也先纳入
+      }
       jobs.push({ adapter: a, file: f });
       scanCounts.set(a.ID, scanCounts.get(a.ID) + 1);
     }
@@ -1295,7 +1386,6 @@ async function scanAll({ full = false } = {}) {
   // 按修改时间倒序：最近的对话先入库，看板秒出数据
   jobs.sort((x, y) => watcher.fileMtime(y.file) - watcher.fileMtime(x.file));
   let total = 0;
-  const now = Date.now();
   for (let i = 0; i < jobs.length; i += 5) {
     const batch = jobs.slice(i, i + 5);
     store.tx(() => {
@@ -1341,7 +1431,7 @@ async function scanAll({ full = false } = {}) {
         store.stmts.setMeta.run(key, String(newOffset));
         rememberFileOffset(j.adapter, j.file, signature);
       }
-    });
+    }, { persist: false });
     const done = Math.min(i + 5, jobs.length);
     if (done % 25 === 0 || done === jobs.length) {
       console.log(`[scan] ${done}/${jobs.length} 文件，+${total} 条`);
@@ -1355,9 +1445,9 @@ async function scanAll({ full = false } = {}) {
     if (jobs.some((j) => j.adapter === a)) continue;
     if (typeof a.scanAll === 'function') {
       try {
-        const c = a.scanAll(store);
+        const c = a.scanAll(store, { cutoff });
         if (c > 0) { total += c; console.log(`[${a.ID}] +${c} 条`); sseBroadcast('message', { agent: a.ID, count: c }); }
-        updateCollectorHealth(a.ID, { lastScanAt: new Date().toISOString(), lastScanMode: full ? 'full' : 'recent', lastMessageCount: c, lastError: null });
+        updateCollectorHealth(a.ID, { lastScanAt: new Date().toISOString(), lastScanMode: mode, lastMessageCount: c, lastError: null });
       } catch (e) {
         updateCollectorHealth(a.ID, { lastScanAt: new Date().toISOString(), lastError: e.message });
         console.error(`[${a.ID}] scanAll failed:`, e.message);
@@ -1374,18 +1464,36 @@ async function scanAll({ full = false } = {}) {
   } catch (e) { console.error('[codex] session_index 同步失败:', e.message); }
   try { workbuddy.scanHeartbeats(store); } catch { /* ignore */ }
   scanWorkBuddyStatus({ baseline: baselineWorkBuddyStatusScan });
-  isScanning = false;
+  await store.flushPersistence();
   for (const a of ADAPTERS) {
     updateCollectorHealth(a.ID, {
       lastScanAt: new Date().toISOString(),
-      lastScanMode: full ? 'full' : 'recent',
+      lastScanMode: mode,
       lastScanFiles: scanCounts.get(a.ID) || 0,
     });
   }
-  console.log(`[scan] 完成 ${jobs.length} 个文件，入库 ${total} 条，耗时 ${((Date.now() - now) / 1000).toFixed(1)}s`);
-  sseBroadcast('scan', { done: jobs.length, total: jobs.length, finished: true });
+  const finishedAt = Date.now();
+  const summary = { full, mode, files: jobs.length, discoveredFiles, skippedFiles, messages: total, startedAt, finishedAt };
+  lastScanSummary = summary;
+  console.log(`[scan] ${mode} 完成 ${jobs.length}/${discoveredFiles} 个文件，跳过 ${skippedFiles} 个，入库 ${total} 条，耗时 ${((finishedAt - startedAt) / 1000).toFixed(1)}s`);
+  sseBroadcast('scan', { ...summary, done: jobs.length, total: jobs.length, finished: true });
   sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
+  return summary;
+  } finally {
+    isScanning = false;
+    drainChangedPaths();
+  }
 }
+
+const scanScheduler = createScanScheduler({
+  run: async ({ kind, full, maxAgeMs }) => {
+    if (full) store.clearOffsets();
+    return scanAll({ full, maxAgeMs, mode: kind });
+  },
+  readLastFullScanAt: () => Number(store.stmts.getMeta.get(SCAN_LAST_FULL_AT_KEY)?.v || 0),
+  writeLastFullScanAt: (timestamp) => store.stmts.setMeta.run(SCAN_LAST_FULL_AT_KEY, String(timestamp)),
+  onStateChange: (state) => sseBroadcast('scan', { ...state }),
+});
 
 function pollChanged(adapter, paths) {
   const deleted = [];
@@ -1432,7 +1540,7 @@ function startWatchers() {
     // 专用 SQLite 兜底轮询，不能对整个根目录做递归快照/监听。
     if (a.ID === 'hermes') continue;
     snapshots.set(a.ID, watcher.snapshotTree(a.ROOT, () => true));
-    stops.push(watcher.watchTree(a.ROOT, (p) => pollChanged(a, [p])));
+    stops.push(watcher.watchTree(a.ROOT, (p) => queueChangedPath(a, p)));
   }
   // 官方 hook spool 是 Agent Board 自己的数据源，不属于 WorkBuddy 项目目录；
   // 目录存在时用 fs.watch 降低完成延迟，尚未创建时由 5s 状态重扫兜底。
@@ -1450,13 +1558,14 @@ function startWatchers() {
       const diff = watcher.diffSnapshots(previous, current);
       snapshots.set(a.ID, current);
       const changed = [...diff.changed, ...diff.deleted];
-      if (changed.length) pollChanged(a, changed);
+      for (const filePath of changed) queueChangedPath(a, filePath);
     }
   }, 10 * 1000);
   // WorkBuddy 心跳目录 + 本地 SQLite 会话状态：轮询（文件每秒都在变，watch 事件太密）。
   // 只更新内部状态，不在此推送 active 事件——统一由下方 5s 定时器推送 getActive()，
   // 避免两个定时器推送不一致快照（含 active:false 条目）导致前端状态每 5 秒来回闪。
   const hbTimer = setInterval(() => {
+    if (isScanning) return;
     try {
       workbuddy.scanHeartbeats(store);
     } catch { /* ignore */ }
@@ -1469,6 +1578,7 @@ function startWatchers() {
   // Codex 的重命名写入 ~/.codex/session_index.jsonl，而不是 rollout 日志；
   // 轻量 stat 轮询能在文件变化后及时把最新标题同步到看板。
   const codexTitleTimer = setInterval(() => {
+    if (isScanning) return;
     try {
       const c = codex.syncSessionTitles(store);
       if (c > 0) {
@@ -1740,10 +1850,12 @@ const server = http.createServer(async (req, res) => {
 
   // 运行/采集诊断：只返回身份、路径摘要和计数，不返回任何会话正文。
   if (pathname === '/api/health' && req.method === 'GET') {
+    const scanState = scanScheduler.getState();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok: true,
-      scanning: isScanning,
+      scanning: scanState.scanning,
+      scan: { ...scanState, lastRun: lastScanSummary },
       runtime: RUNTIME_IDENTITY,
       sourcePathsConfig: getSourcePathsConfigPath(),
       sourcePaths: SOURCE_PATHS,
@@ -1757,6 +1869,59 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/capabilities' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items: AGENT_CAPABILITY_REGISTRY.report() }));
+    return;
+  }
+
+  // 全局 Todo：任务记录与会话数据一起由 JSON store 持久化，不绑定项目。
+  if (pathname === '/api/todos' && req.method === 'GET') {
+    try {
+      const items = store.getTodoTasks();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (pathname === '/api/todos' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const item = store.createTodoTask({
+        parentId: body.parentId ?? null,
+        title: body.title,
+      });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ item }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/todos/') && ['PATCH', 'DELETE'].includes(req.method)) {
+    let taskId = '';
+    try { taskId = decodeURIComponent(pathname.slice('/api/todos/'.length)); } catch { taskId = ''; }
+    try {
+      if (!taskId) throw new Error('任务不存在');
+      if (req.method === 'DELETE') {
+        store.deleteTodoTask(taskId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        const body = await readBody(req);
+        const item = Object.prototype.hasOwnProperty.call(body, 'isCompleted')
+          ? store.setTodoTaskCompleted(taskId, body.isCompleted)
+          : store.updateTodoTask(taskId, { title: body.title });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ item }));
+      }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
     return;
   }
 
@@ -1890,7 +2055,7 @@ const server = http.createServer(async (req, res) => {
       }
       const dependencies = createVerifiedDispatchDependencies(request.agent);
       if (!dependencies) {
-        const error = new Error('Slice 0 只支持 Codex Desktop 与 Hermes Desktop');
+        const error = new Error('当前 Agent 的 Verified Dispatch capability 未完整可用');
         error.statusCode = 400;
         throw error;
       }
@@ -2502,34 +2667,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 手动触发全量扫描（重置偏移，重新解析）
-  // 异步执行：立即返回 200（避免前端 fetch 阻塞 20+ 秒造成"点击没反应"的错觉），
+  // 异步执行：立即返回 202（避免前端 fetch 阻塞 20+ 秒造成"点击没反应"的错觉），
   // 扫描完成通过 SSE 'scan' 事件通知前端刷新。
   if (pathname === '/api/rescan' && req.method === 'POST') {
-    if (isScanning) {
-      // 初始扫描进行中：不能清表（否则数据被清空但 scanAll 静默跳过 → board 全空）
-      res.writeHead(409, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: '初始扫描进行中，请稍后再试' }));
-      return;
-    }
     // 立即响应，后台执行
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(202, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, background: true }));
-    // 稍等一帧让响应先发出，再开始后台重扫
-    setTimeout(async () => {
-      try {
-        // 非破坏式全量重扫：只清理各数据源的读取偏移，保留旧卡片。
-        // Marvis/其他 SQLite 数据源可能在 WAL 切换时暂时不可读，不能因一次重扫失败把看板清空。
-        store.clearOffsets();
-        await scanAll({ full: true });
+    void scanScheduler.request('manual-full')
+      .then(() => {
         // 修复 custom-title 先创建导致 first_seen=0 的会话
         store.repairSessionTimestamps();
         store.repairUserQueries();
         sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
         console.log('[rescan] 完成');
-      } catch (e) {
-        console.error('[rescan] failed:', e.message);
-      }
-    }, 50);
+      })
+      .catch((error) => console.error('[rescan] failed:', error.message));
     return;
   }
 
@@ -2714,7 +2866,8 @@ const server = http.createServer(async (req, res) => {
 async function runStartupTasks() {
   baselineWorkBuddyStatusScan = true;
   try {
-    await scanAll();
+    await scanScheduler.request('startup-recent');
+    void scanScheduler.request('warm-reconcile');
     // 让首轮扫描完成后的 HTTP 请求先被处理，再执行兼容性维护任务。
     await new Promise((resolve) => setImmediate(resolve));
     codex.reconcileRecentCompletions(store);
@@ -2744,6 +2897,7 @@ server.listen(PORT, '127.0.0.1', () => {
   ensureFocusDll().then(() => { initFocusPs(); console.log('[focus] 窗口激活进程就绪'); });
   startWatchers();
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
+  scanScheduler.start();
   // 先让后端可用，再后台扫描/维护；前端可以立即加载已有快照。
   setImmediate(() => { runStartupTasks(); });
 });

@@ -6,6 +6,9 @@
     if (data && typeof data === 'object') {
       if (data.code) error.code = String(data.code);
       if (data.recovery && typeof data.recovery === 'object') error.recovery = data.recovery;
+      for (const field of ['missingFields', 'missingFieldLabels', 'reasons', 'suggestedActions', 'permissionViolations']) {
+        if (Array.isArray(data[field])) error[field] = data[field];
+      }
     }
     error.status = status;
     return error;
