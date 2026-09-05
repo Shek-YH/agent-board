@@ -39,6 +39,7 @@ const state = {
   hostedSessionWatchers: new Map(),
   orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null, secureProvider: null },
 };
+let projectTodoDrawer = null;
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
 function loadColOrder() {
@@ -882,8 +883,7 @@ function renderProjects() {
     o.value = p.project; o.textContent = `${p.project} (${p.cnt})`;
     sel.appendChild(o);
   }
-  sel.value = state.activeProject;
-  renderProjectRail();
+  sel.value = state.project;
 }
 function projectItems() {
   return state.projects
@@ -896,7 +896,9 @@ function projectLeaf(project) {
 }
 function toggleProject(project) {
   state.project = state.project === project ? '' : project;
-  renderProjectRail();
+  state.activeProject = state.project;
+  renderProjects();
+  renderActive();
   loadBoard();
 }
 function renderProjectRail() {
@@ -2445,7 +2447,12 @@ $('f-onlyuser').addEventListener('change', (e) => {
   renderActive();    // 顶部活跃区同步过滤（数据已在 state.active 中）
 });
 $('f-range').addEventListener('change', (e) => { state.range = Number(e.target.value); loadBoard(); });
-$('active-project').addEventListener('change', (e) => { state.activeProject = e.target.value; renderActive(); });
+$('active-project').addEventListener('change', (e) => {
+  state.project = e.target.value;
+  state.activeProject = state.project;
+  renderActive();
+  loadBoard();
+});
 $('active-range').addEventListener('change', (e) => {
   state.activeRange = e.target.value;
   loadState();
@@ -3438,6 +3445,7 @@ async function openSoundSettings() {
 
 const DEFAULT_AGENT_BOARD_SHORTCUT = 'Alt+`';
 const DEFAULT_AGENT_BOARD_JUMP_SHORTCUT = 'Alt+1';
+const DEFAULT_PROJECT_TODO_DRAWER_SHORTCUT = 'Alt+Q';
 const SHORTCUT_SETTING_DEFS = [
   {
     kind: 'activateApp', inputId: 'shortcut-input', recordId: 'shortcut-record',
@@ -3451,13 +3459,22 @@ const SHORTCUT_SETTING_DEFS = [
     title: '跳转到最近完成任务', help: '在任意应用中按下该组合键，可打开最新完成且未读的 Agent 任务。',
     ariaLabel: '最近完成任务跳转快捷键', defaultValue: DEFAULT_AGENT_BOARD_JUMP_SHORTCUT,
   },
+  {
+    kind: 'toggleProjectTodoDrawer', inputId: 'todo-drawer-shortcut-input', recordId: 'todo-drawer-shortcut-record',
+    resetId: 'todo-drawer-shortcut-reset', saveId: 'todo-drawer-shortcut-save', statusId: 'todo-drawer-shortcut-status',
+    title: '切换 Todo 面板', help: '在 Agent Board 中快速展开或收起左侧 Todo 清单。',
+    ariaLabel: 'Todo 面板快捷键', defaultValue: DEFAULT_PROJECT_TODO_DRAWER_SHORTCUT,
+  },
 ];
 
 function renderShortcutSettings(pop, settings, bridge) {
   const unavailable = !bridge;
   pop.innerHTML = `<div class="pop-head">快捷键设置</div>${SHORTCUT_SETTING_DEFS.map((def) => {
     const current = settings?.[def.kind] || (def.kind === 'activateApp' ? settings?.shortcut : '') || def.defaultValue;
-    const active = settings?.[def.kind === 'activateApp' ? 'activeShortcut' : 'activeJumpToLatestCompleted'];
+    const activeKey = def.kind === 'activateApp'
+      ? 'activeShortcut'
+      : def.kind === 'jumpToLatestCompleted' ? 'activeJumpToLatestCompleted' : 'activeTodoDrawer';
+    const active = settings?.[activeKey];
     return `<div class="shortcut-settings" data-shortcut-kind="${def.kind}">
       <div class="shortcut-title">${def.title}</div>
       <div class="shortcut-help">${def.help}</div>
@@ -4211,8 +4228,25 @@ function registerDesktopJumpShortcut() {
   desktop.onJumpToLatestCompleted(() => { void jumpToLatestCompleted(); });
 }
 
+function registerDesktopTodoShortcut() {
+  const desktop = window.AgentBoardDesktop;
+  if (typeof desktop?.onToggleProjectTodoDrawer !== 'function') return;
+  desktop.onToggleProjectTodoDrawer(() => projectTodoDrawer?.toggle());
+}
+
+function initProjectTodoDrawer() {
+  if (!window.AgentBoardProjectTodo) return;
+  projectTodoDrawer = window.AgentBoardProjectTodo.createProjectTodoDrawer({
+    requestJson,
+    escapeHtml: esc,
+    notify: toast,
+  });
+}
+
 /* ---------- 启动 ---------- */
+initProjectTodoDrawer();
 registerDesktopJumpShortcut();
+registerDesktopTodoShortcut();
 (async () => {
   loadRecentDone();
   await loadState();

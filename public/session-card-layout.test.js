@@ -33,7 +33,8 @@ test('session 卡将状态与主会话放在顶部，并为标题保留多行空
   assert.match(titleRow, /titleHtml/);
   assert.match(html, /\.s-title\{[^}]*white-space:normal[^}]*-webkit-line-clamp:2/);
   assert.match(html, /\.app\{[^}]*width:100%[^}]*max-width:none[^}]*margin:0/);
-  assert.match(html, /\.board-layout\{[^}]*grid-template-columns:166px minmax\(0,1fr\)[^}]*gap:10px/);
+  assert.match(html, /\.board-layout\{[^}]*display:block[^}]*align-items:start/);
+  assert.doesNotMatch(html, /\.board-layout\{[^}]*grid-template-columns:166px minmax\(0,1fr\)/);
   assert.match(html, /\.board\{[^}]*display:grid[^}]*grid-auto-flow:column[^}]*grid-auto-columns:max\(180px,calc\(\(100% - 50px\)\/6\)\)[^}]*overflow-x:auto/);
   assert.doesNotMatch(html, /grid-template-columns:repeat\(auto-fit/);
   assert.match(html, /\.s-card\{[^}]*height:196px[^}]*min-height:196px/);

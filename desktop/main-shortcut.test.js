@@ -26,6 +26,15 @@ test('Electron 主进程接入最近完成任务快捷键事件和独立配置',
   assert.match(preload, /shortcut:jump-latest-completed/);
 });
 
+test('Electron 主进程接入项目 Todo 抽屉快捷键事件和冲突校验', () => {
+  assert.match(source, /toggleProjectTodoDrawer/);
+  assert.match(source, /shortcut:toggle-project-todo/);
+  assert.match(source, /activeTodoDrawer/);
+  assert.match(source, /不能使用同一组合键/);
+  assert.match(preload, /onToggleProjectTodoDrawer/);
+  assert.match(preload, /shortcut:toggle-project-todo/);
+});
+
 test('托盘退出时不拦截 Electron 的最终退出事件', () => {
   assert.match(source, /window-all-closed['"]\s*,\s*\(event\)\s*=>\s*\{\s*if\s*\(!quitting\)\s*event\.preventDefault\(\)\s*;?\s*\}/s);
 });

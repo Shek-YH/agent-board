@@ -42,7 +42,9 @@ let localUrl = '';
 let quitting = false;
 let providerStore = null;
 const LATEST_COMPLETED_JUMP_CHANNEL = 'shortcut:jump-latest-completed';
+const TODO_DRAWER_CHANNEL = 'shortcut:toggle-project-todo';
 let pendingLatestCompletedJump = false;
+let pendingTodoDrawerToggle = false;
 const shortcutController = createGlobalShortcutController({
   globalShortcut,
   onActivate: showMainWindow,
@@ -50,6 +52,10 @@ const shortcutController = createGlobalShortcutController({
 const latestCompletedShortcutController = createGlobalShortcutController({
   globalShortcut,
   onActivate: requestLatestCompletedJump,
+});
+const todoDrawerShortcutController = createGlobalShortcutController({
+  globalShortcut,
+  onActivate: requestTodoDrawerToggle,
 });
 
 function logPath() {
@@ -128,6 +134,22 @@ function requestLatestCompletedJump() {
   pendingLatestCompletedJump = !notifyLatestCompletedJump();
 }
 
+function notifyTodoDrawerToggle() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) return false;
+  try {
+    mainWindow.webContents.send(TODO_DRAWER_CHANNEL);
+    return true;
+  } catch (error) {
+    writeDesktopLog(`项目 Todo 快捷键通知失败：${error.message || '未知错误'}`);
+    return false;
+  }
+}
+
+function requestTodoDrawerToggle() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  pendingTodoDrawerToggle = !notifyTodoDrawerToggle();
+}
+
 function isLocalUrl(url) {
   return Boolean(localUrl) && (url === localUrl || url.startsWith(localUrl + '/'));
 }
@@ -167,8 +189,8 @@ function createMainWindow() {
     }
   });
   mainWindow.webContents.on('did-finish-load', () => {
-    if (!pendingLatestCompletedJump) return;
-    pendingLatestCompletedJump = !notifyLatestCompletedJump();
+    if (pendingLatestCompletedJump) pendingLatestCompletedJump = !notifyLatestCompletedJump();
+    if (pendingTodoDrawerToggle) pendingTodoDrawerToggle = !notifyTodoDrawerToggle();
   });
   mainWindow.once('ready-to-show', () => showMainWindow());
   mainWindow.on('close', (event) => {
@@ -256,10 +278,16 @@ function registerConfiguredShortcut() {
   if (!activateResult.ok) writeDesktopLog(`全局快捷键注册失败：${activateResult.error}`);
   if (settings.jumpToLatestCompleted === settings.activateApp) {
     writeDesktopLog('最近完成任务快捷键注册失败：不能与 Agent Board 激活快捷键相同');
-    return;
+  } else {
+    const jumpResult = latestCompletedShortcutController.apply(settings.jumpToLatestCompleted);
+    if (!jumpResult.ok) writeDesktopLog(`最近完成任务快捷键注册失败：${jumpResult.error}`);
   }
-  const jumpResult = latestCompletedShortcutController.apply(settings.jumpToLatestCompleted);
-  if (!jumpResult.ok) writeDesktopLog(`最近完成任务快捷键注册失败：${jumpResult.error}`);
+  if (settings.toggleProjectTodoDrawer === settings.activateApp || settings.toggleProjectTodoDrawer === settings.jumpToLatestCompleted) {
+    writeDesktopLog('项目 Todo 快捷键注册失败：不能与其他快捷键相同');
+  } else {
+    const todoResult = todoDrawerShortcutController.apply(settings.toggleProjectTodoDrawer);
+    if (!todoResult.ok) writeDesktopLog(`项目 Todo 快捷键注册失败：${todoResult.error}`);
+  }
 }
 
 ipcMain.handle('shortcut:get', () => {
@@ -270,21 +298,26 @@ ipcMain.handle('shortcut:get', () => {
     activeShortcut: shortcutController.current,
     jumpToLatestCompleted: settings.jumpToLatestCompleted,
     activeJumpToLatestCompleted: latestCompletedShortcutController.current,
+    toggleProjectTodoDrawer: settings.toggleProjectTodoDrawer,
+    activeTodoDrawer: todoDrawerShortcutController.current,
   };
 });
 
 ipcMain.handle('shortcut:set', (_event, input) => {
-  const kind = input && typeof input === 'object' && input.kind === 'jumpToLatestCompleted'
-    ? 'jumpToLatestCompleted'
-    : 'activateApp';
+  const requestedKind = input && typeof input === 'object' ? input.kind : '';
+  const kind = ['activateApp', 'jumpToLatestCompleted', 'toggleProjectTodoDrawer'].includes(requestedKind)
+    ? requestedKind : 'activateApp';
   const shortcut = typeof input === 'string' ? input : input?.shortcut;
   const settings = loadShortcutSettings();
-  const otherKind = kind === 'activateApp' ? 'jumpToLatestCompleted' : 'activateApp';
   const next = typeof shortcut === 'string' ? shortcut.trim() : '';
-  if (next && next === (settings[otherKind] || '')) {
-    return { ok: false, error: '两个快捷键不能使用同一组合键', accelerator: settings[kind] };
+  const conflicts = ['activateApp', 'jumpToLatestCompleted', 'toggleProjectTodoDrawer']
+    .filter((otherKind) => otherKind !== kind && next && next === settings[otherKind]);
+  if (conflicts.length) {
+    return { ok: false, error: '三个快捷键不能使用同一组合键', accelerator: settings[kind] };
   }
-  const controller = kind === 'activateApp' ? shortcutController : latestCompletedShortcutController;
+  const controller = kind === 'activateApp'
+    ? shortcutController
+    : kind === 'jumpToLatestCompleted' ? latestCompletedShortcutController : todoDrawerShortcutController;
   const previous = controller.current || settings[kind];
   const applied = controller.apply(shortcut);
   if (!applied.ok) return applied;
@@ -296,6 +329,8 @@ ipcMain.handle('shortcut:set', (_event, input) => {
       activeShortcut: shortcutController.current,
       jumpToLatestCompleted: saved.jumpToLatestCompleted,
       activeJumpToLatestCompleted: latestCompletedShortcutController.current,
+      toggleProjectTodoDrawer: saved.toggleProjectTodoDrawer,
+      activeTodoDrawer: todoDrawerShortcutController.current,
     };
   } catch (error) {
     controller.apply(previous);
@@ -410,6 +445,7 @@ if (!gotLock) {
   app.on('will-quit', () => {
     shortcutController.dispose();
     latestCompletedShortcutController.dispose();
+    todoDrawerShortcutController.dispose();
   });
   app.on('window-all-closed', (event) => {
     if (!quitting) event.preventDefault();

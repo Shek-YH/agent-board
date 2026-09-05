@@ -7,6 +7,7 @@ const { getConfigDir } = require('../lib/runtime-paths');
 
 const DEFAULT_SHORTCUT = 'Alt+`';
 const DEFAULT_JUMP_SHORTCUT = 'Alt+1';
+const DEFAULT_TODO_DRAWER_SHORTCUT = 'Alt+Q';
 
 function normalizeShortcut(value) {
   if (typeof value !== 'string') return null;
@@ -23,6 +24,7 @@ function defaultSettings() {
   return {
     activateApp: DEFAULT_SHORTCUT,
     jumpToLatestCompleted: DEFAULT_JUMP_SHORTCUT,
+    toggleProjectTodoDrawer: DEFAULT_TODO_DRAWER_SHORTCUT,
   };
 }
 
@@ -33,6 +35,7 @@ function loadShortcutSettings(filePath = getShortcutSettingsPath()) {
     return {
       activateApp: normalizeShortcut(value?.activateApp) || defaults.activateApp,
       jumpToLatestCompleted: normalizeShortcut(value?.jumpToLatestCompleted) || defaults.jumpToLatestCompleted,
+      toggleProjectTodoDrawer: normalizeShortcut(value?.toggleProjectTodoDrawer) || defaults.toggleProjectTodoDrawer,
     };
   } catch {
     return defaultSettings();
@@ -44,7 +47,7 @@ function saveShortcutSettings(input, filePath = getShortcutSettingsPath()) {
   const requested = typeof input === 'string' ? { activateApp: input } : input;
   if (!requested || typeof requested !== 'object') throw new Error('快捷键不能为空');
   const settings = { ...current };
-  for (const key of ['activateApp', 'jumpToLatestCompleted']) {
+  for (const key of ['activateApp', 'jumpToLatestCompleted', 'toggleProjectTodoDrawer']) {
     if (!(key in requested)) continue;
     const normalized = normalizeShortcut(requested[key]);
     if (!normalized) throw new Error('快捷键不能为空');
@@ -58,6 +61,7 @@ function saveShortcutSettings(input, filePath = getShortcutSettingsPath()) {
 module.exports = {
   DEFAULT_SHORTCUT,
   DEFAULT_JUMP_SHORTCUT,
+  DEFAULT_TODO_DRAWER_SHORTCUT,
   getShortcutSettingsPath,
   loadShortcutSettings,
   saveShortcutSettings,

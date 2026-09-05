@@ -17,8 +17,11 @@ test('项目侧栏按最近会话排序，点击可筛选并可取消', () => {
   assert.match(app, /for \(const s of state\.board\.all \|\| \[\]\)/);
 });
 
-test('项目侧栏仅浮层展示当前悬停路径，不改变列表布局', () => {
-  assert.match(html, /<div class="board-layout" id="board-layout">\s*<aside class="project-rail" id="project-rail"><\/aside>\s*<div class="board" id="board"><\/div>/);
+test('项目筛选移动到搜索框右侧，左缘 Todo 抽屉不改变列表布局', () => {
+  assert.match(html, /<input id="f-q" class="f-q"[^>]*>\s*<select id="active-project" class="project-filter"/);
+  assert.match(html, /<div class="board-layout" id="board-layout">\s*<div class="board" id="board"><\/div>/);
+  assert.match(html, /<script src="\/project-todo\.js"><\/script>/);
+  assert.match(html, /\.todo-edge-trigger\{[^}]*position:fixed[^}]*width:22px/);
   assert.match(html, /\.project-path\{[^}]*position:relative[^}]*\}/);
   assert.match(html, /\.project-path-full\{[^}]*position:absolute[^}]*overflow-wrap:anywhere[^}]*pointer-events:none[^}]*\}/);
   assert.match(html, /\.project-path:hover \.project-path-full\{display:block\}/);

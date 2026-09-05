@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     ipcRenderer.on('shortcut:jump-latest-completed', listener);
     return () => ipcRenderer.removeListener('shortcut:jump-latest-completed', listener);
   },
+  onToggleProjectTodoDrawer: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = () => callback();
+    ipcRenderer.on('shortcut:toggle-project-todo', listener);
+    return () => ipcRenderer.removeListener('shortcut:toggle-project-todo', listener);
+  },
   notifyCompletion: (sessionId) => ipcRenderer.invoke('notification:completion', { sessionId }),
   selectProjectFolder: () => ipcRenderer.invoke('project:select-folder'),
   provider: Object.freeze({
