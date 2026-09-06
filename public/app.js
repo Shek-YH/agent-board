@@ -1642,6 +1642,16 @@ async function openNewHostedTask(agentId, seedSession = null) {
   let existingSessions = [];
   let analysisInFlight = false;
 
+  // AutoPilot seed 补全：看板卡片的 last_user_text 截断到 2000 字符，
+  // 打开托管任务表单时从 session 详情接口拉取完整用户指令回填，
+  // 保证作为任务目标的文本不因截断丢尾部。
+  if (hasSeedSession && seedSession.id) {
+    requestJson(`/api/session/${encodeURIComponent(seedSession.id)}`).then((detail) => {
+      const full = detail && typeof detail.last_user_text === 'string' ? detail.last_user_text : '';
+      if (full && goalInput && goalInput.isConnected) goalInput.value = full;
+    }).catch(() => { /* 保留截断版 seed，不阻塞表单 */ });
+  }
+
   const setStatus = (message, kind = '') => {
     status.hidden = !message; status.className = `autopilot-intake-status${kind ? ` ${kind}` : ''}`; status.textContent = message || '';
   };
@@ -4249,11 +4259,16 @@ registerDesktopJumpShortcut();
 registerDesktopTodoShortcut();
 (async () => {
   loadRecentDone();
-  await loadState();
-  await loadBoard();
-  await loadOrchestration();
-  await loadHealth();
-  await loadCompletionSounds();
+  // 并行拉取首屏所需数据：任何单接口超时都不能让其它接口陪葬，
+  // 旧实现是 4 个 await 串行，单接口 12 秒超时就会让整个首屏卡满 12s×4。
+  await Promise.allSettled([
+    loadState(),
+    loadBoard(),
+    loadOrchestration(),
+    loadCompletionSounds(),
+  ]);
   connectSSE();
+  // health 走独立通道：首屏不等它；后台扫描期偶尔超时也不会污染看板渲染
+  await loadHealth();
   setInterval(loadHealth, 10000);
 })();

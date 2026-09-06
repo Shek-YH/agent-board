@@ -1388,50 +1388,79 @@ async function scanAll({ full = false, maxAgeMs = SCAN_DAYS * DAY_MS, mode = 're
   let total = 0;
   for (let i = 0; i < jobs.length; i += 5) {
     const batch = jobs.slice(i, i + 5);
-    store.tx(() => {
-      for (const j of batch) {
-        const key = fileOffsetKey(j.adapter, j.file);
-        const signature = prepareFileOffset(j.adapter, j.file);
-        const offset = full ? 0 : Number(store.stmts.getMeta.get(key)?.v || 0);
-        const size = watcher.fileSize(j.file);
-        let lines = [], newOffset = offset;
+    // 第一步：异步并发读所有文件，fs.readFile 走线程池，不阻塞 event loop。
+    // 自定义 adapter.readFile（如 deepseek zstd）保持同步调用——这些是 CPU 操作，不是 IO。
+    const fileResults = await Promise.all(batch.map(async (j) => {
+      const key = fileOffsetKey(j.adapter, j.file);
+      const signature = prepareFileOffset(j.adapter, j.file);
+      const offset = full ? 0 : Number(store.stmts.getMeta.get(key)?.v || 0);
+      const size = watcher.fileSize(j.file);
+      let lines = [], newOffset = offset, codexMetaLines = null;
+      try {
         if (j.adapter.readFile) {
-          // 自定义读取（如 zstd 压缩文件），offset 语义由 adapter 自行解释（通常是行号）
           const t = j.adapter.readFile(j.file, offset);
           lines = t.lines; newOffset = t.newOffset;
         } else if (!full && offset >= size) {
-          // Codex 旧版已经消费完日志时仍要读取首条 session_meta，
-          // 让存量记录获得新的父子拓扑，不必清空 offset 或重扫全文。
           if (j.adapter.ID === 'codex') {
-            const metaLine = codex.readSessionMetaLine(j.file);
-            if (metaLine) {
-              const metaMsgs = j.adapter.parseLines([metaLine], j.file);
-              for (const m of metaMsgs) { store.ingest(m); total++; }
-            }
+            codexMetaLines = codex.readSessionMetaLine(j.file);
           }
-          continue; // 已消费完
+          // 已消费完
         } else if (full || size > BIG_FILE) {
-          // 全量重扫和大文件都必须从 0 读完；消息按 source_id 幂等覆盖，不会重复。
-          // 普通增量才使用 offset，否则 旧 offset 可能让历史永久漏掉。
-          const t = watcher.readAll(j.file, 0);
+          const t = await watcher.readAllAsync(j.file, 0);
           lines = t.lines; newOffset = t.newOffset;
         } else {
-          const t = watcher.tailRead(j.file, offset, 1024 * 1024);
+          const t = await watcher.tailReadAsync(j.file, offset, 1024 * 1024);
           lines = t.lines; newOffset = t.newOffset;
         }
-        if (lines.length) {
-          const msgs = j.adapter.parseLines(lines, j.file);
-          for (const m of msgs) { store.ingest(m); total++; }
-          if (j.adapter.ID === 'codex') {
-            const last = msgs[msgs.length - 1];
-            const sourceTs = lines.reduce((latest, line) => Math.max(latest, Date.parse(line.timestamp) || 0), 0);
-            store.noteCodexActivity(`codex:${j.adapter.fileToSessionId(j.file)}`, sourceTs, { agent: 'codex', project: (last && last.project) || '' });
-          }
-        }
-        store.stmts.setMeta.run(key, String(newOffset));
-        rememberFileOffset(j.adapter, j.file, signature);
+      } catch (error) {
+        updateCollectorHealth(j.adapter.ID, { lastError: error.message });
+        return null;
       }
-    }, { persist: false });
+      return { j, lines, newOffset, signature, codexMetaLines };
+    }));
+    // 第二步：所有 fs 操作完成后再入库（store.tx 只是 save 调度器，内存操作很快）。
+    // 大文件（全量重扫可达数万行）按块解析+入库并在块间让步，
+    // 避免单文件 parseLines + ingest 同步吃掉 event loop 数秒。
+    const INGEST_CHUNK = 1500;
+    for (const result of fileResults) {
+      if (!result) continue;
+      const { j, lines, newOffset, signature, codexMetaLines } = result;
+      const key = fileOffsetKey(j.adapter, j.file);
+      if (codexMetaLines) {
+        store.tx(() => {
+          const metaMsgs = j.adapter.parseLines([codexMetaLines], j.file);
+          for (const m of metaMsgs) { store.ingest(m); total++; }
+          store.stmts.setMeta.run(key, String(newOffset));
+          rememberFileOffset(j.adapter, j.file, signature);
+        }, { persist: false });
+        continue;
+      }
+      let lastMsgs = [];
+      if (lines.length > INGEST_CHUNK * 2) {
+        for (let start = 0; start < lines.length; start += INGEST_CHUNK) {
+          const part = lines.slice(start, start + INGEST_CHUNK);
+          const msgs = j.adapter.parseLines(part, j.file);
+          store.tx(() => {
+            for (const m of msgs) { store.ingest(m); total++; }
+          }, { persist: false });
+          if (msgs.length) lastMsgs = [msgs[msgs.length - 1]];
+          await new Promise((r) => setImmediate(r)); // 块间让步，HTTP 保持响应
+        }
+      } else if (lines.length) {
+        const msgs = j.adapter.parseLines(lines, j.file);
+        store.tx(() => {
+          for (const m of msgs) { store.ingest(m); total++; }
+        }, { persist: false });
+        lastMsgs = msgs.length ? [msgs[msgs.length - 1]] : [];
+      }
+      if (j.adapter.ID === 'codex') {
+        const last = lastMsgs[lastMsgs.length - 1];
+        const sourceTs = lines.reduce((latest, line) => Math.max(latest, Date.parse(line.timestamp) || 0), 0);
+        store.noteCodexActivity(`codex:${j.adapter.fileToSessionId(j.file)}`, sourceTs, { agent: 'codex', project: (last && last.project) || '' });
+      }
+      store.stmts.setMeta.run(key, String(newOffset));
+      rememberFileOffset(j.adapter, j.file, signature);
+    }
     const done = Math.min(i + 5, jobs.length);
     if (done % 25 === 0 || done === jobs.length) {
       console.log(`[scan] ${done}/${jobs.length} 文件，+${total} 条`);
@@ -1918,6 +1947,191 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ item }));
       }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // 提示词库：分组
+  if (pathname === '/api/prompt-groups' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ items: store.getPromptGroups() }));
+    return;
+  }
+  if (pathname === '/api/prompt-groups' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const item = store.createPromptGroup({ name: body.name });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ item }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  if (pathname.startsWith('/api/prompt-groups/') && ['PATCH', 'DELETE'].includes(req.method)) {
+    let id = '';
+    try { id = decodeURIComponent(pathname.slice('/api/prompt-groups/'.length)); } catch { id = ''; }
+    try {
+      if (!id) throw new Error('分组不存在');
+      if (req.method === 'DELETE') {
+        const r = store.deletePromptGroup(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, deletedPrompts: r.deletedPrompts }));
+      } else {
+        const body = await readBody(req);
+        const item = store.updatePromptGroup(id, body);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ item }));
+      }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // 提示词库：条目
+  if (pathname === '/api/prompts' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ items: store.getPrompts() }));
+    return;
+  }
+  if (pathname === '/api/prompts' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const item = store.createPrompt({
+        group_id: body.group_id || body.groupId,
+        title: body.title,
+        content: body.content,
+      });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ item }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  if (pathname.startsWith('/api/prompts/') && req.method === 'POST') {
+    let rest = '';
+    try { rest = decodeURIComponent(pathname.slice('/api/prompts/'.length)); } catch { rest = ''; }
+    const slashIdx = rest.indexOf('/');
+    const id = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
+    const action = slashIdx >= 0 ? rest.slice(slashIdx + 1) : '';
+    try {
+      if (!id) throw new Error('提示词不存在');
+      if (action === 'use') {
+        const item = store.recordPromptUse(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ item }));
+      } else {
+        throw new Error('未知操作');
+      }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  if (pathname.startsWith('/api/prompts/') && ['PATCH', 'DELETE'].includes(req.method)) {
+    let id = '';
+    try { id = decodeURIComponent(pathname.slice('/api/prompts/'.length)); } catch { id = ''; }
+    try {
+      if (!id) throw new Error('提示词不存在');
+      if (req.method === 'DELETE') {
+        store.deletePrompt(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        const body = await readBody(req);
+        const item = store.updatePrompt(id, body);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ item }));
+      }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // 知识索引：条目
+  if (pathname === '/api/index-entries' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      items: store.getIndexEntries(),
+      categoryOrder: store.getIndexCategoryOrder(),
+    }));
+    return;
+  }
+  if (pathname === '/api/index-entries/reorder' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      store.reorderIndexEntries(body.orderedIds || []);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  if (pathname === '/api/index-entries' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const item = store.createIndexEntry({
+        category: body.category,
+        title: body.title,
+        content: body.content,
+        source: body.source,
+        sourcePath: body.sourcePath,
+      });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ item }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  if (pathname.startsWith('/api/index-entries/') && ['PATCH', 'DELETE'].includes(req.method)) {
+    let id = '';
+    try { id = decodeURIComponent(pathname.slice('/api/index-entries/'.length)); } catch { id = ''; }
+    try {
+      if (!id) throw new Error('索引条目不存在');
+      if (req.method === 'DELETE') {
+        store.deleteIndexEntry(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } else {
+        const body = await readBody(req);
+        const item = store.updateIndexEntry(id, body);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ item }));
+      }
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // 知识索引：分类顺序
+  if (pathname === '/api/index-categories' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ items: store.getIndexCategoryOrder() }));
+    return;
+  }
+  if (pathname === '/api/index-categories/order' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const items = store.setIndexCategoryOrder(body.order || []);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items }));
     } catch (error) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.message }));
@@ -2866,9 +3080,12 @@ const server = http.createServer(async (req, res) => {
 async function runStartupTasks() {
   baselineWorkBuddyStatusScan = true;
   try {
-    await scanScheduler.request('startup-recent');
+    // 不再 await 启动扫描：listen 后立刻可响应 HTTP，扫描在后台跑，
+    // 通过 SSE 推送增量，前端看板会随扫描进度增量刷新。
+    // warm-reconcile 本身已用 void 调用；startup-recent 也改为 void。
+    void scanScheduler.request('startup-recent').catch((e) => console.error('[startup] startup-recent failed:', e.message));
     void scanScheduler.request('warm-reconcile');
-    // 让首轮扫描完成后的 HTTP 请求先被处理，再执行兼容性维护任务。
+    // 让出事件循环，确保 listen 回调先返回
     await new Promise((resolve) => setImmediate(resolve));
     codex.reconcileRecentCompletions(store);
     await new Promise((resolve) => setImmediate(resolve));
@@ -2899,5 +3116,6 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('[watch] 已开始监听:', ADAPTERS.filter((a) => fs.existsSync(a.ROOT)).map((a) => a.ID).join(', '));
   scanScheduler.start();
   // 先让后端可用，再后台扫描/维护；前端可以立即加载已有快照。
-  setImmediate(() => { runStartupTasks(); });
+  // 全程用 Promise.resolve().catch 兜底，防止后台异常冒泡导致 process 退出。
+  Promise.resolve().then(runStartupTasks).catch((e) => console.error('[startup] 异步任务链失败:', e.message));
 });

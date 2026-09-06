@@ -42,7 +42,7 @@ async function startServer(directory) {
     windowsHide: true,
   });
 
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
       const response = await request(port, '/api/account/status');
       if (response.statusCode === 200) return { child, port };

@@ -227,7 +227,10 @@ async function startBackendProcess() {
   backend.child.stderr.on('data', chunk => writeDesktopLog(chunk.toString()));
   backend.child.once('error', error => writeDesktopLog(`后端进程错误：${error.message}`));
   const ready = await waitForBackend(backendContext.port, {
-    timeoutMs: 20000,
+    // 后端本地冷启动 ~4s 就绪，但全新安装首次启动需叠加 Electron 冷启动（~3-5s）
+    // + 杀软对新装 exe 的实时扫描（~5-15s）；15s 上限给首次启动足够余量，
+    // 进程异常退出时仍能快速弹错，避免白屏 20s。
+    timeoutMs: 15000,
     child: backend.child,
     expectedRuntime: {
       serverEntry: path.resolve(backendContext.backendEntry),

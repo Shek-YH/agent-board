@@ -32,7 +32,9 @@ Function Ping()
   ok = False
   On Error Resume Next
   Set h = CreateObject("MSXML2.XMLHTTP")
-  h.Open "GET", url & "/api/state", False
+  ' 用 /api/health 而不是 /api/state：health 只回身份/扫描状态（<1KB），
+  ' state 会回全量活跃会话快照（可能几百 KB），首屏探测没必要拉它。
+  h.Open "GET", url & "/api/health", False
   h.Send
   If Err.Number = 0 Then
     If h.Status = 200 Then ok = True

@@ -15,7 +15,7 @@
   }
 
   async function requestJson(url, requestOptions = {}) {
-    const { fetchImpl, timeoutMs = 12000, allowFailure = false, ...options } = requestOptions;
+    const { fetchImpl, timeoutMs = 5000, allowFailure = false, ...options } = requestOptions;
     const fetcher = fetchImpl || global.fetch;
     if (typeof fetcher !== 'function') throw new Error('当前环境不支持网络请求');
     const controller = typeof global.AbortController === 'function' ? new global.AbortController() : null;
