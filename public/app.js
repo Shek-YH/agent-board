@@ -443,12 +443,31 @@ function renderAIMonitor() {
   }).join('');
 }
 
+const MONITOR_MODES = ['manual', 'ai', 'prompts', 'index'];
+let libraryPanels = null;
+function ensureLibraryPanels() {
+  if (!libraryPanels && window.AgentBoardLibraryUi) {
+    libraryPanels = window.AgentBoardLibraryUi.createLibraryPanels({
+      requestJson,
+      escapeHtml: esc,
+      notify: toast,
+    });
+  }
+  return libraryPanels;
+}
+
 function setMonitorMode(mode) {
-  state.monitorMode = mode === 'ai' ? 'ai' : 'manual';
+  state.monitorMode = MONITOR_MODES.includes(mode) ? mode : 'manual';
   document.querySelectorAll('[data-monitor-mode]').forEach((button) => button.classList.toggle('active', button.dataset.monitorMode === state.monitorMode));
   $('manual-monitor-panel').hidden = state.monitorMode !== 'manual';
   $('ai-monitor-panel').hidden = state.monitorMode !== 'ai';
+  $('prompts-panel').hidden = state.monitorMode !== 'prompts';
+  $('index-panel').hidden = state.monitorMode !== 'index';
   if (state.monitorMode === 'ai') return loadOrchestration();
+  const panels = ensureLibraryPanels();
+  if (state.monitorMode === 'prompts' || state.monitorMode === 'index') {
+    return panels ? panels.show(state.monitorMode) : Promise.resolve();
+  }
   return Promise.resolve();
 }
 
