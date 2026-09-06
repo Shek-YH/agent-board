@@ -1770,6 +1770,92 @@ function readAudioBody(req) {
   });
 }
 
+// ============================================================
+// 知识索引：目录导入（Obsidian / markdown）
+// 只读源文件，绝不写入/删除源目录；条目 source=obsidian 且 sourcePath=绝对路径。
+// ============================================================
+const INDEX_IMPORT_MAX_FILES = 400;          // 单次导入文件数上限
+const INDEX_IMPORT_MAX_BYTES = 1024 * 1024;  // 单文件 1MB 上限
+const INDEX_IMPORT_MAX_DEPTH = 8;            // 递归深度上限
+
+// 从 markdown 提取标题：# 首行（剥离 YAML frontmatter、BOM），否则返回 ''
+function extractMdTitle(content) {
+  let text = String(content || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  if (lines[0] && lines[0].trim() === '---') {
+    let end = -1;
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === '---') { end = i; break; }
+    }
+    if (end >= 0) text = lines.slice(end + 1).join('\n');
+  }
+  for (const raw of text.split('\n').slice(0, 12)) {
+    const match = raw.match(/^\s*#{1,4}\s+(.+?)\s*#*\s*$/);
+    if (match && match[1].trim()) return match[1].trim().slice(0, 200);
+  }
+  return '';
+}
+
+async function importIndexDirectory({ dir, category = '', recursive = true } = {}) {
+  const rootStat = await fs.promises.stat(dir).catch(() => null);
+  if (!rootStat || !rootStat.isDirectory()) throw new Error(`目录不存在或不可读：${dir}`);
+  const files = [];
+  const walk = async (base, depth) => {
+    if (files.length >= INDEX_IMPORT_MAX_FILES) return;
+    const entries = await fs.promises.readdir(base, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (files.length >= INDEX_IMPORT_MAX_FILES) return;
+      const abs = path.join(base, entry.name);
+      if (entry.isDirectory()) {
+        if (recursive && depth < INDEX_IMPORT_MAX_DEPTH) await walk(abs, depth + 1);
+      } else if (entry.isFile() && /\.md$/i.test(entry.name)) {
+        const relDir = base === dir ? '' : path.relative(dir, base);
+        files.push({ abs, relDir });
+      }
+    }
+  };
+  await walk(dir, 0);
+
+  const rootName = path.basename(path.resolve(dir)) || '导入';
+  const byPath = new Map();
+  for (const entry of store.getIndexEntries()) {
+    if (entry.source === 'obsidian' && entry.sourcePath) {
+      byPath.set(path.normalize(entry.sourcePath), entry);
+    }
+  }
+
+  let imported = 0; let updated = 0; let skipped = 0;
+  const errors = [];
+  for (const file of files) {
+    try {
+      const info = await fs.promises.stat(file.abs);
+      if (info.size > INDEX_IMPORT_MAX_BYTES) { skipped += 1; continue; }
+      const content = await fs.promises.readFile(file.abs, 'utf8');
+      const title = extractMdTitle(content) || path.basename(file.abs, path.extname(file.abs));
+      const fileCategory = category || (file.relDir ? path.basename(file.relDir) : rootName);
+      const key = path.normalize(file.abs);
+      const existing = byPath.get(key);
+      if (existing) {
+        if (existing.content !== content) {
+          store.updateIndexEntry(existing.id, { title, content });
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
+      } else {
+        store.createIndexEntry({
+          category: fileCategory, title, content,
+          source: 'obsidian', sourcePath: file.abs,
+        });
+        imported += 1;
+      }
+    } catch (error) {
+      errors.push(`${file.abs}: ${error.message || error}`);
+    }
+  }
+  return { imported, updated, skipped, total: files.length, errors: errors.slice(0, 20) };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
@@ -2132,6 +2218,25 @@ const server = http.createServer(async (req, res) => {
       const items = store.setIndexCategoryOrder(body.order || []);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ items }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+  // 知识索引：目录导入（Obsidian / markdown 源，source=obsidian，sourcePath 去重更新）
+  if (pathname === '/api/index/import' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const dir = String(body.dir || '').trim();
+      if (!dir) throw new Error('目录路径不能为空');
+      const result = await importIndexDirectory({
+        dir,
+        category: String(body.category || '').trim(),
+        recursive: body.recursive !== false,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
     } catch (error) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error.message }));

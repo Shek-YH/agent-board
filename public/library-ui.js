@@ -348,6 +348,7 @@
             <div class="lib-title">${icons.folder}<span>知识索引</span><small>分类收录资料、链接与片段（${state.entries.length}/${LIMITS.maxEntries}）</small></div>
             <div class="lib-head-actions">
               <input class="lib-search" id="lib-index-search" placeholder="搜索标题或内容…" value="${esc(state.term)}">
+              <button type="button" class="btn lib-btn" data-act="idx-import" title="从本地 markdown 目录批量导入">导入</button>
               <button type="button" class="btn primary lib-btn" data-act="idx-new">＋ 新建条目</button>
             </div>
           </div>
@@ -375,6 +376,7 @@
             if (state.collapsed.has(cat)) state.collapsed.delete(cat); else state.collapsed.add(cat);
             renderIndex();
           }
+          else if (act === 'idx-import') openIndexImport();
           else if (act === 'idx-new') await promptForEntry(null);
           else if (act === 'idx-edit') await promptForEntry(id);
           else if (act === 'idx-del') await deleteEntry(id);
@@ -490,6 +492,56 @@
       const body = `${item.title}\n${item.content || ''}`.trim();
       await copyText(body);
       if (body) toast('已复制到剪贴板');
+    }
+
+    // 从本地 markdown 目录导入（调用后端 /api/index/import，source=obsidian）
+    function openIndexImport() {
+      const { body, close } = makeModal({ title: '从目录导入 markdown' });
+      body.innerHTML = `
+        <div class="lib-field"><span class="lib-field-label">目录路径</span>
+          <input id="idx-imp-dir" type="text" placeholder="例如 F:////obsidian 或 E:////notes" autocomplete="off" spellcheck="false">
+          <small class="lib-field-help">递归扫描该目录下的 *.md；已导入过的文件（按绝对路径）会自动更新</small></div>
+        <div class="lib-field"><span class="lib-field-label">分类（留空=按目录名）</span>
+          <input id="idx-imp-cat" type="text" placeholder="留空时用目录名 / 子目录名作为分类" autocomplete="off" spellcheck="false"></div>
+        <label class="lib-check"><input id="idx-imp-recursive" type="checkbox" checked> 包含子目录</label>
+        <div class="lib-form-error" id="idx-imp-err" hidden></div>
+        <div class="lib-modal-actions">
+          <button type="button" class="btn" data-cancel>取消</button>
+          <button type="button" class="btn primary" data-run>开始导入</button>
+        </div>`;
+      const errBox = body.querySelector('#idx-imp-err');
+      const runBtn = body.querySelector('[data-run]');
+      const run = async () => {
+        const dir = body.querySelector('#idx-imp-dir').value.trim();
+        runBtn.disabled = true; runBtn.textContent = '导入中…';
+        try {
+          if (!dir) throw new Error('请输入目录路径');
+          const res = await http('/api/index/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dir,
+              category: body.querySelector('#idx-imp-cat').value.trim(),
+              recursive: body.querySelector('#idx-imp-recursive').checked,
+            }),
+          });
+          const summary = `导入完成：新增 ${res.imported} · 更新 ${res.updated} · 跳过 ${res.skipped}（目录内 ${res.total} 个 markdown）`;
+          if (res.errors && res.errors.length) {
+            errBox.textContent = `${summary}\n失败 ${res.errors.length} 个：${res.errors.join('；')}`;
+            errBox.hidden = false;
+            runBtn.disabled = false; runBtn.textContent = '重试导入';
+          } else {
+            close(); toast(summary);
+            await listIndex(); renderIndex();
+          }
+        } catch (error) {
+          errBox.textContent = readError(error); errBox.hidden = false;
+          runBtn.disabled = false; runBtn.textContent = '开始导入';
+        }
+      };
+      body.querySelector('[data-run]').addEventListener('click', run);
+      body.querySelector('[data-cancel]').addEventListener('click', close);
+      body.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void run(); } });
+      const dirInput = body.querySelector('#idx-imp-dir'); dirInput.focus();
     }
     async function moveEntry(pos, dir) {
       const term = state.term;
