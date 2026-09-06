@@ -85,6 +85,9 @@
       mode: null,
       groups: [], prompts: [], categories: [], entries: [],
       groupId: null, category: '', term: '',
+      collapsed: new Set(), // 折叠的分类名（索引分组视图）
+      indexView: 'list',    // 索引内部视图：list | detail
+      detailId: null,       // 详情视图当前条目 id
       expanded: new Set(), // entry id 展开状态
       hostEl: null, // 渲染宿主（Todo 抽屉内的 .todo-lib-host，或主区面板容器）
     };
@@ -207,84 +210,175 @@
       });
     }
 
-    /* ---------- 渲染：知识索引 ---------- */
+    /* ---------- 渲染：知识索引（AIassis 式：分类折叠分组 + markdown 详情视图） ---------- */
+    function fmtDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    // 安全 URL：仅放行 http/https，其余按纯文本
+    function safeHttpUrl(value) {
+      const s = String(value || '').trim();
+      if (!s) return '';
+      try { const parsed = new URL(s); return /^https?:$/.test(parsed.protocol) ? s : ''; } catch { return ''; }
+    }
+
+    // 轻量 Markdown 渲染（内容先转义再结构化，防 XSS）
+    function renderMarkdownLocal(md) {
+      const inline = (text) => {
+        let out = esc(text);
+        out = out.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+        out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+        out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+          const safe = safeHttpUrl(url);
+          return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label);
+        });
+        return out;
+      };
+      const lines = String(md == null ? '' : md).split('\n');
+      const out = [];
+      let code = null;
+      for (const raw of lines) {
+        if (code !== null) {
+          if (/^```/.test(raw)) { out.push(`<pre><code>${code.join('\n')}</code></pre>`); code = null; }
+          else code.push(raw);
+          continue;
+        }
+        if (/^```/.test(raw)) { code = []; continue; }
+        const heading = raw.match(/^(#{1,4})\s+(.*)$/);
+        if (heading) {
+          const hashes = heading[1].length;
+          const lvl = hashes >= 2 ? Math.min(hashes, 4) : 2; // #、## → h2；### → h3；#### → h4
+          out.push(`<h${lvl}>${inline(heading[2])}</h${lvl}>`);
+          continue;
+        }
+        if (/^-{3,}\s*$/.test(raw)) { out.push('<hr>'); continue; }
+        if (/^>\s?/.test(raw)) { out.push(`<blockquote>${inline(raw.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+        if (/^\s*[-*]\s+/.test(raw)) { out.push(`<div class="md-li">• ${inline(raw.replace(/^\s*[-*]\s+/, ''))}</div>`); continue; }
+        if (/^\s*\d+[.、)]\s+/.test(raw)) { out.push(`<div class="md-li">${inline(raw.replace(/^\s*\d+[.、)]\s+/, ''))}</div>`); continue; }
+        const trimmed = raw.trim();
+        if (trimmed) out.push(`<p>${inline(trimmed)}</p>`);
+      }
+      if (code !== null) out.push(`<pre><code>${code.join('\n')}</code></pre>`);
+      return out.join('\n');
+    }
+
+    // 分类分组（含过滤）：categoryOrder 优先 + 新分类中文序补齐；空分类不展示
+    function indexGroups() {
+      const q = state.term.trim().toLowerCase();
+      const visible = q
+        ? state.entries.filter((e) => [e.title, e.content, e.category].some((f) => String(f || '').toLowerCase().includes(q)))
+        : state.entries;
+      const ordered = state.categories.filter((c) => visible.some((e) => e.category === c));
+      const remaining = [...new Set(visible.map((e) => e.category).filter(Boolean))]
+        .filter((c) => !ordered.includes(c)).sort((a, b) => a.localeCompare(b, 'zh'));
+      return [...ordered, ...remaining].map((cat) => ({
+        category: cat,
+        entries: sortNumericAsc(visible.filter((e) => (e.category || '') === cat), 'order'),
+      })).filter((g) => g.entries.length > 0);
+    }
+
+    function renderIndexDetail(entry) {
+      const panel = state.hostEl;
+      if (!panel) return;
+      const sourceLabel = entry.source === 'obsidian' ? 'Obsidian' : '手动';
+      const sourceCls = entry.source === 'obsidian' ? 'lib-src-obsidian' : 'lib-src-manual';
+      panel.innerHTML = `
+        <div class="lib-root">
+          <div class="idx-detail-head">
+            <button type="button" class="btn lib-btn" data-act="idx-back" title="返回列表">← 返回</button>
+            <span class="lib-chip-static">${esc(entry.category || '未分类')}</span>
+            <div class="idx-detail-title" title="${esc(entry.title)}">${esc(entry.title)}</div>
+            <span class="idx-detail-ops">
+              <button type="button" class="lib-mini" data-act="idx-copy" data-id="${esc(entry.id)}" title="复制条目">${icons.copy}</button>
+              <button type="button" class="lib-mini" data-act="idx-edit" data-id="${esc(entry.id)}" title="编辑">${icons.edit}</button>
+              <button type="button" class="lib-mini lib-danger" data-act="idx-del" data-id="${esc(entry.id)}" title="删除">${icons.trash}</button>
+            </span>
+          </div>
+          <div class="idx-detail-meta">
+            <span class="lib-src ${sourceCls}">${sourceLabel}</span>
+            <span>${entry.source === 'obsidian' && entry.sourcePath ? '· ' + esc(entry.sourcePath) : ''}</span>
+            <span class="lib-muted">更新 ${fmtDate(entry.updatedAt || entry.createdAt)}</span>
+          </div>
+          <div class="md-body">${entry.content ? renderMarkdownLocal(entry.content) : '<span class="lib-muted">（无内容）</span>'}</div>
+        </div>`;
+      bindIndexEvents(panel.querySelector('.lib-root'));
+    }
+
     function renderIndex() {
       const panel = state.hostEl;
       if (!panel) return;
-      const term = state.term;
-      const catList = state.categories.slice();
-      const filtered = filterText(state.entries, term, ['title', 'content', 'category']);
-      const byCat = state.category ? filtered.filter((x) => x.category === state.category) : filtered;
-      const sorted = sortNumericAsc(byCat, 'order');
+      const detailEntry = state.indexView === 'detail' && state.detailId
+        ? state.entries.find((x) => x.id === state.detailId) : null;
+      if (detailEntry) { renderIndexDetail(detailEntry); return; }
 
-      const chips = ['', ...catList].map((c) => {
-        const items = c ? state.entries.filter((x) => x.category === c) : state.entries;
-        const on = (c || '') === (state.category || '');
-        return `<button type="button" class="lib-chip${on ? ' on' : ''}" data-act="idx-cat" data-cat="${esc(c)}">${c ? esc(c) : '全部'}<span class="lib-group-cnt">${items.length}</span></button>`;
-      }).join('');
-
-      const cards = sorted.length
-        ? sorted.map((entry, index) => {
-          const expanded = state.expanded.has(entry.id);
-          const body = expanded ? esc(entry.content) : '';
-          const sourceLabel = entry.source === 'obsidian' ? 'Obsidian' : '手动';
-          const sourceCls = entry.source === 'obsidian' ? 'lib-src-obsidian' : 'lib-src-manual';
-          const isFirst = index === 0; const isLast = index === sorted.length - 1;
-          return `<article class="lib-card" data-id="${esc(entry.id)}">
-            <div class="lib-card-head">
-              <span class="lib-chip-static">${esc(entry.category || '未分类')}</span>
-              <div class="lib-card-title" title="${esc(entry.title)}">${esc(entry.title)}</div>
+      const groups = indexGroups();
+      const q = state.term.trim();
+      const catSections = groups.length
+        ? groups.map((g) => {
+          const collapsed = state.collapsed.has(g.category);
+          const rows = g.entries.map((entry) => {
+            const sourceLabel = entry.source === 'obsidian' ? 'Obsidian' : '手动';
+            const sourceCls = entry.source === 'obsidian' ? 'lib-src-obsidian' : 'lib-src-manual';
+            return `<div class="idx-entry" data-act="idx-open" data-id="${esc(entry.id)}" title="查看详情">
+              <span class="idx-entry-title">${esc(entry.title) || '<span class="lib-muted">（无标题）</span>'}</span>
               <span class="lib-src ${sourceCls}">${sourceLabel}</span>
-              <span class="lib-card-ops">
-                <button class="lib-mini" data-act="idx-up" data-id="${esc(entry.id)}" data-pos="${index}" title="上移" ${isFirst ? 'disabled' : ''}>${icons.up}</button>
-                <button class="lib-mini" data-act="idx-down" data-id="${esc(entry.id)}" data-pos="${index}" title="下移" ${isLast ? 'disabled' : ''}>${icons.down}</button>
-                <button class="lib-mini" data-act="idx-toggle" data-id="${esc(entry.id)}" title="${expanded ? '收起' : '展开全文'}">${expanded ? '收起' : '展开'}</button>
-                <button class="lib-mini" data-act="idx-copy" data-id="${esc(entry.id)}" title="复制条目">${icons.copy}</button>
-                <button class="lib-mini" data-act="idx-edit" data-id="${esc(entry.id)}" title="编辑">${icons.edit}</button>
-                <button class="lib-mini lib-danger" data-act="idx-del" data-id="${esc(entry.id)}" title="删除">${icons.trash}</button>
-              </span>
+              <button type="button" class="lib-mini lib-danger" data-act="idx-del" data-id="${esc(entry.id)}" title="删除">${icons.trash}</button>
+            </div>`;
+          }).join('');
+          return `<section class="idx-cat" data-cat="${esc(g.category)}">
+            <div class="idx-cat-head" role="button" tabindex="0" data-act="idx-cat-toggle" data-cat="${esc(g.category)}" title="${collapsed ? '展开' : '折叠'}分类">
+              <span class="idx-cat-arrow">${collapsed ? '▸' : '▾'}</span>
+              <span class="idx-cat-name">${esc(g.category)}</span>
+              <span class="lib-group-cnt">${g.entries.length}</span>
             </div>
-            <div class="lib-card-body${expanded ? ' open' : ''}">${entry.content ? (expanded ? body : esc(clampText(entry.content, 120))) : '<span class="lib-muted">（无内容）</span>'}</div>
-          </article>`;
+            ${collapsed ? '' : `<div class="idx-entries">${rows}</div>`}
+          </section>`;
         }).join('')
-        : `<div class="lib-empty">${term ? '没有匹配的条目' : '还没有索引条目，点右上角「新建条目」开始收录'}</div>`;
+        : `<div class="lib-empty">${q ? '没有匹配的条目' : '还没有索引条目，点右上角「＋ 新建条目」开始收录'}</div>`;
 
       panel.innerHTML = `
-        <div class="lib-head">
-          <div class="lib-title">${icons.folder}<span>知识索引</span><small>分类收录你的常用资料、链接与片段（${state.entries.length}/${LIMITS.maxEntries}）</small></div>
-          <div class="lib-head-actions">
-            <input class="lib-search" id="lib-index-search" placeholder="搜索标题或内容…" value="${esc(term)}">
-            <button class="btn primary lib-btn" data-act="idx-new">＋ 新建条目</button>
+        <div class="lib-root">
+          <div class="lib-head">
+            <div class="lib-title">${icons.folder}<span>知识索引</span><small>分类收录资料、链接与片段（${state.entries.length}/${LIMITS.maxEntries}）</small></div>
+            <div class="lib-head-actions">
+              <input class="lib-search" id="lib-index-search" placeholder="搜索标题或内容…" value="${esc(state.term)}">
+              <button type="button" class="btn primary lib-btn" data-act="idx-new">＋ 新建条目</button>
+            </div>
           </div>
-        </div>
-        <div class="lib-chip-row">${chips}</div>
-        <main class="lib-main lib-main-full">
-          <div class="lib-main-head"><span class="lib-main-name">${state.category ? esc(state.category) : '全部分类'}</span><span class="lib-muted">${sorted.length} 条</span></div>
-          <div class="lib-list">${cards}</div>
-        </main>`;
-      bindIndexEvents(panel);
-    }
-
-    function clampText(s, max) {
-      const v = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-      return v.length > max ? v.slice(0, max) + '…' : v;
+          <main class="lib-main lib-main-full idx-list">${catSections}</main>
+        </div>`;
+      bindIndexEvents(panel.querySelector('.lib-root'));
     }
 
     function bindIndexEvents(root) {
       const input = root.querySelector('#lib-index-search');
       if (input) input.addEventListener('input', () => { state.term = input.value; renderIndex(); });
+      root.addEventListener('keydown', (e) => {
+        const head = e.target.closest('.idx-cat-head');
+        if (!head) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); head.click(); }
+      });
       root.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-act]');
         if (!btn || btn.disabled) return;
-        const act = btn.dataset.act; const id = btn.dataset.id; const pos = Number(btn.dataset.pos || -1); const cat = btn.dataset.cat;
+        const act = btn.dataset.act; const id = btn.dataset.id; const cat = btn.dataset.cat;
         try {
-          if (act === 'idx-cat') { state.category = cat || ''; renderIndex(); }
+          if (act === 'idx-back') { state.indexView = 'list'; state.detailId = null; renderIndex(); }
+          else if (act === 'idx-open') { state.indexView = 'detail'; state.detailId = id; renderIndex(); }
+          else if (act === 'idx-cat-toggle') {
+            if (state.collapsed.has(cat)) state.collapsed.delete(cat); else state.collapsed.add(cat);
+            renderIndex();
+          }
           else if (act === 'idx-new') await promptForEntry(null);
           else if (act === 'idx-edit') await promptForEntry(id);
           else if (act === 'idx-del') await deleteEntry(id);
-          else if (act === 'idx-toggle') { if (state.expanded.has(id)) state.expanded.delete(id); else state.expanded.add(id); renderIndex(); }
           else if (act === 'idx-copy') await copyEntry(id);
-          else if (act === 'idx-up' || act === 'idx-down') await moveEntry(pos, act === 'idx-up' ? -1 : 1);
         } catch (err) { toast(readError(err)); }
       });
     }
@@ -550,6 +644,7 @@
     // hostEl 缺省时回退到 index.html 里的 #prompts-panel / #index-panel。
     function renderInto(mode, hostEl) {
       state.mode = mode === 'index' ? 'index' : 'prompts';
+      if (state.mode === 'index') { state.indexView = 'list'; state.detailId = null; }
       state.hostEl = hostEl || document.getElementById(mode === 'index' ? 'index-panel' : 'prompts-panel') || null;
       if (!state.hostEl) return Promise.resolve();
       if (state.mode === 'index') return listIndex().then(() => renderIndex());
