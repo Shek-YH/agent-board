@@ -68,7 +68,7 @@
 
     const shell = document.createElement('div');
     shell.innerHTML = `
-      <button class="todo-edge-trigger" type="button" aria-label="打开 Todo" title="打开 Todo（Alt+Q 待办 · Alt+E 索引）"></button>
+      <button class="todo-edge-trigger" type="button" aria-label="打开 Todo" title="打开 Todo（Alt+Q 待办 · Alt+W 提示词 · Alt+E 索引）"></button>
       <aside class="todo-drawer" data-mode="hidden" aria-label="Todo 面板">
         <header class="todo-panel-head">
           <div class="todo-panel-title"><h2>Todo</h2><div class="todo-panel-project">手动添加的全局任务</div></div>
@@ -89,7 +89,7 @@
         <div class="todo-toolbar" data-role="todo-part">
           <label><input type="checkbox" data-action="hover-enabled">边缘悬停展开</label>
           <label><input type="checkbox" data-action="hide-completed">隐藏已完成</label>
-          <span>Alt+Q 待办 · Alt+E 索引</span>
+          <span>Alt+Q 待办 · Alt+W 提示词 · Alt+E 索引</span>
         </div>
         <div class="todo-list" data-role="list" data-role-todo-part></div>
         <form class="todo-quick-add" data-role="quick-add" data-role-todo-part>
@@ -462,6 +462,11 @@
       const key = event.key.toLowerCase();
       if (isPlainAlt && key === 'q') {
         event.preventDefault(); state.mode === 'peek' ? setMode('hidden') : setMode('peek');
+      } else if (isPlainAlt && key === 'w') {
+        // Alt+W：打开抽屉并直达「提示词」标签
+        event.preventDefault();
+        if (state.mode === 'hidden') setMode('peek');
+        if (state.panel !== 'prompts') void showPanel('prompts');
       } else if (isPlainAlt && key === 'e') {
         // Alt+E：打开抽屉并直达「索引」标签（参考 AIassis 全局跳转习惯）
         event.preventDefault();

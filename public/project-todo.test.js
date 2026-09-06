@@ -12,14 +12,16 @@ test('项目 Todo 抽屉默认隐藏，并支持 Hover、快捷键和固定状�
   assert.match(source, /mode: readBoolean\(storage, PINNED_KEY, false\) \? 'pinned' : 'hidden'/);
   assert.match(source, /const OPEN_DELAY_MS = 80/);
   assert.match(source, /const CLOSE_DELAY_MS = 300/);
-  assert.match(source, /Alt\+Q 待办 · Alt\+E 索引/);
+  assert.match(source, /Alt\+Q 待办 · Alt\+W 提示词 · Alt\+E 索引/);
   assert.match(source, /const DEFAULT_WIDTH = 480/);
   assert.match(source, /if \(value == null \|\| value === ''\) return DEFAULT_WIDTH/);
   assert.match(source, /data-mode="hidden"/);
-  assert.match(source, /Alt\+Q 待办 · Alt\+E 索引/);
+  assert.match(source, /Alt\+Q 待办 · Alt\+W 提示词 · Alt\+E 索引/);
   assert.match(source, /event\.altKey && !event\.ctrlKey && !event\.metaKey && !event\.shiftKey/);
   assert.match(source, /state\.mode === 'peek' \? setMode\('hidden'\) : setMode\('peek'\)/);
-  // Alt+E 直达索引标签
+  // Alt+W 直达提示词、Alt+E 直达索引
+  assert.match(source, /isPlainAlt && key === 'w'/);
+  assert.match(source, /if \(state\.panel !== 'prompts'\) void showPanel\('prompts'\)/);
   assert.match(source, /isPlainAlt && key === 'e'/);
   assert.match(source, /if \(state\.panel !== 'index'\) void showPanel\('index'\)/);
   // 标题由「Todo 清单」简化为「Todo」
