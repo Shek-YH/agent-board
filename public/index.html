@@ -773,6 +773,8 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
 
 /* ===== 资料库面板（提示词库 / 知识索引）===== */
 .lib-panel{padding:2px 0 4px;display:flex;flex-direction:column;gap:14px}
+.lib-root{display:flex;flex-direction:column;gap:12px;min-width:0}
+.todo-lib-host>.lib-root{flex:1;min-height:0;gap:10px}
 .lib-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .lib-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;color:var(--text)}
 .lib-title svg{color:var(--accent);flex:0 0 auto}
@@ -840,6 +842,28 @@ html[data-theme-effect="neon"] .s-card:hover,html[data-theme-effect="neon"] .btn
 html[data-theme="dark"] .lib-mini.lib-danger:hover,html[data-theme="midnight"] .lib-mini.lib-danger:hover{background:rgba(220,38,38,.16)}
 html[data-theme="dark"] .lib-form-error,html[data-theme="midnight"] .lib-form-error{background:rgba(220,38,38,.14);border-color:rgba(220,38,38,.3)}
 html[data-theme="dark"] .lib-src-obsidian,html[data-theme="midnight"] .lib-src-obsidian{color:#C4B5FD;background:rgba(124,58,237,.16);border-color:rgba(139,92,246,.35)}
+
+/* ===== Todo 抽屉内平级标签：待办 / 提示词 / 索引 ===== */
+.todo-tabs{display:flex;gap:2px;padding:6px 12px 0;border-bottom:1px solid var(--border);background:var(--surface)}
+.todo-tab{flex:1;min-width:0;padding:6px 4px 8px;border-bottom:2px solid transparent;border-radius:7px 7px 0 0;color:var(--muted-foreground);font-size:12px;font-weight:650;text-align:center;white-space:nowrap;transition:color .12s}
+.todo-tab:hover{color:var(--surface-foreground);background:var(--surface-hover)}
+.todo-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.todo-lib-host{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:none;flex-direction:column;gap:10px;padding:10px}
+.todo-lib-host:not([hidden]){display:flex}
+.todo-drawer .lib-search{max-width:none;min-width:0;flex:1 1 120px}
+.todo-drawer .lib-card-title{min-width:0}
+.lib-chip-row{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.lib-chip-row::-webkit-scrollbar{height:4px}
+.lib-chip{flex:0 0 auto}
+.lib-chip-add{border-style:dashed;color:var(--muted-foreground)}
+.lib-chip-add:hover{border-color:var(--accent);color:var(--accent);border-style:solid}
+.lib-mgr-list{display:flex;flex-direction:column;max-height:44vh;overflow-y:auto}
+.lib-mgr-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--border)}
+.lib-mgr-row:last-child{border-bottom:none}
+.lib-mgr-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.lib-mgr-ops{display:inline-flex;gap:2px;flex:0 0 auto}
+.lib-mgr-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:6px}
+.lib-modal-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 </style>
 </head>
 <body>
@@ -870,8 +894,6 @@ html[data-theme="dark"] .lib-src-obsidian,html[data-theme="midnight"] .lib-src-o
   <nav class="monitor-nav" id="monitor-nav" aria-label="监控模式">
     <button class="monitor-tab active" type="button" data-monitor-mode="manual">人工监控</button>
     <button class="monitor-tab" type="button" data-monitor-mode="ai">AI 监控</button>
-    <button class="monitor-tab" type="button" data-monitor-mode="prompts">提示词库</button>
-    <button class="monitor-tab" type="button" data-monitor-mode="index">知识索引</button>
   </nav>
 
   <div class="monitor-panel" id="manual-monitor-panel">
@@ -988,9 +1010,6 @@ html[data-theme="dark"] .lib-src-obsidian,html[data-theme="midnight"] .lib-src-o
     </div>
     <div class="ai-capabilities"><h3>模型能力与 API Key 状态（只显示是否可用）</h3><div class="ai-capability-list" id="ai-capability-list"></div><div class="ai-agent-capability-list" id="ai-agent-capability-list"></div><div class="ai-routing-capability-list" id="ai-routing-capability-list"></div><div class="ai-provider-config" id="ai-provider-config"></div></div>
   </section>
-
-  <section class="monitor-panel lib-panel" id="prompts-panel" hidden aria-label="提示词库"></section>
-  <section class="monitor-panel lib-panel" id="index-panel" hidden aria-label="知识索引"></section>
 </div>
 
 <div class="drawer-mask" id="mask"></div>

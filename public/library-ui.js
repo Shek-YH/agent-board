@@ -86,6 +86,7 @@
       groups: [], prompts: [], categories: [], entries: [],
       groupId: null, category: '', term: '',
       expanded: new Set(), // entry id 展开状态
+      hostEl: null, // 渲染宿主（Todo 抽屉内的 .todo-lib-host，或主区面板容器）
     };
 
     // 一次性把 icon() 调用结果打包成字典，避免模板里写成 icons.xxx 时只拿到函数引用
@@ -120,36 +121,22 @@
       return null;
     }
 
-    /* ---------- 渲染：提示词库 ---------- */
+    /* ---------- 渲染：提示词库（分组 chips + 单栏卡片；分组管理进弹窗） ---------- */
     function renderPrompts() {
-      const panel = document.getElementById('prompts-panel');
+      const panel = state.hostEl;
       if (!panel) return;
       const groups = sortNumericAsc(state.groups, 'sort_order');
       const selectedId = state.groups.some((x) => x.id === state.groupId) ? state.groupId : groups[0]?.id || null;
       state.groupId = selectedId;
       const selected = groups.find((x) => x.id === selectedId) || null;
-      const allPrompts = state.prompts.filter((p) => p.group_id === selectedId);
-      const sorted = sortNumericAsc(allPrompts, 'sort_order');
+      const sorted = sortNumericAsc(state.prompts.filter((p) => p.group_id === selectedId), 'sort_order');
       const term = state.term;
       const shown = filterText(sorted, term, ['title', 'content']);
-
-      const groupHtml = groups.map((g, gi) => {
-        const count = state.prompts.filter((p) => p.group_id === g.id).length;
+      const chips = groups.map((g) => {
+        const n = state.prompts.filter((p) => p.group_id === g.id).length;
         const on = g.id === selectedId;
-        const buttons = on
-          ? `<button type="button" class="lib-mini" data-act="pg-edit" data-id="${esc(g.id)}" title="重命名分组">${icons.edit}</button>
-             <button type="button" class="lib-mini" data-act="pg-up" data-id="${esc(g.id)}" data-pos="${gi}" title="上移" ${gi === 0 ? 'disabled' : ''}>${icons.up}</button>
-             <button type="button" class="lib-mini" data-act="pg-down" data-id="${esc(g.id)}" data-pos="${gi}" title="下移" ${gi >= groups.length - 1 ? 'disabled' : ''}>${icons.down}</button>
-             <button type="button" class="lib-mini lib-danger" data-act="pg-del" data-id="${esc(g.id)}" title="删除分组（连同其中提示词）">${icons.trash}</button>`
-          : '';
-        return `<div role="button" tabindex="0" class="lib-group${on ? ' on' : ''}" data-act="pg-select" data-id="${esc(g.id)}">
-          <span class="lib-group-ico">${icons.folder}</span>
-          <span class="lib-group-name">${esc(g.name)}</span>
-          <span class="lib-group-cnt">${count}</span>
-          ${on ? `<span class="lib-group-ops">${buttons}</span>` : ''}
-        </div>`;
+        return `<button type="button" class="lib-chip${on ? ' on' : ''}" data-act="pg-select" data-id="${esc(g.id)}">${esc(g.name)}<span class="lib-group-cnt">${n}</span></button>`;
       }).join('');
-
       const cards = shown.length
         ? shown.map((p) => {
           const meta = p.use_count ? `<span class="lib-badge" title="最近使用：${esc(p.last_used_at || '')}">使用 ${Number(p.use_count) || 0} 次</span>` : '';
@@ -158,59 +145,55 @@
               <div class="lib-card-title" title="${esc(p.title)}">${esc(p.title) || '<span class="lib-muted">（无标题）</span>'}</div>
               <span class="lib-card-ops">
                 ${meta}
-                <button class="lib-mini" data-act="prompt-copy" data-id="${esc(p.id)}" title="复制提示词内容">${icons.copy}</button>
-                <button class="lib-mini" data-act="prompt-use" data-id="${esc(p.id)}" title="标记一次使用">${icons.use}</button>
-                <button class="lib-mini" data-act="prompt-edit" data-id="${esc(p.id)}" title="编辑">${icons.edit}</button>
-                <button class="lib-mini lib-danger" data-act="prompt-del" data-id="${esc(p.id)}" title="删除">${icons.trash}</button>
+                <button type="button" class="lib-mini" data-act="prompt-copy" data-id="${esc(p.id)}" title="复制提示词内容">${icons.copy}</button>
+                <button type="button" class="lib-mini" data-act="prompt-use" data-id="${esc(p.id)}" title="标记一次使用">${icons.use}</button>
+                <button type="button" class="lib-mini" data-act="prompt-edit" data-id="${esc(p.id)}" title="编辑">${icons.edit}</button>
+                <button type="button" class="lib-mini lib-danger" data-act="prompt-del" data-id="${esc(p.id)}" title="删除">${icons.trash}</button>
               </span>
             </div>
-            <div class="lib-card-body">${p.content ? esc(clampText(p.content, 300)) : '<span class="lib-muted">（无内容）</span>'}</div>
+            <div class="lib-card-body">${p.content ? esc(clampText(p.content, 260)) : '<span class="lib-muted">（无内容）</span>'}</div>
           </article>`;
         }).join('')
         : `<div class="lib-empty">${term ? '没有匹配的提示词' : (selected ? '该分组还没有提示词' : '请先新建一个分组')}</div>`;
-
       panel.innerHTML = `
-        <div class="lib-head">
-          <div class="lib-title">${icons.layers}<span>提示词库</span><small>按分组管理常用提示词，一键复制或标记使用</small></div>
-          <div class="lib-head-actions">
-            <input class="lib-search" id="lib-prompt-search" placeholder="搜索标题或内容…" value="${esc(term)}">
-            <button class="btn primary lib-btn" data-act="pg-new">＋ 新建分组</button>
-            <button class="btn lib-btn" data-act="prompt-new" ${selected ? '' : 'disabled'}>＋ 新建提示词</button>
-          </div>
-        </div>
-        <div class="lib-cols">
-          <aside class="lib-side">
-            <div class="lib-side-label">分组（${groups.length}/${LIMITS.maxGroups}）</div>
-            ${groupHtml || '<div class="lib-empty">暂无分组</div>'}
-          </aside>
-          <main class="lib-main">
-            <div class="lib-main-head">
-              <span class="lib-main-name">${selected ? esc(selected.name) : '未选择分组'}</span>
-              <span class="lib-muted">${shown.length} / ${sorted.length} 条提示词</span>
+        <div class="lib-root">
+          <div class="lib-head">
+            <div class="lib-title">${icons.layers}<span>提示词库</span><small>按分组管理常用提示词，一键复制或标记使用</small></div>
+            <div class="lib-head-actions">
+              <input class="lib-search" id="lib-prompt-search" placeholder="搜索标题或内容…" value="${esc(term)}">
+              <button type="button" class="btn lib-btn" data-act="pg-manage" title="新建/重命名/排序/删除分组">分组</button>
+              <button type="button" class="btn primary lib-btn" data-act="prompt-new" ${selected ? '' : 'disabled'}>＋ 提示词</button>
             </div>
+          </div>
+          <div class="lib-chip-row">
+            ${chips || '<span class="lib-muted">暂无分组</span>'}
+            <button type="button" class="lib-chip lib-chip-add" data-act="pg-new" title="新建分组">${icons.plus} 分组</button>
+          </div>
+          <main class="lib-main lib-main-full">
+            <div class="lib-main-head"><span class="lib-main-name">${selected ? esc(selected.name) : '未选择分组'}</span><span class="lib-muted">${shown.length} / ${sorted.length} 条提示词</span></div>
             <div class="lib-list">${cards}</div>
           </main>
         </div>`;
-      bindPromptEvents(panel);
+      bindPromptEvents(panel.querySelector('.lib-root'));
     }
 
-    // panel 级事件委托只注册一次（render 会重建 innerHTML，重复绑定会累积监听器）
-    const ensurePanelBound = (panel, onClick, onKeydown) => {
-      if (panel.dataset.libBound === '1') return;
-      panel.dataset.libBound = '1';
-      if (onKeydown) panel.addEventListener('keydown', onKeydown);
-      if (onClick) panel.addEventListener('click', onClick);
-    };
-
-    function bindPromptEvents(panel) {
-      const input = panel.querySelector('#lib-prompt-search');
+    // 事件都绑在每次渲染新建的 .lib-root 上：root 随 host.innerHTML 重建被整体替换，
+    // 监听器随之释放，不会在同一 host 上累积；不同面板（提示词/索引）也互不干扰。
+    function bindPromptEvents(root) {
+      const input = root.querySelector('#lib-prompt-search');
       if (input) input.addEventListener('input', () => { state.term = input.value; renderPrompts(); });
-      const onClick = async (e) => {
+      root.addEventListener('keydown', (e) => {
+        const group = e.target.closest('.lib-group');
+        if (!group) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); group.click(); }
+      });
+      root.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-act]');
         if (!btn || btn.disabled) return;
         const act = btn.dataset.act; const id = btn.dataset.id; const pos = Number(btn.dataset.pos || -1);
         try {
           if (act === 'pg-select') { state.groupId = id; renderPrompts(); }
+          else if (act === 'pg-manage') openGroupManager();
           else if (act === 'pg-new') await promptForNewGroup();
           else if (act === 'pg-edit') await promptForRenameGroup(id);
           else if (act === 'pg-up' || act === 'pg-down') await moveGroup(pos, act === 'pg-up' ? -1 : 1);
@@ -221,18 +204,12 @@
           else if (act === 'prompt-copy') await copyPrompt(id);
           else if (act === 'prompt-use') await usePrompt(id);
         } catch (err) { toast(readError(err)); }
-      };
-      const onKeydown = (e) => {
-        const group = e.target.closest('.lib-group');
-        if (!group) return;
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); group.click(); }
-      };
-      ensurePanelBound(panel, onClick, onKeydown);
+      });
     }
 
     /* ---------- 渲染：知识索引 ---------- */
     function renderIndex() {
-      const panel = document.getElementById('index-panel');
+      const panel = state.hostEl;
       if (!panel) return;
       const term = state.term;
       const catList = state.categories.slice();
@@ -293,10 +270,10 @@
       return v.length > max ? v.slice(0, max) + '…' : v;
     }
 
-    function bindIndexEvents(panel) {
-      const input = panel.querySelector('#lib-index-search');
+    function bindIndexEvents(root) {
+      const input = root.querySelector('#lib-index-search');
       if (input) input.addEventListener('input', () => { state.term = input.value; renderIndex(); });
-      const onClick = async (e) => {
+      root.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-act]');
         if (!btn || btn.disabled) return;
         const act = btn.dataset.act; const id = btn.dataset.id; const pos = Number(btn.dataset.pos || -1); const cat = btn.dataset.cat;
@@ -309,8 +286,7 @@
           else if (act === 'idx-copy') await copyEntry(id);
           else if (act === 'idx-up' || act === 'idx-down') await moveEntry(pos, act === 'idx-up' ? -1 : 1);
         } catch (err) { toast(readError(err)); }
-      };
-      ensurePanelBound(panel, onClick, null);
+      });
     }
 
     /* ---------- 提示词库动作 ---------- */
@@ -438,7 +414,66 @@
       await listIndex(); renderIndex();
     }
 
+    /* ---------- 通用：分组管理弹窗（在 makeModal 之上） ---------- */
+    function openGroupManager() {
+      const groups = sortNumericAsc(state.groups, 'sort_order');
+      const { body, close } = makeModal({ title: `管理分组（${groups.length}/${LIMITS.maxGroups}）` });
+      const rows = groups.length
+        ? groups.map((g, gi) => {
+          const n = state.prompts.filter((p) => p.group_id === g.id).length;
+          return `<div class="lib-mgr-row" data-id="${esc(g.id)}">
+            <span class="lib-mgr-name" title="${esc(g.name)}">${esc(g.name)}</span>
+            <span class="lib-group-cnt">${n}</span>
+            <span class="lib-mgr-ops">
+              <button type="button" class="lib-mini" data-mgr="up" data-pos="${gi}" title="上移" ${gi === 0 ? 'disabled' : ''}>${icons.up}</button>
+              <button type="button" class="lib-mini" data-mgr="down" data-pos="${gi}" title="下移" ${gi >= groups.length - 1 ? 'disabled' : ''}>${icons.down}</button>
+              <button type="button" class="lib-mini" data-mgr="rename" title="重命名">${icons.edit}</button>
+              <button type="button" class="lib-mini lib-danger" data-mgr="delete" title="删除分组（连同其中提示词）">${icons.trash}</button>
+            </span>
+          </div>`;
+        }).join('')
+        : '<div class="lib-empty">暂无分组</div>';
+      body.innerHTML = `
+        <div class="lib-mgr-list">${rows}</div>
+        <div class="lib-mgr-foot">
+          <button type="button" class="btn primary" data-mgr="new">＋ 新建分组</button>
+          <button type="button" class="btn" data-mgr="done">完成</button>
+        </div>`;
+      body.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-mgr]');
+        if (!btn || btn.disabled) return;
+        const row = btn.closest('[data-id]');
+        const id = row?.dataset.id;
+        const pos = Number(btn.dataset.pos);
+        try {
+          const mgr = btn.dataset.mgr;
+          if (mgr === 'new') { close(); await promptForNewGroup(); }
+          else if (mgr === 'done') { close(); }
+          else if (mgr === 'rename') { close(); await promptForRenameGroup(id); }
+          else if (mgr === 'delete') { close(); await deleteGroup(id); }
+          else if (mgr === 'up' || mgr === 'down') { await moveGroup(pos, mgr === 'up' ? -1 : 1); close(); openGroupManager(); }
+        } catch (err) { toast(readError(err)); }
+      });
+    }
+
     /* ---------- 通用：剪贴板 / 弹窗表单 ---------- */
+    // makeModal：通用弹窗骨架，body 由调用方填充并自行绑定交互
+    function makeModal({ title, width = '' } = {}) {
+      const mask = dom().el('div', { class: 'lib-modal-mask' });
+      const node = dom().el('div', { class: 'lib-modal' });
+      if (width) node.style.width = width;
+      node.innerHTML = `
+        <div class="lib-modal-head"><h3>${esc(title)}</h3><button type="button" class="lib-mini" data-x title="关闭">${icons.close}</button></div>
+        <div class="lib-modal-body"></div>`;
+      mask.appendChild(node);
+      document.body.appendChild(mask);
+      const body = node.querySelector('.lib-modal-body');
+      const close = () => mask.remove();
+      mask.addEventListener('mousedown', (e) => { if (e.target === mask) close(); });
+      node.querySelector('[data-x]').addEventListener('click', close);
+      return { mask, node, body, close };
+    }
+
     async function copyText(value) {
       const s = String(value || '');
       if (!s) { toast('内容为空'); return; }
@@ -511,14 +546,21 @@
     }
 
     /* ---------- 入口 ---------- */
-    function show(mode) {
+    // renderInto(mode, hostEl)：把面板渲染进外部容器（Todo 抽屉/主区面板），
+    // hostEl 缺省时回退到 index.html 里的 #prompts-panel / #index-panel。
+    function renderInto(mode, hostEl) {
       state.mode = mode === 'index' ? 'index' : 'prompts';
-      state.term = '';
-      if (mode === 'index') return listIndex().then(() => renderIndex());
+      state.hostEl = hostEl || document.getElementById(mode === 'index' ? 'index-panel' : 'prompts-panel') || null;
+      if (!state.hostEl) return Promise.resolve();
+      if (state.mode === 'index') return listIndex().then(() => renderIndex());
       return listPrompts().then(() => renderPrompts());
     }
+    function show(mode) {
+      state.term = '';
+      return renderInto(mode, null);
+    }
 
-    return { show, refresh };
+    return { show, renderInto, refresh };
   }
 
   const api = { createLibraryPanels, LIMITS, sortNumericAsc, filterText, checkLength };

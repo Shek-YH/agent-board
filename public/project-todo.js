@@ -39,7 +39,7 @@
     return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
   }
 
-  function createProjectTodoDrawer({ requestJson, escapeHtml, notify } = {}) {
+  function createProjectTodoDrawer({ requestJson, escapeHtml, notify, onRenderPanel } = {}) {
     if (typeof requestJson !== 'function') throw new TypeError('Project Todo drawer requires requestJson');
     const esc = typeof escapeHtml === 'function' ? escapeHtml : (value) => String(value ?? '');
     const storage = safeStorage();
@@ -55,6 +55,7 @@
       interactionLocked: false,
       editing: null,
       addingSubtask: null,
+      panel: 'todo', // todo | prompts | index（与抽屉内平级标签联动）
     };
     let openTimer = null;
     let closeTimer = null;
@@ -76,20 +77,26 @@
             <button class="todo-panel-btn" type="button" data-action="close" aria-label="关闭 Todo 面板" title="关闭 Todo 面板">${icon('close')}</button>
           </div>
         </header>
-        <div class="todo-progress">
+        <nav class="todo-tabs" aria-label="清单类型">
+          <button type="button" class="todo-tab on" data-panel="todo">待办</button>
+          <button type="button" class="todo-tab" data-panel="prompts">提示词</button>
+          <button type="button" class="todo-tab" data-panel="index">索引</button>
+        </nav>
+        <div class="todo-progress" data-role="todo-part">
           <div class="todo-progress-line"><strong data-role="progress-label">0 / 0 已完成</strong><span data-role="progress-percent">0%</span></div>
           <div class="todo-progress-track"><div class="todo-progress-fill" data-role="progress-fill" style="width:0%"></div></div>
         </div>
-        <div class="todo-toolbar">
+        <div class="todo-toolbar" data-role="todo-part">
           <label><input type="checkbox" data-action="hover-enabled">边缘悬停展开</label>
           <label><input type="checkbox" data-action="hide-completed">隐藏已完成</label>
           <span>Alt+Q 呼出</span>
         </div>
-        <div class="todo-list" data-role="list"></div>
-        <form class="todo-quick-add" data-role="quick-add">
+        <div class="todo-list" data-role="list" data-role-todo-part></div>
+        <form class="todo-quick-add" data-role="quick-add" data-role-todo-part>
           <input class="todo-quick-input" data-role="quick-input" placeholder="添加任务…" maxlength="500" aria-label="添加任务">
           <button class="todo-task-action" type="submit" data-action="quick-add" aria-label="添加任务" title="添加任务">${icon('plus')}</button>
         </form>
+        <div class="todo-lib-host" data-role="lib-host" hidden></div>
         <div class="todo-drawer-resize" data-role="resize" role="separator" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="480" aria-valuenow="320" tabindex="0" aria-label="调整 Todo 面板宽度"></div>
       </aside>`;
     document.body.appendChild(shell);
@@ -105,6 +112,21 @@
     const quickForm = shell.querySelector('[data-role="quick-add"]');
     const quickInput = shell.querySelector('[data-role="quick-input"]');
     const resizeHandle = shell.querySelector('[data-role="resize"]');
+    // 平级标签（待办 / 提示词 / 索引）
+    const panelTabs = Array.from(shell.querySelectorAll('.todo-tab'));
+    const libHost = shell.querySelector('[data-role="lib-host"]');
+    const todoParts = Array.from(shell.querySelectorAll('[data-role="todo-part"], [data-role="list"], [data-role="quick-add"]'));
+
+    function showPanel(panel) {
+      const isTodo = panel === 'todo';
+      if (!isTodo && typeof onRenderPanel !== 'function') return; // 无库面板宿主时保持原行为
+      state.panel = isTodo ? 'todo' : panel;
+      panelTabs.forEach((tab) => tab.classList.toggle('on', tab.dataset.panel === state.panel));
+      todoParts.forEach((el) => { el.hidden = !isTodo; });
+      if (libHost) libHost.hidden = isTodo;
+      if (isTodo) { if (libHost) libHost.innerHTML = ''; return refresh(); }
+      return onRenderPanel(state.panel, libHost);
+    }
 
     function tell(message) {
       if (typeof notify === 'function') notify(message);
@@ -137,7 +159,10 @@
       if (mode === 'pinned') save(PINNED_KEY, '1');
       if (mode === 'hidden') save(PINNED_KEY, '0');
       applyMode();
-      if (mode !== 'hidden') void refresh();
+      if (mode !== 'hidden') {
+        if (state.panel === 'todo') void refresh();
+        else void showPanel(state.panel);
+      }
     }
 
     function scheduleClose() {
@@ -330,6 +355,12 @@
         body: JSON.stringify({ parentId, title: value }),
       }), parentId ? '子任务已添加' : '任务已添加');
     }
+
+    panelTabs.forEach((tab) => tab.addEventListener('click', () => {
+      if (state.panel === tab.dataset.panel) return;
+      if (tab.dataset.panel !== 'todo' && state.editing) finishEdit(false);
+      void showPanel(tab.dataset.panel);
+    }));
 
     shell.addEventListener('click', (event) => {
       const target = event.target.closest('[data-action]');
