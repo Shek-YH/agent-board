@@ -1475,7 +1475,18 @@ async function scanAll({ full = false, maxAgeMs = SCAN_DAYS * DAY_MS, mode = 're
       if (j.adapter.ID === 'codex') {
         const last = lastMsgs[lastMsgs.length - 1];
         const sourceTs = lines.reduce((latest, line) => Math.max(latest, Date.parse(line.timestamp) || 0), 0);
-        store.noteCodexActivity(`codex:${j.adapter.fileToSessionId(j.file)}`, sourceTs, { agent: 'codex', project: (last && last.project) || '' });
+        const info = { agent: 'codex', project: (last && last.project) || '' };
+        const ref = `codex:${j.adapter.fileToSessionId(j.file)}`;
+        // 与 adapter 增量路径（codex.js updateCodexActivity）同语义：若这批行内含明确的
+        // 「新一轮开始」证据（task_started / 真实用户消息）→ confirmCodexContinuation 撤销
+        // 上一回合可能已触发的完成信号/pending 候选；否则只记活跃。此前 scanAll 只调
+        // noteCodexActivity，运行中触发全量重扫 + 文件含上回合 task_complete 时，
+        // 会把仍在跑新一轮的会话瞬时误翻 done（甚至补发假完成弹窗）。
+        if (lines.some(codex.isDefinitiveContinuationLine)) {
+          store.confirmCodexContinuation(ref, sourceTs, info);
+        } else {
+          store.noteCodexActivity(ref, sourceTs, info);
+        }
       }
       store.stmts.setMeta.run(key, String(newOffset));
       rememberFileOffset(j.adapter, j.file, signature);
@@ -1675,12 +1686,14 @@ function startWatchers() {
       }
     } catch { /* ignore */ }
   }, HERMES_SCAN_INTERVAL_MS);
-  // 桌面会话「停顿检测」：WorkBuddy / DeepSeek 都不能用常驻桌面进程判断某张卡是否仍在跑，
-  // 由各自 adapter 用「文件静止 + 最后一条 assistant 消息」提前结束「进行中」。
+  // 桌面会话「停顿检测」：WorkBuddy / DeepSeek / Claude（桌面托管常驻 CLI）都不能用常驻桌面
+  // 进程判断某张卡是否仍在跑，由各自 adapter 用「文件静止 + 最后一条 assistant 消息」提前结束
+  // 「进行中」→ store 通用出口 allowStop 广播完成弹窗。
   const deskTimer = setInterval(() => {
     try {
       workbuddy.checkDesktopIdle(store);
       deepseek.checkDesktopIdle(store);
+      claude.checkDesktopIdle(store);
     } catch { /* ignore */ }
   }, 20 * 1000);
   // CLI agent 进程检查：「进行中」= 最后真实消息 10 分钟窗口，但 CLI 任务跑完进程即退出——
@@ -3281,6 +3294,7 @@ async function runStartupTasks() {
     try {
       workbuddy.checkDesktopIdle(store);
       deepseek.checkDesktopIdle(store);
+      claude.checkDesktopIdle(store);
     } catch { /* ignore */ }
   } catch (error) {
     console.error('[startup] 后台初始化失败:', error.message);

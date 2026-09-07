@@ -10,7 +10,12 @@ const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 test('Codex 完成状态由防抖后的 task_complete 决定，不再走静默完成检测', () => {
   assert.match(source, /store\.migrateCodexCompletionSignals\(\);/);
   assert.doesNotMatch(source, /idleCheck\.checkCodexIdle\(store\)/);
-  assert.match(source, /store\.noteCodexActivity\(`codex:\$\{j\.adapter\.fileToSessionId\(j\.file\)\}`/);
+  // scanAll 与 adapter 增量路径同语义：行内含明确新一轮开始证据 → confirmCodexContinuation
+  // 撤销上一回合完成信号（防运行中全量重扫误翻 done），否则只记活跃
+  assert.match(source, /const ref = `codex:\$\{j\.adapter\.fileToSessionId\(j\.file\)\}`/);
+  assert.match(source, /codex\.isDefinitiveContinuationLine/);
+  assert.match(source, /store\.confirmCodexContinuation\(ref, sourceTs, info\);/);
+  assert.match(source, /store\.noteCodexActivity\(ref, sourceTs, info\);/);
   assert.match(source, /codex\.reconcileRecentCompletions\(store\);/);
 });
 
