@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     ipcRenderer.on('shortcut:toggle-project-todo', listener);
     return () => ipcRenderer.removeListener('shortcut:toggle-project-todo', listener);
   },
-  notifyCompletion: (agent, sessionId) => ipcRenderer.invoke('notification:completion', { agent, sessionId }),
+  notifyCompletion: (agent, sessionId) => { /* 2026-09-07 暂时停用系统弹窗，仅保留语音通知；通道占位以备恢复 */ void agent; void sessionId; },
   selectProjectFolder: () => ipcRenderer.invoke('project:select-folder'),
   provider: Object.freeze({
     getStatus: () => ipcRenderer.invoke('provider:status'),

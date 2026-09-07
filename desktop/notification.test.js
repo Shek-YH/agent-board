@@ -9,26 +9,16 @@ const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8');
 const renderer = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-test('Electron 桌面端为 WorkBuddy completion SSE 提供系统通知通道', () => {
-  assert.match(main, /Notification/);
-  assert.match(main, /notification:completion/);
-  assert.match(preload, /notifyCompletion/);
-  assert.match(renderer, /addEventListener\(['"]completion['"]|addEventListener\("completion"/);
-  assert.match(renderer, /notifyCompletion/);
-});
+// 2026-09-07：用户暂时关闭完成会话系统弹窗，只保留语音通知完成。
+// IPC 通道（notification:completion）+ main 的 showAgentCompletionNotification 已停用。
+// 后续若要恢复，参考 git 历史（commit c9e814b 起的版本）并恢复本测试为正向断言。
 
-test('完成弹窗受理回执（ack）契约：主进程返回 tsAck/popupShown，渲染层以弹窗受理时刻为权威完成时刻', () => {
-  // 主进程：受理即记录 tsAck 并返回结构化回执（弹不弹都回执，与系统通知解耦）
-  assert.match(main, /function showAgentCompletionNotification/);
-  assert.match(main, /const tsAck = Date\.now\(\)/);
-  assert.match(main, /COMPLETION_AGENT_LABELS/);
-  assert.match(main, /popupShown/);
-  assert.match(main, /return \{ ok: true, tsAck, popupShown: true/);
-  assert.match(main, /NOTIFICATION_UNSUPPORTED/);
-  // 渲染层：completion SSE → 先收 ack 取 tsAck 作为权威完成时间，再本地立即点亮卡片
-  assert.match(renderer, /notifyCompletion\?\.\(provider, sessionId\)/);
-  assert.match(renderer, /completedAt = ack && ack\.ok && Number\(ack\.tsAck\)/);
-  assert.match(renderer, /markCompletionOnce/);
-  assert.match(renderer, /completionMarkedAt/);
-  assert.match(renderer, /syncCompletedCardState/);
+test('完成会话系统弹窗通道已停用，仅保留语音通知完成', () => {
+  // 主进程不应再处理 notification:completion IPC、调用 Notification 弹窗、导出弹窗函数
+  assert.doesNotMatch(main, /ipcMain\.handle\(['"]notification:completion['"]/);
+  assert.doesNotMatch(main, /function showAgentCompletionNotification/);
+  assert.doesNotMatch(main, /new Notification\(\{[\s\S]{0,200}已完成/);
+  // preload 的 notifyCompletion 通道占位（无 IPC 调用），renderer 不再调用
+  assert.doesNotMatch(preload, /ipcRenderer\.invoke\(['"]notification:completion['"]/);
+  assert.doesNotMatch(renderer, /AgentBoardDesktop\?\.notifyCompletion\?/);
 });

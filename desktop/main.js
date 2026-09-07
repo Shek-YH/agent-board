@@ -340,47 +340,8 @@ ipcMain.handle('shortcut:set', (_event, input) => {
     return { ok: false, error: `保存快捷键失败：${error.message || '未知错误'}`, accelerator: previous };
   }
 });
-
-// 完成弹窗受理（ack）设计：主进程「受理完成通知」的时刻 tsAck 即权威完成时间戳。
-// - 受理时刻在弹窗前记录并随 IPC 回执返回渲染层——与系统是否真的弹出无关（Focus Assist/
-//   关闭通知/无通知能力都照常回执），卡片状态更新因此与系统通知解耦。
-// - popupShown 仅表示「成功调用了系统通知 API」，作为展示元数据，不参与状态判定。
-// 通用完成弹窗：任何 agent 的 completion 事件都走这里，标题按 agent 区分。
-const COMPLETION_AGENT_LABELS = Object.freeze({
-  workbuddy: 'WorkBuddy',
-  codex: 'Codex',
-  claude: 'Claude Code',
-  marvis: 'Marvis',
-  deepseek: 'DeepSeek',
-  zcode: 'ZCode',
-  pi: 'Pi',
-  hermes: 'Hermes',
-});
-function showAgentCompletionNotification(input = {}) {
-  const tsAck = Date.now();
-  const agent = String(input?.agent || 'workbuddy').replace(/[\r\n]/g, ' ').slice(0, 40);
-  const rawSessionId = input?.sessionId;
-  const sessionId = String(rawSessionId || '').replace(/[\r\n]/g, ' ').slice(0, 80);
-  const label = COMPLETION_AGENT_LABELS[agent] || agent || 'AI Agent';
-  if (!Notification || (typeof Notification.isSupported === 'function' && !Notification.isSupported())) {
-    return { ok: false, code: 'NOTIFICATION_UNSUPPORTED', tsAck, popupShown: false, agent, sessionId };
-  }
-  try {
-    const notification = new Notification({
-      title: `${label} 已完成`,
-      body: sessionId ? `会话 ${sessionId} 已完成` : `有一个 ${label} 会话已完成`,
-      silent: false,
-    });
-    notification.on('click', showMainWindow);
-    notification.show();
-    return { ok: true, tsAck, popupShown: true, agent, sessionId };
-  } catch (error) {
-    writeDesktopLog(`${label} 系统通知失败：${error.message || '未知错误'}`);
-    return { ok: false, code: 'NOTIFICATION_FAILED', error: error.message || '未知错误', tsAck, popupShown: false, agent, sessionId };
-  }
-}
-
-ipcMain.handle('notification:completion', (_event, input) => showAgentCompletionNotification(input));
+// 2026-09-07：用户暂时关闭系统弹窗，只保留语音通知完成。IPC 通道与弹窗实现已停用，
+// 后续若要恢复可参考 git 历史（commit c9e814b 起的 showAgentCompletionNotification）。
 
 ipcMain.handle('project:select-folder', async () => {
   try {

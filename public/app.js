@@ -4252,50 +4252,39 @@ function connectSSE() {
       });
     } catch {}
   });
-  es.addEventListener('completion', async (ev) => {
+  es.addEventListener('completion', (ev) => {
     try {
       const payload = JSON.parse(ev.data);
       const provider = String(payload?.provider || payload?.agent || '').trim();
       const sessionId = String(payload?.sessionId || '').trim();
       if (!provider || !sessionId) return;
       const ref = `${provider}:${sessionId}`;
-      const eventAt = Number(payload.completedAt) || Number(payload.lastStopAt) || 0;
-      const markKey = completedOnceKey(ref, eventAt);
+      // 完成时刻直接取事件自带 completedAt（fallback lastStopAt）。2026-09-07 起系统弹窗通道
+      // 停用（仅保留语音），ack 移除：卡片状态变化以事件时间为准，不依赖主进程 IPC。
+      const completedAt = Number(payload.completedAt) || Number(payload.lastStopAt) || 0;
+      const markKey = completedOnceKey(ref, completedAt);
       // 同一完成只处理一次（SSE 重连重放 / WorkBuddy monitor 与 store 出口并存时都不重复）
       if (state.completionMarkedAt.get(ref) === markKey) return;
       state.completionMarkedAt.set(ref, markKey);
-      // 请求系统弹窗并等待主进程受理回执（tsAck = 权威完成时刻）。弹不弹都照常回执；
-      // 未接桌面壳（纯浏览器）时 notifyCompletion 不存在 → 立即回落事件时刻。
-      // 250ms 超时竞速：主进程繁忙时不允许弹窗 invoke 阻塞卡片点亮（卡片状态永不依赖主进程响应速度）。
-      // 任何 agent 的 completion 事件都请求对应标题的弹窗（per-provider 标签在主进程映射）。
-      let ack = null;
-      try {
-        const req = window.AgentBoardDesktop?.notifyCompletion?.(provider, sessionId);
-        if (req) {
-          const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 250));
-          ack = await Promise.race([Promise.resolve(req).catch(() => null), timeout]);
-        }
-      } catch { ack = null; }
-      const completedAt = ack && ack.ok && Number(ack.tsAck) ? Number(ack.tsAck) : eventAt;
       if (provider === 'workbuddy') {
-        // WorkBuddy 权威完成：不等下一个 SSE active，本地立即置为已完成（与弹窗同刻）并点亮绿流光+响铃。
+        // WorkBuddy 权威完成：不等下一个 SSE active，本地立即置为已完成并点亮绿流光+响铃（语音）。
         state.liveRefs.delete(ref);
         state.runtimeStatuses.set(ref, {
           ...(state.runtimeStatuses.get(ref) || {}),
           state: 'completed',
           completedAt,
-          lastEventAt: eventAt || completedAt,
+          lastEventAt: completedAt,
         });
         markRecentlyCompleted(ref);
         syncCompletedCardState(ref);
         return;
       }
       // 其余 agent：卡片「进行中→已完成」由 active 迁移路径负责（store 完成候选经稳定窗+活体否决后
-      // 才广播到这里，弹窗时机 = 权威完成确认时刻）；此处只记精确完成时刻供展示，不重复点亮/响铃。
+      // 才广播到这里，事件时刻 = 权威完成确认时刻）；此处只记精确完成时刻供展示，不重复点亮/响铃。
       state.runtimeStatuses.set(ref, {
         ...(state.runtimeStatuses.get(ref) || {}),
         completedAt,
-        lastEventAt: eventAt || completedAt,
+        lastEventAt: completedAt,
       });
     } catch {}
   });
