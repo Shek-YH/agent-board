@@ -41,6 +41,16 @@
     return s;
   }
 
+  // 文本截断（提示词卡片预览用）：超 max 在词边界截断并加省略号；不会切坏 markdown 标记。
+  function clampText(value, max) {
+    const s = String(value == null ? '' : value);
+    if (!max || s.length <= max) return s;
+    const slice = s.slice(0, max);
+    const lastSpace = slice.lastIndexOf(' ');
+    if (lastSpace > max * 0.6) return slice.slice(0, lastSpace) + '…';
+    return slice + '…';
+  }
+
   function sortNumericAsc(items, key) {
     return items.slice().sort((a, b) => (Number(a[key]) || 0) - (Number(b[key]) || 0) || String(a.created_at || a.createdAt || '').localeCompare(String(b.created_at || b.createdAt || '')));
   }
