@@ -2244,6 +2244,65 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 用户数据（待办 / 提示词 / 索引）备份导出：下载 JSON 文件
+  if (pathname === '/api/user-data/export' && req.method === 'GET') {
+    try {
+      const snapshot = store.getUserSnapshot();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const payload = JSON.stringify({
+        kind: 'agent-board-user-data',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        ...snapshot,
+      }, null, 2);
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="agent-board-backup-${stamp}.json"`,
+      });
+      res.end(payload);
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // 用户数据备份恢复：mode=merge（默认，按 id 合并）| replace（整体覆盖当前数据）
+  if (pathname === '/api/user-data/import' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const incoming = body && body.data ? body.data : body;
+      const mode = String((body && body.mode) || 'merge') === 'replace' ? 'replace' : 'merge';
+      if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+        throw new Error('备份内容为空或格式不正确');
+      }
+      const before = store.getUserSnapshot();
+      const merged = store.importUserData(incoming, { mode });
+      const count = (s, k) => (Array.isArray(s[k]) ? s[k].length : 0);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        mode,
+        totals: {
+          todoTasks: count(merged, 'todoTasks'),
+          promptGroups: count(merged, 'promptGroups'),
+          prompts: count(merged, 'prompts'),
+          indexEntries: count(merged, 'indexEntries'),
+        },
+        added: {
+          todoTasks: count(merged, 'todoTasks') - count(before, 'todoTasks'),
+          promptGroups: count(merged, 'promptGroups') - count(before, 'promptGroups'),
+          prompts: count(merged, 'prompts') - count(before, 'prompts'),
+          indexEntries: count(merged, 'indexEntries') - count(before, 'indexEntries'),
+        },
+      }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   // 总览状态
   if (pathname === '/api/state') {
     const agents = store.stmts.agents.all().map((r) => ({

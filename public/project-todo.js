@@ -35,6 +35,8 @@
       chevron: '<path d="m9 6 6 6-6 6"/>',
       edit: '<path d="m4 16-.8 4.8L8 20l10.7-10.7a2.1 2.1 0 0 0-3-3L4 16Z"/><path d="m14.5 7.5 2 2"/>',
       trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+      download: '<path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
+      upload: '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/>',
     };
     return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
   }
@@ -73,6 +75,8 @@
         <header class="todo-panel-head">
           <div class="todo-panel-title"><h2>Todo</h2><div class="todo-panel-project">手动添加的全局任务</div></div>
           <div class="todo-panel-actions">
+            <button class="todo-panel-btn" type="button" data-action="backup" aria-label="备份待办、提示词和索引" title="备份：导出待办 / 提示词 / 索引为 JSON 文件">${icon('download')}</button>
+            <button class="todo-panel-btn" type="button" data-action="restore" aria-label="从备份恢复" title="恢复：从 JSON 备份文件导入（可合并或覆盖）">${icon('upload')}</button>
             <button class="todo-panel-btn" type="button" data-action="pin" aria-label="固定 Todo 面板" title="固定 Todo 面板">${icon('pin')}</button>
             <button class="todo-panel-btn" type="button" data-action="close" aria-label="关闭 Todo 面板" title="关闭 Todo 面板">${icon('close')}</button>
           </div>
@@ -356,6 +360,81 @@
       }), parentId ? '子任务已添加' : '任务已添加');
     }
 
+    // ---------- 备份 / 恢复（待办 + 提示词 + 索引，存于独立 user-data.json）----------
+    function downloadJson(filename, payload) {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportBackup() {
+      try {
+        const data = await requestJson('/api/user-data/export');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        downloadJson(`agent-board-backup-${stamp}.json`, data);
+        const t = (data.todoTasks || []).length;
+        const p = (data.prompts || []).length;
+        const i = (data.indexEntries || []).length;
+        tell(`已备份：待办 ${t} · 提示词 ${p} · 索引 ${i}`);
+      } catch (error) {
+        tell(`备份失败：${error.message || '请求失败'}`);
+      }
+    }
+
+    function pickBackupFile() {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json,.json';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          resolve(file || null);
+        });
+        input.click();
+      });
+    }
+
+    async function importBackup() {
+      const file = await pickBackupFile();
+      if (!file) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch (error) {
+        tell(`无法解析备份文件：${error.message || '不是有效的 JSON'}`);
+        return;
+      }
+      const answer = window.prompt(
+        '选择导入方式：\n\n  1 = 合并（保留现有数据，补充备份内容，推荐）\n  2 = 整体覆盖（用备份替换现有全部数据）\n\n请输入 1 或 2：',
+        '1',
+      );
+      if (answer === null) return;
+      const mode = String(answer).trim() === '2' ? 'replace' : 'merge';
+      if (mode === 'replace' && !window.confirm('整体覆盖会用备份内容替换现有全部待办 / 提示词 / 索引，确定继续吗？')) return;
+      try {
+        const result = await requestJson('/api/user-data/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, data: parsed }),
+        });
+        const totals = result.totals || {};
+        tell(`已恢复（${mode === 'replace' ? '覆盖' : '合并'}）：待办 ${totals.todoTasks || 0} · 提示词 ${totals.prompts || 0} · 索引 ${totals.indexEntries || 0}`);
+        await refresh({ force: true });
+        if (state.panel !== 'todo') void showPanel(state.panel);
+      } catch (error) {
+        tell(`恢复失败：${error.message || '请求失败'}`);
+      }
+    }
+
     panelTabs.forEach((tab) => tab.addEventListener('click', () => {
       if (state.panel === tab.dataset.panel) return;
       if (tab.dataset.panel !== 'todo' && state.editing) finishEdit(false);
@@ -388,6 +467,10 @@
         state.addingSubtask = target.dataset.taskId; state.expanded.add(state.addingSubtask); render();
       } else if (action === 'cancel-add') {
         state.addingSubtask = null; render();
+      } else if (action === 'backup') {
+        void exportBackup();
+      } else if (action === 'restore') {
+        void importBackup();
       }
     });
 
