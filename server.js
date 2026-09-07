@@ -2074,8 +2074,14 @@ const server = http.createServer(async (req, res) => {
 
   // 提示词库：分组
   if (pathname === '/api/prompt-groups' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ items: store.getPromptGroups() }));
+    try {
+      const items = store.getPromptGroups();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items }));
+    } catch (error) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items: [], error: error.message || '加载失败' }));
+    }
     return;
   }
   if (pathname === '/api/prompt-groups' && req.method === 'POST') {
@@ -2114,8 +2120,14 @@ const server = http.createServer(async (req, res) => {
 
   // 提示词库：条目
   if (pathname === '/api/prompts' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ items: store.getPrompts() }));
+    try {
+      const items = store.getPrompts();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items }));
+    } catch (error) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items: [], error: error.message || '加载失败' }));
+    }
     return;
   }
   if (pathname === '/api/prompts' && req.method === 'POST') {
@@ -2179,11 +2191,17 @@ const server = http.createServer(async (req, res) => {
 
   // 知识索引：条目
   if (pathname === '/api/index-entries' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      items: store.getIndexEntries(),
-      categoryOrder: store.getIndexCategoryOrder(),
-    }));
+    try {
+      const body = {
+        items: store.getIndexEntries(),
+        categoryOrder: store.getIndexCategoryOrder(),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    } catch (error) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items: [], categoryOrder: [], error: error.message || '加载失败' }));
+    }
     return;
   }
   if (pathname === '/api/index-entries/reorder' && req.method === 'POST') {
@@ -2240,8 +2258,14 @@ const server = http.createServer(async (req, res) => {
 
   // 知识索引：分类顺序
   if (pathname === '/api/index-categories' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ items: store.getIndexCategoryOrder() }));
+    try {
+      const items = store.getIndexCategoryOrder();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items }));
+    } catch (error) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items: [], error: error.message || '加载失败' }));
+    }
     return;
   }
   if (pathname === '/api/index-categories/order' && req.method === 'POST') {

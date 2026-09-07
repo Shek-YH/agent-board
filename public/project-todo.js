@@ -129,6 +129,9 @@
       todoParts.forEach((el) => { el.hidden = !isTodo; });
       if (libHost) libHost.hidden = isTodo;
       if (isTodo) { if (libHost) libHost.innerHTML = ''; return refresh(); }
+      // 2026-09-07：切到非 todo 标签时先清空 libHost（之前不清空 → 索引面板渲染的内容会
+      // 在切回提示词时残留显示）。然后由 onRenderPanel 异步填充新面板。
+      if (libHost) libHost.innerHTML = '';
       return onRenderPanel(state.panel, libHost);
     }
 

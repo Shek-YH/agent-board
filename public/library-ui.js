@@ -699,8 +699,23 @@
       if (state.mode === 'index') { state.indexView = 'list'; state.detailId = null; }
       state.hostEl = hostEl || document.getElementById(mode === 'index' ? 'index-panel' : 'prompts-panel') || null;
       if (!state.hostEl) return Promise.resolve();
-      if (state.mode === 'index') return listIndex().then(() => renderIndex());
-      return listPrompts().then(() => renderPrompts());
+      const renderMode = state.mode;
+      // 2026-09-07：包 try-catch 渲染错误占位，避免 listPrompts/listIndex 抛错时面板空白。
+      // 之前 throw 会让 host 保持空字符串 / 上次内容（残留），用户看到"添加后消失"。
+      return (renderMode === 'index' ? listIndex() : listPrompts())
+        .then(() => { if (state.hostEl) (renderMode === 'index' ? renderIndex() : renderPrompts()); })
+        .catch((err) => {
+          if (!state.hostEl) return;
+          const msg = (err && err.message) || String(err || '加载失败');
+          state.hostEl.innerHTML = `
+            <div class="lib-root">
+              <div class="lib-head"><div class="lib-title">${icons.layers}<span>${renderMode === 'index' ? '知识索引' : '提示词库'}</span></div></div>
+              <div class="lib-empty"><strong>加载失败</strong>${esc(msg)}<br><button type="button" class="btn primary lib-btn" data-act="retry-${renderMode}" style="margin-top:10px">重试</button></div>
+            </div>`;
+          const retryBtn = state.hostEl.querySelector(`[data-act="retry-${renderMode}"]`);
+          if (retryBtn) retryBtn.addEventListener('click', () => { state.hostEl.innerHTML = ''; return renderInto(renderMode, state.hostEl); });
+          try { toast(`加载失败：${msg}`); } catch { /* ignore */ }
+        });
     }
     function show(mode) {
       state.term = '';
