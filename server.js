@@ -1251,6 +1251,25 @@ workbuddy.setStatusEventListeners({
   },
 });
 
+// 通用完成事件出口：其余 agent（claude/codex/deepseek/marvis/zcode/pi/hermes）的完成判定
+// 收敛在 store 单一事实源（setDoneSignal/agentStopAt/externalDone 写入点），store 内经
+// agent 级稳定窗 + 活体否决后广播到这里 → 与 WorkBuddy 同一条 SSE completion 通路
+// （前端 completion handler 已按 provider 泛化：弹窗标题按 agent、卡片去重按 ref@completedAt）。
+// 完成候选期间若有新活动（新消息/复活）store 会撤销，不广播 → 不会复刻 WorkBuddy 的误报 bug。
+store.onAgentCompletion((event) => {
+  if (!event || !event.provider || !event.sessionId) return;
+  sseBroadcast('completion', {
+    provider: event.provider,
+    agent: event.agent || event.provider,
+    sessionId: event.sessionId,
+    completedAt: event.completedAt,
+    completionId: event.completionId || `${event.provider}:${event.sessionId}@${event.completedAt || 0}`,
+    source: 'store_completion',
+  });
+  // 完成会改变 active 快照（liveRefs 剔除该会话），立即推送让前端收敛卡片
+  sseBroadcast('active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
+});
+
 function scanWorkBuddyStatus({ baseline = false } = {}) {
   try {
     const result = workbuddy.scanStatusEvents(store, { baseline });

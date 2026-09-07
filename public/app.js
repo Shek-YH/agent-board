@@ -24,6 +24,8 @@ const state = {
   sessionRoles: new Map(),
   // 「刚完成」标记：ref -> completedAt ts（绿色流光），由 SSE 捕捉 进行中→已完成 迁移写入
   recentDone: new Map(),
+  // 完成去重：ref -> `ref@completedAt` 键，completion SSE 权威路径与 active 迁移兜底共用，同一完成只点亮一次
+  completionMarkedAt: new Map(),
   completionSounds: { assignments: {}, sounds: [], disabledAgents: [], disabledAgentRoles: [] },
   // AutoPilot 终态提示去重：同一 Workflow 的多个 SSE 更新只提示一次
   autoPilotDoneSoundKeys: new Set(),
@@ -1065,6 +1067,41 @@ function markRecentlyCompleted(ref) {
   state.recentDone.set(ref, Date.now());
   persistRecentDone();
   if (!state.autoPilotCompletedSessionRefs.has(ref) && !isHostedWorkflowActiveForSession(ref)) playAssignedCompletionSound(ref);
+}
+
+// —— 完成信号权威路径（SSE completion → 主进程弹窗受理 ack）——
+// 同一「完成」只标记一次：completion SSE（权威）与 active 迁移（兜底）可能先后到达同一完成，
+// 用 ref@completedAt 键去重，避免重复点亮/响铃。completedAt 取主进程弹窗受理 tsAck
+// （弹不弹都回执，见 desktop/main.js showWorkBuddyCompletionNotification），无桌面壳时回落事件时刻。
+function completedOnceKey(ref, completedAt) {
+  return `${ref}@${Math.trunc(Number(completedAt) || 0)}`;
+}
+function markCompletionOnce(ref, completedAt, { syncCard = false } = {}) {
+  const ts = Number(completedAt) || Date.now();
+  const key = completedOnceKey(ref, ts);
+  if (state.completionMarkedAt.get(ref) === key) return false;
+  state.completionMarkedAt.set(ref, key);
+  if (state.completionMarkedAt.size > 2000) {
+    const oldest = state.completionMarkedAt.keys().next().value;
+    if (oldest) state.completionMarkedAt.delete(oldest);
+  }
+  markRecentlyCompleted(ref);
+  if (syncCard) syncCompletedCardState(ref);
+  return true;
+}
+// 本地立即把单张卡置为已完成态（liveRefs/runtimeStatuses 已先行更新），所有列同步。
+// 纯 DOM 增量，不触发全量渲染，避免滚动/布局抖动；随后续 SSE 会与后端状态收敛一致。
+function syncCompletedCardState(ref) {
+  document.querySelectorAll('#board .s-card').forEach((el) => {
+    const r = el.querySelector('.s-more')?.dataset.ref;
+    if (r !== ref) return;
+    el.dataset.live = '0';
+    el.dataset.runtimeStatus = 'completed';
+    applyStatusClass(el, 'completed');
+    const lbl = el.querySelector('.s-status');
+    if (lbl) lbl.outerHTML = statusMarkup('completed');
+    applyFlowDecor(el, ref, false);
+  });
 }
 function playAssignedCompletionSound(ref) {
   const agent = String(ref).split(':', 1)[0];
@@ -4170,10 +4207,21 @@ function connectSSE() {
       state.liveRefs = liveSet; // 权威状态
       // 进行中 → 已完成 迁移检测：用上一份快照对比本次快照（覆盖 liveRefs 之前取旧值），
       // 离开活跃窗口的会话标记为「刚完成」（绿色流光）。首次快照只建立基线，不误标。
+      // L3 守卫（仅 WorkBuddy）：必须持有 runtime 且状态为 completed 才发声——「无 runtime 单纯
+      // 离开活跃窗口」可能是长思考/自动循环间隙被窗口剔除（仍在跑），此时不标完成、不发声。
+      // 真正的完成由后端 completion（monitor 置 completed，L1/L2 已加活体否决）驱动，
+      // runtime 必然存在且 state 为 completed。其余 agent（Marvis/Claude 等无 runtime 模型）保持
+      // 原逻辑：无 runtime 时离开活跃窗口即视为完成。
       if (state._activeInit) {
         for (const ref of state._prevRefs) {
           const runtime = state.runtimeStatuses.get(ref);
-          if (!liveSet.has(ref) && (!runtime || runtime.state === 'completed')) markRecentlyCompleted(ref);
+          const isWorkBuddy = String(ref).startsWith('workbuddy:');
+          const confirmedDone = Boolean(runtime && runtime.state === 'completed');
+          // 经 markCompletionOnce 去重：若该完成已由 completion SSE 权威路径处理过（ref@lastStopAt
+          // 键一致）则不重复点亮/响铃；此路径是 completion 事件缺失（断流/非 WorkBuddy agent）时的兜底。
+          if (!liveSet.has(ref) && (isWorkBuddy ? confirmedDone : (!runtime || confirmedDone))) {
+            markCompletionOnce(ref, runtime?.lastStopAt || 0, { syncCard: true });
+          }
         }
       }
       state._activeInit = true;
@@ -4204,10 +4252,51 @@ function connectSSE() {
       });
     } catch {}
   });
-  es.addEventListener('completion', (ev) => {
+  es.addEventListener('completion', async (ev) => {
     try {
       const payload = JSON.parse(ev.data);
-      Promise.resolve(window.AgentBoardDesktop?.notifyCompletion?.(payload.sessionId)).catch(() => {});
+      const provider = String(payload?.provider || payload?.agent || '').trim();
+      const sessionId = String(payload?.sessionId || '').trim();
+      if (!provider || !sessionId) return;
+      const ref = `${provider}:${sessionId}`;
+      const eventAt = Number(payload.completedAt) || Number(payload.lastStopAt) || 0;
+      const markKey = completedOnceKey(ref, eventAt);
+      // 同一完成只处理一次（SSE 重连重放 / WorkBuddy monitor 与 store 出口并存时都不重复）
+      if (state.completionMarkedAt.get(ref) === markKey) return;
+      state.completionMarkedAt.set(ref, markKey);
+      // 请求系统弹窗并等待主进程受理回执（tsAck = 权威完成时刻）。弹不弹都照常回执；
+      // 未接桌面壳（纯浏览器）时 notifyCompletion 不存在 → 立即回落事件时刻。
+      // 250ms 超时竞速：主进程繁忙时不允许弹窗 invoke 阻塞卡片点亮（卡片状态永不依赖主进程响应速度）。
+      // 任何 agent 的 completion 事件都请求对应标题的弹窗（per-provider 标签在主进程映射）。
+      let ack = null;
+      try {
+        const req = window.AgentBoardDesktop?.notifyCompletion?.(provider, sessionId);
+        if (req) {
+          const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 250));
+          ack = await Promise.race([Promise.resolve(req).catch(() => null), timeout]);
+        }
+      } catch { ack = null; }
+      const completedAt = ack && ack.ok && Number(ack.tsAck) ? Number(ack.tsAck) : eventAt;
+      if (provider === 'workbuddy') {
+        // WorkBuddy 权威完成：不等下一个 SSE active，本地立即置为已完成（与弹窗同刻）并点亮绿流光+响铃。
+        state.liveRefs.delete(ref);
+        state.runtimeStatuses.set(ref, {
+          ...(state.runtimeStatuses.get(ref) || {}),
+          state: 'completed',
+          completedAt,
+          lastEventAt: eventAt || completedAt,
+        });
+        markRecentlyCompleted(ref);
+        syncCompletedCardState(ref);
+        return;
+      }
+      // 其余 agent：卡片「进行中→已完成」由 active 迁移路径负责（store 完成候选经稳定窗+活体否决后
+      // 才广播到这里，弹窗时机 = 权威完成确认时刻）；此处只记精确完成时刻供展示，不重复点亮/响铃。
+      state.runtimeStatuses.set(ref, {
+        ...(state.runtimeStatuses.get(ref) || {}),
+        completedAt,
+        lastEventAt: eventAt || completedAt,
+      });
     } catch {}
   });
   es.addEventListener('scan', (ev) => {

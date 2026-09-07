@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('AgentBoardDesktop', {
     ipcRenderer.on('shortcut:toggle-project-todo', listener);
     return () => ipcRenderer.removeListener('shortcut:toggle-project-todo', listener);
   },
-  notifyCompletion: (sessionId) => ipcRenderer.invoke('notification:completion', { sessionId }),
+  notifyCompletion: (agent, sessionId) => ipcRenderer.invoke('notification:completion', { agent, sessionId }),
   selectProjectFolder: () => ipcRenderer.invoke('project:select-folder'),
   provider: Object.freeze({
     getStatus: () => ipcRenderer.invoke('provider:status'),
