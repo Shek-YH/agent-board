@@ -50,12 +50,12 @@
 - Create: `lib/session-lifecycle/reducer.test.js`
 - Create: `lib/session-lifecycle/engine.test.js`
 
-- [ ] Add reducer tests for dedupe, stale events, terminal monotonicity, completion candidate/veto/confirm, waiting user, manual completion, turn rollover, and child isolation.
-- [ ] Implement normalized event validation and the public states `UNKNOWN`, `IDLE`, `ACTIVE`, `WAITING_USER`, `COMPLETION_CANDIDATE`, `COMPLETED`, `FAILED`, and `INTERRUPTED`.
-- [ ] Implement `applyEvent(state, event)` as a pure reducer with `eventId` dedupe and timestamp-based terminal guards; emit transition metadata without user text or secrets.
-- [ ] Implement `SessionLifecycleEngine` with injected clock, stable notification keys, replay-safe event application, and snapshot selectors.
-- [ ] Run lifecycle tests and `npm test`; keep the engine unconnected to UI until contract tests pass.
-- [ ] Commit with `P1-01: add replay-safe session lifecycle engine`.
+- [x] Add reducer tests for dedupe, stale events, terminal monotonicity, completion candidate/veto/confirm, waiting user, manual completion, turn rollover, and child isolation.
+- [x] Implement normalized event validation and the public states `UNKNOWN`, `IDLE`, `ACTIVE`, `WAITING_USER`, `COMPLETION_CANDIDATE`, `COMPLETED`, `FAILED`, and `INTERRUPTED`.
+- [x] Implement `applyEvent(state, event)` as a pure reducer with `eventId` dedupe and timestamp-based terminal guards; emit transition metadata without user text or secrets.
+- [x] Implement `SessionLifecycleEngine` with injected clock, stable notification keys, replay-safe event application, and snapshot selectors.
+- [x] Run lifecycle tests and `npm test`; keep the engine unconnected to UI until contract tests pass.
+- [x] Commit with `P1-01: add replay-safe session lifecycle engine`.
 
 ### Task 4: Codex and WorkBuddy adapter migration
 

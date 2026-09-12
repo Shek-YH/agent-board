@@ -24,11 +24,13 @@
   {
     "id": "P1-01",
     "goal": "Add replay-safe SessionLifecycleEngine",
-    "status": "NOT_STARTED",
+    "status": "COMPLETED",
     "dependencies": ["P0-02"],
     "primaryFiles": ["lib/session-lifecycle/"],
     "acceptance": ["terminal states are monotonic", "duplicate events are idempotent", "completion stabilization and live veto are tested"],
-    "rollback": "Revert the P1-01 commit; compatibility code remains isolated."
+    "rollback": "Revert the P1-01 commit; compatibility code remains isolated.",
+    "evidence": "docs/evidence-P1-01-lifecycle-engine.md",
+    "completedAt": "2026-09-12T00:00:00-04:00"
   },
   {
     "id": "P1-02",
