@@ -9,13 +9,17 @@
     "desktop:dev": "electron .",
     "desktop:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1",
     "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
-    "desktop:verify": "node tools/verify-package.js"
+    "desktop:verify": "node tools/verify-package.js",
+    "lint": "eslint lib/session-lifecycle lib/storage lib/codex-completion-history.js lib/watcher.js",
+    "check": "tsc -p jsconfig.json"
   },
   "license": "UNLICENSED",
-  "dependencies": {},
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "electron": "44.0.0",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "eslint": "^8.57.1",
+    "typescript": "^5.9.2"
   },
   "build": {
     "appId": "com.agentboard.desktop",

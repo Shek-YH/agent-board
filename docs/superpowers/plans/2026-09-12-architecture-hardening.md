@@ -96,8 +96,8 @@
 - Create: `docs/SECURITY_NOTES.md`
 - Modify: `package.json`, `public/app.js`, `lib/orchestrator/auto-loop.js` only through tested extraction seams.
 
-- [ ] Add lint/check scripts and run them against core modules first; fix actual undefined/unreachable/duplicate-key issues without mass formatting.
-- [ ] Add Ubuntu and Windows Node 22 CI jobs running `npm ci`, `npm test`, `npm run lint`, and `npm run check`.
+- [x] Add lint/check scripts and run them against core modules first; fix actual undefined/unreachable/duplicate-key issues without mass formatting.
+- [x] Add Ubuntu and Windows Node 22 CI jobs running `npm ci`, `npm test`, `npm run lint`, and `npm run check`.
 - [ ] Extract one tested frontend module seam and one tested AutoPilot phase seam at a time, preserving policy gate, identity/delivery verification, lease, retry, watchdog, handoff, and fail-closed paths.
 - [ ] Add the first Electron/Playwright smoke tests only after a reproducible local Electron launch command exists; label unavailable real desktop checks as manual.
 - [ ] Commit each independently verified gate/decomposition work item.

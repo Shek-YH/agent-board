@@ -55,11 +55,12 @@
   {
     "id": "P1-04",
     "goal": "Add engineering gates and incremental module seams",
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "dependencies": ["P1-01"],
     "primaryFiles": ["package.json", ".eslintrc.json", "jsconfig.json", ".github/workflows/ci.yml"],
     "acceptance": ["lint catches no-undef", "checkJs covers core modules", "Ubuntu and Windows CI definitions exist"],
-    "rollback": "Revert the P1-04 commit."
+    "rollback": "Revert the P1-04 gate checkpoint; application runtime behavior is unchanged.",
+    "evidence": "docs/evidence-P1-04-engineering-gates.md"
   },
   {
     "id": "P1-05",
