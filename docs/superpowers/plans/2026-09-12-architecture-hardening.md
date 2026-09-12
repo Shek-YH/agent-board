@@ -82,10 +82,11 @@
 - Create: `lib/storage/*.test.js`
 - Modify: `lib/store.js` only where dependency injection is required.
 
-- [ ] Add contract tests for load/save, backup manifest, record counts, dry-run, mismatch abort, and rollback.
-- [ ] Implement the interface over the existing JSON store first; do not change the default backend.
-- [ ] Implement migration dry-run that records hash, size, session/message/hidden/manual/user-data counts and refuses writes when counts differ.
-- [ ] Benchmark current JSON load/save and document results in `docs/PERFORMANCE_REPORT.md`; do not claim SQLite or segmented JSONL readiness without real validation.
+- [x] Add contract tests for load/save, backup manifest, record counts, dry-run, mismatch abort, and rollback.
+- [x] Implement the interface over the existing JSON store first; do not change the default backend.
+- [x] Implement migration dry-run that records hash, size, session/message/hidden/manual/user-data counts and refuses writes when counts differ.
+- [x] Benchmark current JSON load/save and document results in `docs/PERFORMANCE_REPORT.md`; do not claim SQLite or segmented JSONL readiness without real validation.
+- [ ] Inject the adapter into the business Store and run a real, user-data-preserving migration only after backup and packaged-runtime gates pass.
 - [ ] Commit with `P1-03: add storage interface and migration dry run`.
 
 ### Task 6: Engineering gates and bounded UI/AutoPilot decomposition
