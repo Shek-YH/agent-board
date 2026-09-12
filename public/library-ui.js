@@ -94,7 +94,11 @@
     const state = {
       mode: null,
       groups: [], prompts: [], categories: [], entries: [],
-      groupId: null, category: '', term: '',
+      groupId: null, category: '',
+      // 搜索词按 tab 各自独立：提示词与索引互不干扰。
+      // 原先共用一个 term，切 tab（renderInto 不清空）会把上一个 tab 的关键词带过来，
+      // 导致新 tab 列表被意外过滤。
+      promptTerm: '', indexTerm: '',
       collapsed: new Set(), // 折叠的分类名（索引分组视图）
       indexView: 'list',    // 索引内部视图：list | detail
       detailId: null,       // 详情视图当前条目 id
@@ -138,12 +142,17 @@
     function renderPrompts() {
       const panel = state.hostEl;
       if (!panel) return;
+      // 重建前记录搜索框焦点与光标位置：下方 innerHTML 会整体替换 .lib-root（含搜索框），
+      // 不恢复的话每输入一个字符都会失焦，搜索基本不可用。
+      const prevSearch = panel.querySelector('#lib-prompt-search');
+      const restoreFocus = !!prevSearch && document.activeElement === prevSearch;
+      const caret = prevSearch ? prevSearch.selectionStart : null;
       const groups = sortNumericAsc(state.groups, 'sort_order');
       const selectedId = state.groups.some((x) => x.id === state.groupId) ? state.groupId : groups[0]?.id || null;
       state.groupId = selectedId;
       const selected = groups.find((x) => x.id === selectedId) || null;
       const sorted = sortNumericAsc(state.prompts.filter((p) => p.group_id === selectedId), 'sort_order');
-      const term = state.term;
+      const term = state.promptTerm;
       const shown = filterText(sorted, term, ['title', 'content']);
       const chips = groups.map((g) => {
         const n = state.prompts.filter((p) => p.group_id === g.id).length;
@@ -188,13 +197,21 @@
           </main>
         </div>`;
       bindPromptEvents(panel.querySelector('.lib-root'));
+      // 只有原先焦点就在搜索框时才恢复，避免抢走用户在其他控件上的焦点
+      if (restoreFocus) {
+        const next = panel.querySelector('#lib-prompt-search');
+        if (next) {
+          next.focus();
+          if (caret != null) next.setSelectionRange(caret, caret);
+        }
+      }
     }
 
     // 事件都绑在每次渲染新建的 .lib-root 上：root 随 host.innerHTML 重建被整体替换，
     // 监听器随之释放，不会在同一 host 上累积；不同面板（提示词/索引）也互不干扰。
     function bindPromptEvents(root) {
       const input = root.querySelector('#lib-prompt-search');
-      if (input) input.addEventListener('input', () => { state.term = input.value; renderPrompts(); });
+      if (input) input.addEventListener('input', () => { state.promptTerm = input.value; renderPrompts(); });
       root.addEventListener('keydown', (e) => {
         const group = e.target.closest('.lib-group');
         if (!group) return;
@@ -280,7 +297,7 @@
 
     // 分类分组（含过滤）：categoryOrder 优先 + 新分类中文序补齐；空分类不展示
     function indexGroups() {
-      const q = state.term.trim().toLowerCase();
+      const q = state.indexTerm.trim().toLowerCase();
       const visible = q
         ? state.entries.filter((e) => [e.title, e.content, e.category].some((f) => String(f || '').toLowerCase().includes(q)))
         : state.entries;
@@ -328,7 +345,7 @@
       if (detailEntry) { renderIndexDetail(detailEntry); return; }
 
       const groups = indexGroups();
-      const q = state.term.trim();
+      const q = state.indexTerm.trim();
       const catSections = groups.length
         ? groups.map((g) => {
           const collapsed = state.collapsed.has(g.category);
@@ -357,7 +374,7 @@
           <div class="lib-head">
             <div class="lib-title">${icons.folder}<span>知识索引</span><small>分类收录资料、链接与片段（${state.entries.length}/${LIMITS.maxEntries}）</small></div>
             <div class="lib-head-actions">
-              <input class="lib-search" id="lib-index-search" placeholder="搜索标题或内容…" value="${esc(state.term)}">
+              <input class="lib-search" id="lib-index-search" placeholder="搜索标题或内容…" value="${esc(state.indexTerm)}">
               <button type="button" class="btn lib-btn" data-act="idx-import" title="从本地 markdown 目录批量导入">导入</button>
               <button type="button" class="btn primary lib-btn" data-act="idx-new">＋ 新建条目</button>
             </div>
@@ -369,7 +386,7 @@
 
     function bindIndexEvents(root) {
       const input = root.querySelector('#lib-index-search');
-      if (input) input.addEventListener('input', () => { state.term = input.value; renderIndex(); });
+      if (input) input.addEventListener('input', () => { state.indexTerm = input.value; renderIndex(); });
       root.addEventListener('keydown', (e) => {
         const head = e.target.closest('.idx-cat-head');
         if (!head) return;
@@ -401,11 +418,16 @@
         { key: 'name', label: '分组名', type: 'text', max: LIMITS.groupName, placeholder: '例如：代码审查 / 文案写作', required: true },
       ], { submitText: '创建' });
       if (values == null) return;
-      await http('/api/prompt-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: values.name }) });
-      await listPrompts(); renderPrompts(); toast('分组已创建');
+      const created = await http('/api/prompt-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: values.name }) });
+      await listPrompts();
+      // 新建后自动选中该分组，避免仍停留在上一个分组的视图
+      if (created?.item?.id) state.groupId = created.item.id;
+      renderPrompts(); toast('分组已创建');
     }
     async function promptForRenameGroup(id) {
-      const group = state.groups.find((x) => x.id === id); if (!group) return;
+      const group = state.groups.find((x) => x.id === id);
+      // 不再静默 return：找不到分组时明确提示，避免用户点击重命名后毫无反应
+      if (!group) { toast('分组不存在，请刷新后重试'); return; }
       const values = await openForm('重命名分组', [
         { key: 'name', label: '分组名', type: 'text', max: LIMITS.groupName, value: group.name, required: true },
       ], { submitText: '保存' });
@@ -419,11 +441,20 @@
       if (target < 0 || target >= groups.length) return;
       const a = groups[pos]; const b = groups[target];
       const aOrder = Number(a.sort_order) || 0; const bOrder = Number(b.sort_order) || 0;
-      if (aOrder === bOrder) return;
-      const patches = [
-        { id: a.id, sort_order: bOrder },
-        { id: b.id, sort_order: aOrder },
-      ];
+      let patches;
+      if (aOrder === bOrder) {
+        // sort_order 相等（脏数据/迁移残留）时无法直接交换，否则上/下移会完全无反应。
+        // 先按当前数组顺序整体归一化，再交换目标两项，打破死锁。
+        patches = groups.map((g, i) => ({ id: g.id, sort_order: i + 1 }));
+        const tmp = patches[pos].sort_order;
+        patches[pos].sort_order = patches[target].sort_order;
+        patches[target].sort_order = tmp;
+      } else {
+        patches = [
+          { id: a.id, sort_order: bOrder },
+          { id: b.id, sort_order: aOrder },
+        ];
+      }
       await Promise.all(patches.map((p) => http('/api/prompt-groups/' + encodeURIComponent(p.id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: p.sort_order }) })));
       await listPrompts(); renderPrompts();
     }
@@ -445,7 +476,10 @@
       ];
       const values = await openForm(id ? '编辑提示词' : '新建提示词', form, { submitText: id ? '保存' : '创建' });
       if (values == null) return;
-      const body = { title: values.title, content: values.content, group_id: values.group_id };
+      const body = { title: values.title, content: values.content };
+      // 仅在分组真正变更时才提交 group_id：后端只要收到 group_id 就按“移动”处理并重排到
+      // 目标组末尾，仅编辑标题/内容时不应改变排序（后端已加同类防护，此处为前端双保险）。
+      if (values.group_id !== item?.group_id) body.group_id = values.group_id;
       if (id) {
         await http('/api/prompts/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       } else {
@@ -501,7 +535,7 @@
       const item = state.entries.find((x) => x.id === id); if (!item) return;
       const body = `${item.title}\n${item.content || ''}`.trim();
       await copyText(body);
-      if (body) toast('已复制到剪贴板');
+      if (body) toast('已成功复制');
     }
 
     // 从本地 markdown 目录导入（调用后端 /api/index/import，source=obsidian）
@@ -554,7 +588,7 @@
       const dirInput = body.querySelector('#idx-imp-dir'); dirInput.focus();
     }
     async function moveEntry(pos, dir) {
-      const term = state.term;
+      const term = state.indexTerm;
       const filtered = filterText(state.entries, term, ['title', 'content', 'category']);
       const byCat = state.category ? filtered.filter((x) => x.category === state.category) : filtered;
       const sorted = sortNumericAsc(byCat, 'order');
@@ -605,7 +639,9 @@
           const mgr = btn.dataset.mgr;
           if (mgr === 'new') { close(); await promptForNewGroup(); }
           else if (mgr === 'done') { close(); }
-          else if (mgr === 'rename') { close(); await promptForRenameGroup(id); }
+          // 重命名后重开管理弹窗，让用户立即看到新名字（与 up/down 行为一致）。
+          // 取消重命名也会回到管理弹窗，避免误以为操作没生效或被迫退出管理界面。
+          else if (mgr === 'rename') { close(); await promptForRenameGroup(id); openGroupManager(); }
           else if (mgr === 'delete') { close(); await deleteGroup(id); }
           else if (mgr === 'up' || mgr === 'down') { await moveGroup(pos, mgr === 'up' ? -1 : 1); close(); openGroupManager(); }
         } catch (err) { toast(readError(err)); }
@@ -728,7 +764,9 @@
         });
     }
     function show(mode) {
-      state.term = '';
+      // 打开面板时重置两个 tab 的搜索词（保持原有“打开即重置”语义）
+      state.promptTerm = '';
+      state.indexTerm = '';
       return renderInto(mode, null);
     }
 
