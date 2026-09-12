@@ -13,11 +13,13 @@
   {
     "id": "P0-02",
     "goal": "Make Codex completion history incremental",
-    "status": "NOT_STARTED",
+    "status": "COMPLETED",
     "dependencies": ["P0-01"],
-    "primaryFiles": ["lib/adapters/codex.js", "lib/adapters/codex-completion-history.js"],
+    "primaryFiles": ["lib/adapters/codex.js", "lib/codex-completion-history.js"],
     "acceptance": ["completion hold behavior is preserved", "new events are processed incrementally", "no synchronous full-session read remains on completion path"],
-    "rollback": "Revert the P0-02 commit."
+    "rollback": "Revert the P0-02 commit.",
+    "evidence": "docs/evidence-P0-02-codex-history.md",
+    "completedAt": "2026-09-12T00:00:00-04:00"
   },
   {
     "id": "P1-01",

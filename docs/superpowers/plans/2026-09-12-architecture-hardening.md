@@ -28,16 +28,16 @@
 ### Task 2: Incremental Codex completion history
 
 **Files:**
-- Create: `lib/adapters/codex-completion-history.js`
-- Create: `lib/adapters/codex-completion-history.test.js`
+- Create: `lib/codex-completion-history.js`
+- Create: `lib/codex-completion-history.test.js`
 - Modify: `lib/adapters/codex.js`
 
-- [ ] Add reducer tests for one turn, multi-turn default hold, rapid continuation, cutoff at signal timestamp, truncation, and file identity replacement.
-- [ ] Run the focused history test; expected FAIL before the module exists.
-- [ ] Implement a bounded state `{ fileIdentity, lastOffset, starts, completes, lastTaskStartAt, lastTaskCompleteAt }` that consumes only appended normalized events.
-- [ ] Wire `codex.js` to update the bounded history from the existing incremental lines and use it for `completionHoldMsForSession`; rebuild only through the range reader when identity/size proves invalid.
-- [ ] Run Codex adapter tests plus `npm test`; inspect that no completion path invokes synchronous whole-file JSONL reading.
-- [ ] Commit with `P1-02: make Codex completion history incremental`.
+- [x] Add reducer tests for one turn, multi-turn default hold, rapid continuation, cutoff at signal timestamp, truncation, and file identity replacement.
+- [x] Run the focused history test; expected FAIL before the module exists.
+- [x] Implement a bounded state `{ fileIdentity, lastOffset, starts, completes, seen }` that consumes only appended normalized events; derive rapid gaps instead of retaining raw history.
+- [x] Wire `codex.js` to update the bounded history from the existing incremental lines and use it for `completionHoldMsForSession`; rebuild only through the range reader when identity/size proves invalid.
+- [x] Run Codex adapter tests plus `npm test`; inspect that no completion path invokes synchronous whole-file JSONL reading.
+- [x] Commit with `P1-02: make Codex completion history incremental`.
 
 ### Task 3: SessionLifecycleEngine compatibility layer
 
