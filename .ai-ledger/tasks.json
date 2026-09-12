@@ -1,0 +1,76 @@
+[
+  {
+    "id": "P0-01",
+    "goal": "Replace watcher whole-file tail reads with bounded range reads",
+    "status": "COMPLETED",
+    "dependencies": [],
+    "primaryFiles": ["lib/watcher.js", "lib/watcher.test.js"],
+    "acceptance": ["tail functions read bounded byte ranges", "UTF-8 and incomplete-line behavior remains correct", "focused and regression tests pass"],
+    "rollback": "Revert the P0-01 commit; no user data is touched.",
+    "evidence": "docs/evidence-P0-01-range-read.md",
+    "completedAt": "2026-09-12T00:00:00-04:00"
+  },
+  {
+    "id": "P0-02",
+    "goal": "Make Codex completion history incremental",
+    "status": "NOT_STARTED",
+    "dependencies": ["P0-01"],
+    "primaryFiles": ["lib/adapters/codex.js", "lib/adapters/codex-completion-history.js"],
+    "acceptance": ["completion hold behavior is preserved", "new events are processed incrementally", "no synchronous full-session read remains on completion path"],
+    "rollback": "Revert the P0-02 commit."
+  },
+  {
+    "id": "P1-01",
+    "goal": "Add replay-safe SessionLifecycleEngine",
+    "status": "NOT_STARTED",
+    "dependencies": ["P0-02"],
+    "primaryFiles": ["lib/session-lifecycle/"],
+    "acceptance": ["terminal states are monotonic", "duplicate events are idempotent", "completion stabilization and live veto are tested"],
+    "rollback": "Revert the P1-01 commit; compatibility code remains isolated."
+  },
+  {
+    "id": "P1-02",
+    "goal": "Migrate Codex and WorkBuddy evidence through the lifecycle engine",
+    "status": "NOT_STARTED",
+    "dependencies": ["P1-01"],
+    "primaryFiles": ["lib/adapters/codex.js", "lib/workbuddy-monitor.js", "lib/store.js"],
+    "acceptance": ["existing adapter tests pass", "Store fields are compatibility mirrors", "public state does not regress"],
+    "rollback": "Revert the P1-02 commit."
+  },
+  {
+    "id": "P1-03",
+    "goal": "Add storage interface, benchmark, dry-run migration, and rollback",
+    "status": "NOT_STARTED",
+    "dependencies": ["P1-02"],
+    "primaryFiles": ["lib/storage/", "docs/PERFORMANCE_REPORT.md"],
+    "acceptance": ["JSON remains default", "backup and count verification are explicit", "mismatch aborts and rollback are tested"],
+    "rollback": "Revert the P1-03 commit; original data files remain untouched."
+  },
+  {
+    "id": "P1-04",
+    "goal": "Add engineering gates and incremental module seams",
+    "status": "NOT_STARTED",
+    "dependencies": ["P1-01"],
+    "primaryFiles": ["package.json", ".eslintrc.json", "jsconfig.json", ".github/workflows/ci.yml"],
+    "acceptance": ["lint catches no-undef", "checkJs covers core modules", "Ubuntu and Windows CI definitions exist"],
+    "rollback": "Revert the P1-04 commit."
+  },
+  {
+    "id": "P1-05",
+    "goal": "Harden local mutation auth and preserve AutoPilot safety",
+    "status": "NOT_STARTED",
+    "dependencies": ["P1-01"],
+    "primaryFiles": ["server.js", "lib/workbuddy-http.js", "lib/orchestrator/"],
+    "acceptance": ["UI and Hook tokens are distinct", "mutation checks fail closed", "AutoPilot security tests remain green"],
+    "rollback": "Revert the P1-05 commit."
+  },
+  {
+    "id": "P2-01",
+    "goal": "Add SSE sequence recovery and available UI/Electron smoke coverage",
+    "status": "NOT_STARTED",
+    "dependencies": ["P1-04", "P1-05"],
+    "primaryFiles": ["server.js", "public/app.js", ".github/workflows/ci.yml"],
+    "acceptance": ["sequence gaps trigger snapshot reconciliation", "critical UI flows have automated or explicitly manual coverage"],
+    "rollback": "Revert the P2-01 commit."
+  }
+]
