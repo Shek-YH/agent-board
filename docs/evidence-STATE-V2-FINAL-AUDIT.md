@@ -14,7 +14,7 @@ All implementable local PRD work is present on top of the `origin/main` baseline
 - 32 named P0 scenario matrix, 8 golden fixture directories, full Store/UI synthetic smoke and GStack browser click flow.
 - Source worktree `npm test`: exit 0, 1387 tests, 1384 passed, 3 skipped, 0 failed.
 - Literal `main` tracked-test run: exit 0, 1371 tests, 1368 passed, 3 skipped, 0 failed.
-- Literal `main` ordinary `npm test`: exit 0, 1379 tests, 1376 passed, 3 skipped, 0 failed; the preserved untracked `dist-main-20260913/` adds 8 discovered tests.
+- Literal `main` ordinary `npm test`: exit 0, 1387 tests, 1384 passed, 3 skipped, 0 failed; the two preserved untracked package output directories add 16 discovered tests.
 - Literal `main` `npm run lint`, `npm run check`, `git diff --check`: exit 0.
 - Read-only real-data adapter smoke: Codex 872 files / 33,229 parsed / 33,229 Evidence; WorkBuddy 267 files / 12,558 parsed / 12,383 Evidence.
 - Fresh `main` NSIS/unpacked package `dist-state-engine-v2-20260913/`: electron-builder and package verifier passed; isolated packaged Electron smoke passed against `/api/ready`, `/api/state` and `/api/health`.
