@@ -35,12 +35,13 @@
   {
     "id": "P1-02",
     "goal": "Migrate Codex and WorkBuddy evidence through the lifecycle engine",
-    "status": "IN_PROGRESS",
+    "status": "COMPLETED",
     "dependencies": ["P1-01"],
     "primaryFiles": ["lib/adapters/codex.js", "lib/workbuddy-monitor.js", "lib/store.js"],
     "acceptance": ["existing adapter tests pass", "Store fields are compatibility mirrors", "public state does not regress"],
     "rollback": "Revert the P1-02 checkpoint; legacy Store behavior remains available.",
-    "evidence": "docs/evidence-P1-02-lifecycle-bridge.md"
+    "evidence": "docs/evidence-P1-02-lifecycle-bridge.md",
+    "completedAt": "2026-09-12T00:00:00-04:00"
   },
   {
     "id": "P1-03",

@@ -68,8 +68,8 @@
 - [x] Add integration tests proving adapter evidence enters the engine and public state matches existing completed/waiting/active behavior.
 - [x] Add a compatibility projection from engine snapshots to current Store maps; retain old fields as mirrors only during migration.
 - [x] Route Codex and WorkBuddy completion, heartbeat, external terminal, and manual completion evidence through the engine without removing Verified Dispatch checks.
-- [x] Promote lifecycle snapshots to the authoritative Store/UI runtime source for live state; keep restart/replay integration as the remaining migration gate.
-- [ ] Add restart/replay integration before removing legacy readers.
+- [x] Promote lifecycle snapshots to the authoritative Store/UI runtime source for live state; keep legacy fields as compatibility data.
+- [x] Add restart/replay integration before removing legacy readers.
 - [ ] Run all Codex, WorkBuddy, store completion, and lifecycle tests plus `npm test`; mark remaining adapters as not migrated.
 - [ ] Commit with `P1-01: project Codex and WorkBuddy through lifecycle engine`.
 
