@@ -12,6 +12,10 @@ test('desktop smoke uses isolated user data and verifies the real backend health
   assert.equal(packageJson.scripts['desktop:smoke'], 'node tools/electron-smoke.js');
   assert.match(source, /mkdtempSync/);
   assert.match(source, /--user-data-dir/);
+  assert.match(source, /AB_DATA_DIR: path\.join\(userDataDir, 'agent-board-data'\)/);
+  assert.match(source, /AB_CONFIG_DIR: path\.join\(userDataDir, 'agent-board-config'\)/);
+  assert.match(source, /AGENT_BOARD_CODEX_SOURCE_PATH: path\.join\(sourceRoot, 'codex'\)/);
+  assert.match(source, /AGENT_BOARD_WORKBUDDY_SOURCE_PATH: path\.join\(sourceRoot, 'workbuddy'\)/);
   assert.match(source, /packagedBinary/);
   assert.match(source, /\/api\/ready/);
   assert.match(source, /\/api\/state/);

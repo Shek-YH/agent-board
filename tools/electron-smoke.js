@@ -91,13 +91,33 @@ async function removeTemporaryDirectory(directory) {
 
 async function main() {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-board-electron-smoke-'));
+  const sourceRoot = path.join(userDataDir, 'agent-board-sources');
   const preferredPort = await getFreePort();
   const args = [`--user-data-dir=${userDataDir}`];
   if (process.platform !== 'win32') args.push('--no-sandbox');
   if (!packagedBinary) args.push(repoRoot);
   const child = spawn(electronBinary, args, {
     cwd: repoRoot,
-    env: { ...process.env, AB_SMOKE: '1', AB_PORT: String(preferredPort) },
+    env: {
+      ...process.env,
+      AB_SMOKE: '1',
+      AB_PORT: String(preferredPort),
+      AB_DATA_DIR: path.join(userDataDir, 'agent-board-data'),
+      AB_CONFIG_DIR: path.join(userDataDir, 'agent-board-config'),
+      AGENT_BOARD_CLAUDE_SOURCE_PATH: path.join(sourceRoot, 'claude'),
+      AGENT_BOARD_CODEX_SOURCE_PATH: path.join(sourceRoot, 'codex'),
+      AGENT_BOARD_CODEX_SESSION_INDEX_PATH: path.join(sourceRoot, 'codex', 'session_index.jsonl'),
+      AGENT_BOARD_WORKBUDDY_SOURCE_PATH: path.join(sourceRoot, 'workbuddy'),
+      AGENT_BOARD_WORKBUDDY_HEARTBEAT_PATH: path.join(sourceRoot, 'workbuddy', 'sessions'),
+      AGENT_BOARD_WORKBUDDY_DB_PATH: path.join(sourceRoot, 'workbuddy', 'workbuddy.db'),
+      AGENT_BOARD_WORKBUDDY_SPOOL_PATH: path.join(sourceRoot, 'workbuddy', 'events.spool'),
+      AGENT_BOARD_DEEPSEEK_SOURCE_PATH: path.join(sourceRoot, 'deepseek'),
+      AGENT_BOARD_MARVIS_SOURCE_PATH: path.join(sourceRoot, 'marvis'),
+      AGENT_BOARD_ZCODE_SOURCE_PATH: path.join(sourceRoot, 'zcode'),
+      AGENT_BOARD_PI_SOURCE_PATH: path.join(sourceRoot, 'pi'),
+      AGENT_BOARD_HERMES_SOURCE_PATH: path.join(sourceRoot, 'hermes'),
+      AGENT_BOARD_HERMES_DB_PATH: path.join(sourceRoot, 'hermes', 'state.db'),
+    },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
