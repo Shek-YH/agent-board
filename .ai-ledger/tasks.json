@@ -46,12 +46,13 @@
   {
     "id": "P1-03",
     "goal": "Add storage interface, benchmark, dry-run migration, and rollback",
-    "status": "IN_PROGRESS",
+    "status": "COMPLETED",
     "dependencies": ["P1-02"],
     "primaryFiles": ["lib/storage/", "docs/PERFORMANCE_REPORT.md"],
     "acceptance": ["JSON remains default", "backup and count verification are explicit", "mismatch aborts and rollback are tested"],
     "rollback": "Revert the P1-03 checkpoint; original data files remain untouched.",
-    "evidence": "docs/evidence-P1-03-storage-tooling.md"
+    "evidence": "docs/evidence-P1-03-storage-tooling.md",
+    "completedAt": "2026-09-12T00:00:00-04:00"
   },
   {
     "id": "P1-04",
