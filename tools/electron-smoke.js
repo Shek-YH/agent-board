@@ -14,9 +14,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getJson(port, pathname) {
+function getJson(port, pathname, timeout = 1500) {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 1500 }, (response) => {
+    const request = http.get({ host: '127.0.0.1', port, path: pathname, timeout }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => {
@@ -106,8 +106,8 @@ async function main() {
   child.stderr.on('data', (chunk) => { childOutput += chunk.toString().slice(-4_000); });
   try {
     const ready = await findDesktopBackend(preferredPort);
-    const state = await getJson(ready.port, '/api/state?range=day');
-    const health = await getJson(ready.port, '/api/health');
+    const state = await getJson(ready.port, '/api/state?range=day', 15000);
+    const health = await getJson(ready.port, '/api/health', 5000);
     if (state.status !== 200 || !state.body || typeof state.body !== 'object') throw new Error('Electron /api/state smoke check failed');
     if (health.status !== 200 || health.body?.ok !== true || !health.body.diagnostics) {
       throw new Error(`Electron /api/health smoke check failed: status=${health.status}, keys=${Object.keys(health.body || {}).join(',')}`);

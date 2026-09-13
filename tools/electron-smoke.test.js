@@ -15,6 +15,7 @@ test('desktop smoke uses isolated user data and verifies the real backend health
   assert.match(source, /packagedBinary/);
   assert.match(source, /\/api\/ready/);
   assert.match(source, /\/api\/state/);
+  assert.match(source, /getJson\(ready\.port, '\/api\/state\?range=day', 15000\)/);
   assert.match(source, /\/api\/health/);
   assert.match(source, /runtimeMode.*desktop/);
   assert.match(source, /taskkill\.exe/);
