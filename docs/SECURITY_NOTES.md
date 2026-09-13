@@ -14,4 +14,4 @@
 
 ## Not yet implemented
 
-The separate UI runtime token, Host/Origin/Content-Type mutation checks, and formal UI-vs-WorkBuddy Hook token separation remain a later P1 security work item. This document does not claim a remote vulnerability or a completed auth hardening.
+The desktop runtime now has a separate ephemeral UI token, Host/Origin/Content-Type/body-size checks, and a distinct WorkBuddy Hook token. Token refresh after backend restart, complete route-by-route integration coverage, and security-header/CSP review remain open. This document does not claim a remote vulnerability or complete production hardening.

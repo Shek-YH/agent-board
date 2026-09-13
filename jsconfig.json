@@ -14,6 +14,7 @@
     "lib/session-lifecycle/**/*.js",
     "lib/storage/**/*.js",
     "lib/codex-completion-history.js",
+    "lib/runtime-auth.js",
     "lib/watcher.js"
   ]
 }

@@ -54,6 +54,7 @@ const {
   readJsonBody,
   writeHookConfig,
 } = require('./lib/workbuddy-http');
+const { MUTATION_METHODS, createRuntimeAuth, authorizeUiRequest, authorizeUiMutation } = require('./lib/runtime-auth');
 const { SOURCE_PATHS, getSourcePathsConfigPath } = require('./lib/source-paths');
 const { writeRuntimeMarker, clearRuntimeMarker } = require('./lib/runtime-marker');
 const { createHeadlessCapabilityBinding, resolveWorkBuddyCliPath } = require('./lib/orchestrator/transport');
@@ -87,6 +88,8 @@ const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const WORKBUDDY_HTTP_AUTH = createHookAuth();
+const UI_RUNTIME_AUTH = createRuntimeAuth();
+const UI_RUNTIME_AUTH_ENABLED = process.env.AB_RUNTIME === 'desktop';
 const WORKBUDDY_HTTP_CONFIG_PATH = path.join(getDataDir(), 'workbuddy', 'http-hook.json');
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
@@ -1892,6 +1895,17 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
 
+  if (pathname === '/api/runtime-auth' && req.method === 'GET') {
+    if (!authorizeUiRequest(req, { port: PORT })) {
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Forbidden runtime origin' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ token: UI_RUNTIME_AUTH.token }));
+    return;
+  }
+
   if (pathname === '/api/jarvis/readiness' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(jarvisVoice.readiness()));
@@ -1993,6 +2007,14 @@ const server = http.createServer(async (req, res) => {
     sseClients.add(res);
     req.on('close', () => sseClients.delete(res));
     return;
+  }
+
+  if (UI_RUNTIME_AUTH_ENABLED && MUTATION_METHODS.has(req.method) && pathname !== '/api/complete') {
+    if (!authorizeUiMutation(req, UI_RUNTIME_AUTH.token, { port: PORT })) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized Agent Board UI request' }));
+      return;
+    }
   }
 
   // Electron 启动探测只需要确认当前 backend 身份，不应触发完整看板查询/序列化。

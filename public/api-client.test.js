@@ -63,3 +63,20 @@ test('requestJson 保留 Task Contract 的具体错误详情', async () => {
       && error.suggestedActions[0].includes('安全策略'),
   );
 });
+
+test('requestJson automatically attaches the runtime token to real mutations', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url === '/api/runtime-auth') return response(200, { token: 'runtime-token' });
+    return response(200, { ok: true });
+  };
+  try {
+    await requestJson('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  } finally {
+    global.fetch = originalFetch;
+  }
+  assert.equal(calls[0].url, '/api/runtime-auth');
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer runtime-token');
+});

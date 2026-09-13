@@ -67,11 +67,12 @@
   {
     "id": "P1-05",
     "goal": "Harden local mutation auth and preserve AutoPilot safety",
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "dependencies": ["P1-01"],
     "primaryFiles": ["server.js", "lib/workbuddy-http.js", "lib/orchestrator/"],
     "acceptance": ["UI and Hook tokens are distinct", "mutation checks fail closed", "AutoPilot security tests remain green"],
-    "rollback": "Revert the P1-05 commit."
+    "rollback": "Revert the P1-05 checkpoint; source-mode CLI remains compatible.",
+    "evidence": "docs/evidence-P1-05-runtime-auth.md"
   },
   {
     "id": "P2-01",

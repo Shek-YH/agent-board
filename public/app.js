@@ -489,12 +489,10 @@ async function submitJarvisRecording(blob) {
   if (!projectPath) throw new Error('请先填写 Session 项目目录');
   localStorage.setItem('ab-jarvis-project', projectPath);
   const audioBase64 = await blobToBase64(blob);
-  const response = await fetch('/api/jarvis/voice', {
+  const data = await requestJson('/api/jarvis/voice', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ audioBase64, mimeType: blob.type || 'audio/webm', projectPath }),
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Jarvis 语音任务失败');
   $('jarvis-transcript').textContent = data.transcript || '';
   $('jarvis-summary').textContent = data.summary || '';
   $('jarvis-detail-path').textContent = data.detailPath ? `详细 session：${data.detailPath}` : '';

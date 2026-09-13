@@ -10,7 +10,7 @@
     "desktop:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-runtime.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-focus-dll.ps1",
     "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
     "desktop:verify": "node tools/verify-package.js",
-    "lint": "eslint lib/session-lifecycle lib/storage lib/codex-completion-history.js lib/watcher.js",
+    "lint": "eslint lib/session-lifecycle lib/storage lib/codex-completion-history.js lib/runtime-auth.js lib/watcher.js",
     "check": "tsc -p jsconfig.json"
   },
   "license": "UNLICENSED",
