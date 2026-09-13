@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { exec, execFile, spawn, spawnSync } = require('child_process');
 const { loadFirstEnvFile } = require('./lib/env-loader');
+const { createDiagnostics } = require('./lib/diagnostics');
 
 loadFirstEnvFile({
   candidates: [
@@ -91,6 +92,7 @@ const PORT = Number(process.env.AB_PORT || 4876);
 const WORKBUDDY_HTTP_AUTH = createHookAuth();
 const UI_RUNTIME_AUTH = createRuntimeAuth();
 const UI_RUNTIME_AUTH_ENABLED = process.env.AB_RUNTIME === 'desktop';
+const runtimeDiagnostics = createDiagnostics();
 const WORKBUDDY_HTTP_CONFIG_PATH = path.join(getDataDir(), 'workbuddy', 'http-hook.json');
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
@@ -1154,6 +1156,11 @@ const collectorHealth = new Map(ADAPTERS.map((adapter) => [adapter.ID, {
 function updateCollectorHealth(agent, patch) {
   const previous = collectorHealth.get(agent) || {};
   collectorHealth.set(agent, { ...previous, ...patch });
+  if (patch.lastError) {
+    runtimeDiagnostics.record({ kind: 'scan', component: agent, action: 'scan', status: 'error', code: patch.lastError });
+  } else if (patch.lastScanAt) {
+    runtimeDiagnostics.record({ kind: 'scan', component: agent, action: patch.lastScanMode || 'scan', status: 'ok', count: patch.lastMessageCount });
+  }
 }
 
 updateCollectorHealth('workbuddy', {
@@ -1236,7 +1243,9 @@ function writeSseEvent(res, event, data) {
   res.write(formatSseEvent(sseSequence.next(event, data)));
 }
 function sseBroadcast(event, data) {
-  const payload = formatSseEvent(sseSequence.next(event, data));
+  const envelope = sseSequence.next(event, data);
+  const payload = formatSseEvent(envelope);
+  runtimeDiagnostics.record({ kind: 'sse', component: 'server', action: event, status: 'broadcast', seq: envelope.seq, eventId: envelope.eventId });
   for (const res of sseClients) {
     try { res.write(payload); } catch { sseClients.delete(res); }
   }
@@ -2042,6 +2051,7 @@ const server = http.createServer(async (req, res) => {
       sourcePaths: SOURCE_PATHS,
       collectors: getCollectorHealth(),
       sseClients: sseClients.size,
+      diagnostics: runtimeDiagnostics.summary(),
       checkedAt: new Date().toISOString(),
     }));
     return;

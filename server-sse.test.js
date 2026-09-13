@@ -15,3 +15,10 @@ test('server broadcasts one versioned sequence envelope to every SSE client', ()
   assert.match(source, /writeSseEvent\(res, 'hello'/);
   assert.match(source, /writeSseEvent\(res, 'active'/);
 });
+
+test('health exposes only a bounded diagnostics summary', () => {
+  assert.match(source, /createDiagnostics/);
+  assert.match(source, /const runtimeDiagnostics = createDiagnostics\(\)/);
+  assert.match(source, /diagnostics: runtimeDiagnostics\.summary\(\)/);
+  assert.doesNotMatch(source, /diagnostics: runtimeDiagnostics\.snapshot\(\)/);
+});
