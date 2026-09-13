@@ -2,6 +2,7 @@
 // Agent Board 服务器：HTTP 静态 + REST + SSE 实时推送
 const http = require('http');
 const path = require('path');
+const { SseSequence, formatSseEvent } = require('./lib/sse-protocol');
 const fs = require('fs');
 const crypto = require('crypto');
 const { exec, execFile, spawn, spawnSync } = require('child_process');
@@ -1230,8 +1231,12 @@ async function getProbe(force = false) {
 
 // ---------- SSE 客户端管理 ----------
 const sseClients = new Set();
+const sseSequence = new SseSequence();
+function writeSseEvent(res, event, data) {
+  res.write(formatSseEvent(sseSequence.next(event, data)));
+}
 function sseBroadcast(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const payload = formatSseEvent(sseSequence.next(event, data));
   for (const res of sseClients) {
     try { res.write(payload); } catch { sseClients.delete(res); }
   }
@@ -2002,9 +2007,9 @@ const server = http.createServer(async (req, res) => {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    res.write(`event: hello\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
-    res.write(`event: active\ndata: ${JSON.stringify({ active: store.getActive(), statuses: store.getRuntimeStatuses() })}\n\n`);
     sseClients.add(res);
+    writeSseEvent(res, 'hello', { ts: Date.now() });
+    writeSseEvent(res, 'active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
     req.on('close', () => sseClients.delete(res));
     return;
   }

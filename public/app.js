@@ -31,6 +31,8 @@ const state = {
   autoPilotDoneSoundKeys: new Set(),
   autoPilotCompletedSessionRefs: new Set(),
   completionSoundLastPlayedAt: new Map(),
+  // SSE 事件序列：发现丢包/断线期间的事件后，回读服务端权威快照。
+  lastSeq: 0,
   // 用户手动点「已读」取消高亮的 ref 集合（localStorage 持久化，避免刷新后重新点亮）
   dismissedRecent: new Set(),
   loading: false,
@@ -4202,6 +4204,24 @@ function connectSSE() {
   // 重建时 buildCard 用 liveRefs 判定状态，不会闪回「已完成」）
   let boardTimer = null;
   let stateTimer = null;
+  let reconcileTimer = null;
+  const readSsePayload = (raw) => {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return null; }
+    if (parsed && parsed.version === 1 && Number.isSafeInteger(parsed.seq)) {
+      if (state.lastSeq > 0 && parsed.seq > state.lastSeq + 1 && !reconcileTimer) {
+        // SSE sequence gap：没有服务端重放队列时，以完整快照补偿缺失事件；定时器合并同一波丢包。
+        reconcileTimer = setTimeout(() => {
+          reconcileTimer = null;
+          loadState();
+          loadBoard();
+        }, 0);
+      }
+      state.lastSeq = Math.max(state.lastSeq, parsed.seq);
+      return parsed.payload;
+    }
+    return parsed;
+  };
   const refreshState = () => {
     if (stateTimer) return;
     stateTimer = setTimeout(() => { stateTimer = null; loadState(); }, SSE_REFRESH_INTERVAL_MS);
@@ -4210,10 +4230,11 @@ function connectSSE() {
     if (boardTimer) return;
     boardTimer = setTimeout(() => { boardTimer = null; loadBoard(); }, SSE_REFRESH_INTERVAL_MS);
   };
-  es.addEventListener('message', () => { refreshState(); refreshBoard(); });
+  es.addEventListener('hello', (ev) => { readSsePayload(ev.data); });
+  es.addEventListener('message', (ev) => { readSsePayload(ev.data); refreshState(); refreshBoard(); });
   es.addEventListener('active', (ev) => {
     try {
-      const payload = JSON.parse(ev.data);
+      const payload = readSsePayload(ev.data);
       const arr = Array.isArray(payload) ? payload : (Array.isArray(payload.active) ? payload.active : []);
       if (!Array.isArray(payload) && payload.statuses && typeof payload.statuses === 'object') {
         state.runtimeStatuses = new Map(Object.entries(payload.statuses));
@@ -4281,7 +4302,7 @@ function connectSSE() {
   });
   es.addEventListener('completion', (ev) => {
     try {
-      const payload = JSON.parse(ev.data);
+      const payload = readSsePayload(ev.data);
       const provider = String(payload?.provider || payload?.agent || '').trim();
       const sessionId = String(payload?.sessionId || '').trim();
       if (!provider || !sessionId) return;
@@ -4317,13 +4338,13 @@ function connectSSE() {
   });
   es.addEventListener('scan', (ev) => {
     try {
-      const d = JSON.parse(ev.data);
+      const d = readSsePayload(ev.data);
       if (d.finished) { toast('数据扫描完成'); loadState(); loadBoard(); }
     } catch {}
   });
   es.addEventListener('hide', (ev) => {
     try {
-      const d = JSON.parse(ev.data);
+      const d = readSsePayload(ev.data);
       const set = new Set(d.sessions.map((x) => x.agent + ':' + x.sessionId));
       for (const k of Object.keys(state.board)) {
         state.board[k] = state.board[k].filter((s) => !set.has(s.agent + ':' + s.session_id));
@@ -4331,9 +4352,9 @@ function connectSSE() {
       renderBoard();
     } catch {}
   });
-  es.addEventListener('unhide', () => { loadBoard(); });
+  es.addEventListener('unhide', (ev) => { readSsePayload(ev.data); loadBoard(); });
   es.addEventListener('orchestration', (ev) => {
-    try { const payload = JSON.parse(ev.data); notifyAutoPilotCompletion(payload.workflow); } catch {}
+    try { const payload = readSsePayload(ev.data); notifyAutoPilotCompletion(payload.workflow); } catch {}
     loadOrchestration();
   });
   es.onerror = () => {

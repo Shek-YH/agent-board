@@ -114,10 +114,10 @@
 
 - [x] Add tests for loopback-only listener, distinct UI/Hook tokens, mutation auth, Host/Origin/Content-Type/body-size checks, and rejected cross-token use.
 - [x] Implement a per-runtime UI token without persisting token values in source, logs, or ledgers; keep WorkBuddy Hook auth separate.
-- [ ] Add versioned SSE envelopes with `seq` and `eventId`; make the client reconcile an authoritative snapshot on a sequence gap.
+- [x] Add versioned SSE envelopes with `seq` and `eventId`; make the client reconcile an authoritative snapshot on a sequence gap.
 - [ ] Add structured transition/scan/storage/SSE diagnostics with redaction tests.
-- [ ] Run focused tests and `npm test`; leave backend defaults unchanged when a compatibility check is not available.
-- [ ] Commit each independently verified security/recovery work item.
+- [x] Run focused tests and `npm test`; leave backend defaults unchanged when a compatibility check is not available. Full regression has one existing environment-sensitive `probePort` timeout failure.
+- [x] Commit each independently verified security/recovery work item.
 
 ### Final verification
 

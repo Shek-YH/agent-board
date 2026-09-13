@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 
 test('SSE 消息用合并后的状态刷新，避免每条消息立即发起请求', () => {
   assert.match(source, /const refreshState = \(\) => \{/);
-  assert.match(source, /es\.addEventListener\('message', \(\) => \{ refreshState\(\); refreshBoard\(\); \}\);/);
+  assert.match(source, /es\.addEventListener\('message', \(ev\) => \{ readSsePayload\(ev\.data\); refreshState\(\); refreshBoard\(\); \}\);/);
   assert.doesNotMatch(source, /es\.addEventListener\('message', \(\) => \{ loadState\(\); refreshBoard\(\); \}\);/);
 });
 
