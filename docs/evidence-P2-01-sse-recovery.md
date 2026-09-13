@@ -5,6 +5,6 @@
 - Focused verification: diagnostics, SSE protocol, server contract, client recovery, and Runtime Auth tests -> 11 passed.
 - Syntax/quality verification: `node --check server.js`, `node --check public/app.js`, `npm run lint`, and `npm run check` -> passed.
 - HTTP smoke: `AB_PORT=4888 node server.js` plus `curl --max-time 2 -N -H "Accept: text/event-stream" http://127.0.0.1:4888/api/events` returned consecutive `hello`/`active` events with `id`, `version`, and `seq`; the server was then stopped and port 4888 was confirmed clear.
-- Full regression: `npm test` -> 1250 passed, 3 skipped, 1 environment-sensitive failure in `lib/launch.test.js` because the configured `10.255.255.1:9` probe connected immediately instead of taking the intended timeout path.
-- Remaining: wire transition/storage diagnostics into their owning modules, add Electron/Playwright critical-flow smoke coverage, and add a deterministic local timeout fixture for the existing `probePort` test.
+- Full regression: after making the timeout fixture deterministic, `npm test` -> 1255 passed, 3 skipped, 0 failed.
+- Remaining: wire transition/storage diagnostics into their owning modules and add Electron/Playwright critical-flow smoke coverage.
 - Rollback: revert the P2-01 SSE checkpoint; legacy payload parsing remains supported during rollout.
