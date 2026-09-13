@@ -138,6 +138,10 @@ Expose separated mark-seen/mark-turn-done/close-session controls through Store/A
 
 Map parsed WorkBuddy JSONL messages to metadata-only Evidence, carry the current turn ID through Store-generated hook Evidence and the public V2 projection, and verify with focused, full, lint, type-check, diff-check and read-only real-data smoke evidence.
 
+### Task 29 — `STATE-V2-29` Current main package smoke
+
+Build the landed `main` branch into a new isolated NSIS/unpacked output, verify that V2 runtime files are packaged, and run the packaged Electron smoke with temporary user data and a dedicated loopback port. Keep real installation/manual/security-software acceptance user-gated.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.

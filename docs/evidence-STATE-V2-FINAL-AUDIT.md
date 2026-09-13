@@ -17,6 +17,7 @@ All implementable local PRD work is present on top of the `origin/main` baseline
 - Literal `main` ordinary `npm test`: exit 0, 1379 tests, 1376 passed, 3 skipped, 0 failed; the preserved untracked `dist-main-20260913/` adds 8 discovered tests.
 - Literal `main` `npm run lint`, `npm run check`, `git diff --check`: exit 0.
 - Read-only real-data adapter smoke: Codex 872 files / 33,229 parsed / 33,229 Evidence; WorkBuddy 267 files / 12,558 parsed / 12,383 Evidence.
+- Fresh `main` NSIS/unpacked package `dist-state-engine-v2-20260913/`: electron-builder and package verifier passed; isolated packaged Electron smoke passed against `/api/ready`, `/api/state` and `/api/health`.
 
 ## Not proven locally
 
@@ -32,3 +33,4 @@ These remain `WAITING_USER` in `.ai-ledger/tasks.json`; no synthetic result is p
 - The untracked `Microsoft/` directory was observed before staging and intentionally preserved.
 - No credentials, tokens, cookies, prompts, replies or transcript bodies were added to V2 records, fixtures, diagnostics or commits.
 - The latest WorkBuddy turn-identity hardening is recorded in `docs/evidence-STATE-V2-28.md`.
+- The fresh package smoke and its timeout-harness fix are recorded in `docs/evidence-STATE-V2-29.md`.
