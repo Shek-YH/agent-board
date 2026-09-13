@@ -14,12 +14,13 @@ Build and verify a fresh package from the landed `main` branch without overwriti
 
 - `npx electron-builder --win nsis --config.directories.output=dist-state-engine-v2-20260913` — exit 0.
 - `node tools/verify-package.js dist-state-engine-v2-20260913/win-unpacked` — exit 0.
-- Packaged Electron smoke with isolated temporary user-data and a free loopback port — exit 0; verified desktop runtime identity and `/api/ready`, `/api/state`, `/api/health`.
+- Packaged Electron smoke with a temporary user-data directory and free loopback port — the initial run passed functionally, but its backend source/config path isolation was incomplete; that result is superseded by `STATE-V2-30`.
 - The first smoke timeout was reproduced as a 1.5-second `/api/state` harness limit; the harness now uses a 15-second state timeout and has a regression test.
 
 ## Boundary
 
 - This proves fresh package contents and isolated unpacked execution.
+- The fully isolated smoke evidence is recorded in `docs/evidence-STATE-V2-30.md`.
 - The NSIS installer was not installed over the real user installation; manual installation, shortcut/data-preservation review and security-software review remain `STATE-V2-21 WAITING_USER`.
 
 Verification label: `SELF_VERIFIED` for package build, static verification and isolated smoke.

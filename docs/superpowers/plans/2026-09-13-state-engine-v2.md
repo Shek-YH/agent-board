@@ -142,6 +142,10 @@ Map parsed WorkBuddy JSONL messages to metadata-only Evidence, carry the current
 
 Build the landed `main` branch into a new isolated NSIS/unpacked output, verify that V2 runtime files are packaged, and run the packaged Electron smoke with temporary user data and a dedicated loopback port. Keep real installation/manual/security-software acceptance user-gated.
 
+### Task 30 — `STATE-V2-30` Fully isolate package smoke inputs
+
+Ensure packaged smoke overrides backend data/config paths and every Agent source path into the temporary run directory, add regression assertions, and rerun the packaged endpoints. Supersede any earlier smoke result that did not prove source-path isolation.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.
