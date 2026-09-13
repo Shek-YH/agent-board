@@ -1310,13 +1310,16 @@ const LIFECYCLE_RUNTIME_STATUS = {
   FAILED: 'failed',
   INTERRUPTED: 'interrupted',
 };
+const lifecycleStatusModule = window.AgentBoardSessionLifecycleStatus || {};
 
 function runtimeStatusValue(runtime) {
+  if (typeof lifecycleStatusModule.runtimeStatusValue === 'function') return lifecycleStatusModule.runtimeStatusValue(runtime);
   const lifecycle = String(runtime?.lifecycle_state || '').toUpperCase();
   return LIFECYCLE_RUNTIME_STATUS[lifecycle] || (runtime && runtime.state) || '';
 }
 
 function lifecycleLiveValue(runtime) {
+  if (typeof lifecycleStatusModule.lifecycleLiveValue === 'function') return lifecycleStatusModule.lifecycleLiveValue(runtime);
   const lifecycle = String(runtime?.lifecycle_state || '').toUpperCase();
   if (lifecycle === 'ACTIVE' || lifecycle === 'COMPLETION_CANDIDATE') return true;
   if (['IDLE', 'WAITING_USER', 'COMPLETED', 'FAILED', 'INTERRUPTED'].includes(lifecycle)) return false;

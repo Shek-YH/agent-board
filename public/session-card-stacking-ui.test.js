@@ -71,7 +71,7 @@ function fakeGroup(rootRef, childCount) {
 }
 
 test('session card stacking helper script loads before app.js', () => {
-  assert.match(html, /<script src="\/session-card-stacking\.js"><\/script>\n<script src="\/project-todo\.js"><\/script>\n<script src="\/app\.js"><\/script>/);
+  assert.match(html, /<script src="\/session-card-stacking\.js"><\/script>\n<script src="\/project-todo\.js"><\/script>\n<script src="\/session-lifecycle-status\.js"><\/script>\n<script src="\/app\.js"><\/script>/);
 });
 
 test('app initializes the subagent card display state from the helper', () => {
