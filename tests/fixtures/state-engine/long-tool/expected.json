@@ -1,0 +1,1 @@
+{"canonical":{"liveness":"ALIVE","sessionLifecycle":"OPEN","turnState":"RUNNING","activityState":"RUNNING_COMMAND","attentionState":"NONE","currentTurnId":"turn-1","activeToolIds":["tool-1"],"activeSubagentIds":[]}}

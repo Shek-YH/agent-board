@@ -1,0 +1,2 @@
+{"evidenceId":"late-process","agent":"codex","sessionRef":"codex:golden-late","source":"process","signalType":"PROCESS_SEEN","value":{},"occurredAt":200,"observedAt":200,"sourceSequence":1,"confidence":1,"authority":70}
+{"evidenceId":"late-turn","agent":"codex","sessionRef":"codex:golden-late","source":"jsonl","signalType":"TURN_STARTED","value":{"turnId":"turn-1"},"occurredAt":100,"observedAt":100,"sourceSequence":1,"confidence":1,"authority":90}

@@ -1,0 +1,4 @@
+{"evidenceId":"normal-session","agent":"codex","sessionRef":"codex:golden-normal","source":"jsonl","signalType":"SESSION_STARTED","value":{},"occurredAt":10,"observedAt":10,"confidence":1,"authority":90}
+{"evidenceId":"normal-start","agent":"codex","sessionRef":"codex:golden-normal","source":"jsonl","signalType":"TURN_STARTED","value":{"turnId":"turn-1"},"occurredAt":100,"observedAt":100,"confidence":1,"authority":90}
+{"evidenceId":"normal-candidate","agent":"codex","sessionRef":"codex:golden-normal","source":"jsonl","signalType":"TURN_COMPLETION_SIGNAL","value":{"turnId":"turn-1"},"occurredAt":200,"observedAt":200,"confidence":1,"authority":90}
+{"evidenceId":"normal-complete","agent":"codex","sessionRef":"codex:golden-normal","source":"jsonl","signalType":"TURN_COMPLETED","value":{"turnId":"turn-1"},"occurredAt":210,"observedAt":210,"confidence":1,"authority":90}

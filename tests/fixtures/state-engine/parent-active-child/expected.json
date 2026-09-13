@@ -1,0 +1,1 @@
+{"canonical":{"liveness":"UNKNOWN","sessionLifecycle":"OPEN","turnState":"COMPLETION_CANDIDATE","activityState":"RUNNING_SUBAGENT","attentionState":"NONE","currentTurnId":"turn-1","activeToolIds":[],"activeSubagentIds":["child-1"]}}

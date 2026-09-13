@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "projectId": "agent-board-architecture-hardening",
-  "name": "Agent Board architecture hardening",
+  "projectId": "agent-board-state-engine-v2",
+  "name": "Agent Board State Engine V2",
   "executionMode": "constrained-single-agent",
-  "activePrd": "Agent_Board_Architecture_Hardening_PRD.md",
-  "activeBranch": "codex/agent-board-architecture-hardening",
-  "baseHead": "9f5d4be57df9dcff5be2751fe1111448ff0fce8f",
+  "activePrd": "C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\Agent_Board_State_Engine_V2_PRD.md",
+  "activeBranch": "codex/agent-board-architecture-hardening (HEAD=origin/main)",
+  "baseHead": "17f80ce",
   "status": "IN_PROGRESS",
-  "activeWorkItem": "P2-01",
-  "createdAt": "2026-09-12T00:00:00-04:00"
+  "activeWorkItem": "STATE-V2-12",
+  "createdAt": "2026-09-13T00:00:00-04:00"
 }

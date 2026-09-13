@@ -1,87 +1,21 @@
 [
-  {
-    "id": "P0-01",
-    "goal": "Replace watcher whole-file tail reads with bounded range reads",
-    "status": "COMPLETED",
-    "dependencies": [],
-    "primaryFiles": ["lib/watcher.js", "lib/watcher.test.js"],
-    "acceptance": ["tail functions read bounded byte ranges", "UTF-8 and incomplete-line behavior remains correct", "focused and regression tests pass"],
-    "rollback": "Revert the P0-01 commit; no user data is touched.",
-    "evidence": "docs/evidence-P0-01-range-read.md",
-    "completedAt": "2026-09-12T00:00:00-04:00"
-  },
-  {
-    "id": "P0-02",
-    "goal": "Make Codex completion history incremental",
-    "status": "COMPLETED",
-    "dependencies": ["P0-01"],
-    "primaryFiles": ["lib/adapters/codex.js", "lib/codex-completion-history.js"],
-    "acceptance": ["completion hold behavior is preserved", "new events are processed incrementally", "no synchronous full-session read remains on completion path"],
-    "rollback": "Revert the P0-02 commit.",
-    "evidence": "docs/evidence-P0-02-codex-history.md",
-    "completedAt": "2026-09-12T00:00:00-04:00"
-  },
-  {
-    "id": "P1-01",
-    "goal": "Add replay-safe SessionLifecycleEngine",
-    "status": "COMPLETED",
-    "dependencies": ["P0-02"],
-    "primaryFiles": ["lib/session-lifecycle/"],
-    "acceptance": ["terminal states are monotonic", "duplicate events are idempotent", "completion stabilization and live veto are tested"],
-    "rollback": "Revert the P1-01 commit; compatibility code remains isolated.",
-    "evidence": "docs/evidence-P1-01-lifecycle-engine.md",
-    "completedAt": "2026-09-12T00:00:00-04:00"
-  },
-  {
-    "id": "P1-02",
-    "goal": "Migrate Codex and WorkBuddy evidence through the lifecycle engine",
-    "status": "COMPLETED",
-    "dependencies": ["P1-01"],
-    "primaryFiles": ["lib/adapters/codex.js", "lib/workbuddy-monitor.js", "lib/store.js"],
-    "acceptance": ["existing adapter tests pass", "Store fields are compatibility mirrors", "public state does not regress"],
-    "rollback": "Revert the P1-02 checkpoint; legacy Store behavior remains available.",
-    "evidence": "docs/evidence-P1-02-lifecycle-bridge.md",
-    "completedAt": "2026-09-12T00:00:00-04:00"
-  },
-  {
-    "id": "P1-03",
-    "goal": "Add storage interface, benchmark, dry-run migration, and rollback",
-    "status": "COMPLETED",
-    "dependencies": ["P1-02"],
-    "primaryFiles": ["lib/storage/", "docs/PERFORMANCE_REPORT.md"],
-    "acceptance": ["JSON remains default", "backup and count verification are explicit", "mismatch aborts and rollback are tested"],
-    "rollback": "Revert the P1-03 checkpoint; original data files remain untouched.",
-    "evidence": "docs/evidence-P1-03-storage-tooling.md",
-    "completedAt": "2026-09-12T00:00:00-04:00"
-  },
-  {
-    "id": "P1-04",
-    "goal": "Add engineering gates and incremental module seams",
-    "status": "IN_PROGRESS",
-    "dependencies": ["P1-01"],
-    "primaryFiles": ["package.json", ".eslintrc.json", "jsconfig.json", ".github/workflows/ci.yml"],
-    "acceptance": ["lint catches no-undef", "checkJs covers core modules", "Ubuntu and Windows CI definitions exist"],
-    "rollback": "Revert the P1-04 gate checkpoint; application runtime behavior is unchanged.",
-    "evidence": "docs/evidence-P1-04-engineering-gates.md; docs/evidence-P1-04-frontend-seam.md; docs/evidence-P1-04-autopilot-preflight.md"
-  },
-  {
-    "id": "P1-05",
-    "goal": "Harden local mutation auth and preserve AutoPilot safety",
-    "status": "IN_PROGRESS",
-    "dependencies": ["P1-01"],
-    "primaryFiles": ["server.js", "lib/workbuddy-http.js", "lib/orchestrator/"],
-    "acceptance": ["UI and Hook tokens are distinct", "mutation checks fail closed", "AutoPilot security tests remain green"],
-    "rollback": "Revert the P1-05 checkpoint; source-mode CLI remains compatible.",
-    "evidence": "docs/evidence-P1-05-runtime-auth.md"
-  },
-  {
-    "id": "P2-01",
-    "goal": "Add SSE sequence recovery and available UI/Electron smoke coverage",
-    "status": "IN_PROGRESS",
-    "dependencies": ["P1-04", "P1-05"],
-    "primaryFiles": ["server.js", "public/app.js", "desktop/main.js", "tools/electron-smoke.js", ".github/workflows/ci.yml"],
-    "acceptance": ["sequence gaps trigger snapshot reconciliation", "critical UI flows have automated or explicitly manual coverage"],
-    "rollback": "Revert the P2-01 commit.",
-    "evidence": "docs/evidence-P2-01-sse-recovery.md"
-  }
+  {"id":"STATE-V2-01","goal":"Create immutable canonical enums and metadata-safe Evidence normalizer","status":"COMPLETED","dependencies":[],"primaryFiles":["lib/state-engine/enums.js","lib/state-engine/evidence.js","lib/state-engine/evidence.test.js"],"acceptance":["five canonical dimensions and source/event enums are frozen","occurredAt and observedAt are preserved","invalid identity/time/secrets/body are rejected"],"rollback":"Remove the new state-engine files; no legacy code or user data is touched.","evidence":"docs/evidence-STATE-V2-01.md","completedAt":"2026-09-13T00:45:00-04:00"},
+  {"id":"STATE-V2-02","goal":"Implement CanonicalSessionRuntime","status":"COMPLETED","dependencies":["STATE-V2-01"],"primaryFiles":["lib/state-engine/runtime.js","lib/state-engine/runtime.test.js"],"acceptance":["initial runtime is complete and immutable by convention","identity/generation/tools/subagents/confidence are represented"],"rollback":"Revert STATE-V2-02 files.","evidence":"docs/evidence-STATE-V2-02-03.md","completedAt":"2026-09-13T01:10:00-04:00"},
+  {"id":"STATE-V2-03","goal":"Implement independent source watermarks","status":"COMPLETED","dependencies":["STATE-V2-01"],"primaryFiles":["lib/state-engine/source-watermark.js"],"acceptance":["late source evidence is not dropped by another source","sequence/offset/generation are deterministic"],"rollback":"Revert STATE-V2-03 files.","evidence":"docs/evidence-STATE-V2-02-03.md","completedAt":"2026-09-13T01:10:00-04:00"},
+  {"id":"STATE-V2-04","goal":"Implement attribute-level source arbitration","status":"COMPLETED","dependencies":["STATE-V2-02","STATE-V2-03"],"primaryFiles":["lib/state-engine/arbitrator.js","lib/state-engine/policies/"],"acceptance":["authority outranks arrival timestamp","TTL and conflict reasons are explicit"],"rollback":"Revert STATE-V2-04 files.","evidence":"docs/evidence-STATE-V2-04.md","completedAt":"2026-09-13T02:05:00-04:00"},
+  {"id":"STATE-V2-05","goal":"Implement deterministic Universal State Reducer","status":"COMPLETED","dependencies":["STATE-V2-04"],"primaryFiles":["lib/state-engine/reducer.js","lib/state-engine/reducer.test.js"],"acceptance":["turn/session separation, waits, tools, children, failure and interruption are covered"],"rollback":"Revert STATE-V2-05 files.","evidence":"docs/evidence-STATE-V2-05.md","completedAt":"2026-09-13T02:45:00-04:00"},
+  {"id":"STATE-V2-06","goal":"Implement UI and legacy projections with feature flag","status":"COMPLETED","dependencies":["STATE-V2-05"],"primaryFiles":["lib/state-engine/projection.js","lib/state-engine/projection.test.js"],"acceptance":["canonical state maps to legacy/UI labels","off/shadow/on are explicit"],"rollback":"Keep flag off and revert projection bridge.","evidence":"docs/evidence-STATE-V2-06.md","completedAt":"2026-09-13T03:25:00-04:00"},
+  {"id":"STATE-V2-07","goal":"Implement deterministic replay engine","status":"COMPLETED","dependencies":["STATE-V2-05"],"primaryFiles":["lib/state-engine/replay.js","lib/state-engine/replay.test.js"],"acceptance":["same evidence produces same runtime and trace"],"rollback":"Revert STATE-V2-07 files.","evidence":"docs/evidence-STATE-V2-07.md","completedAt":"2026-09-13T04:10:00-04:00"},
+  {"id":"STATE-V2-08","goal":"Add golden state-engine fixtures","status":"COMPLETED","dependencies":["STATE-V2-07"],"primaryFiles":["tests/fixtures/state-engine/"],"acceptance":["required core scenarios replay green"],"rollback":"Remove only new fixtures/tests.","evidence":"docs/evidence-STATE-V2-08.md","completedAt":"2026-09-13T05:20:00-04:00"},
+  {"id":"STATE-V2-09","goal":"Emit Codex Evidence in shadow mode","status":"COMPLETED","dependencies":["STATE-V2-08"],"primaryFiles":["lib/agent-adapters/codex-state-adapter.js","lib/agent-adapters/codex-state-adapter.test.js"],"acceptance":["incremental Codex behavior remains compatible and adapters do not write UI state"],"rollback":"Set STATE_ENGINE_V2=off and revert bridge.","evidence":"docs/evidence-STATE-V2-09.md","completedAt":"2026-09-13T06:00:00-04:00"},
+  {"id":"STATE-V2-10","goal":"Emit WorkBuddy Evidence in shadow mode","status":"COMPLETED","dependencies":["STATE-V2-09"],"primaryFiles":["lib/agent-adapters/workbuddy-state-adapter.js","lib/agent-adapters/workbuddy-state-adapter.test.js"],"acceptance":["Stop is candidate, SessionEnd closes, heartbeat only affects liveness"],"rollback":"Set STATE_ENGINE_V2=off and revert bridge.","evidence":"docs/evidence-STATE-V2-10.md","completedAt":"2026-09-13T06:50:00-04:00"},
+  {"id":"STATE-V2-11","goal":"Record legacy versus V2 divergence","status":"COMPLETED","dependencies":["STATE-V2-09","STATE-V2-10"],"primaryFiles":["lib/state-engine/comparison.js","lib/state-engine/comparison.test.js"],"acceptance":["divergence is redacted and deterministic"],"rollback":"Disable shadow comparison.","evidence":"docs/evidence-STATE-V2-11.md","completedAt":"2026-09-13T08:20:00-04:00"},
+  {"id":"STATE-V2-12","goal":"Fix evidence-backed divergences","status":"IN_PROGRESS","dependencies":["STATE-V2-11"],"primaryFiles":["lib/state-engine/","lib/agent-adapters/"],"acceptance":["each fix has a reproducing replay/regression test"],"rollback":"Revert the scoped divergence fix."},
+  {"id":"STATE-V2-13","goal":"Make Codex V2 projection primary","status":"NOT_STARTED","dependencies":["STATE-V2-12"],"primaryFiles":["lib/store.js","server.js","public/app.js"],"acceptance":["Codex Phase 1 acceptance passes"],"rollback":"STATE_ENGINE_V2=off."},
+  {"id":"STATE-V2-14","goal":"Make WorkBuddy V2 projection primary","status":"NOT_STARTED","dependencies":["STATE-V2-13"],"primaryFiles":["lib/store.js","server.js","public/app.js"],"acceptance":["WorkBuddy Phase 2 acceptance passes"],"rollback":"STATE_ENGINE_V2=off."},
+  {"id":"STATE-V2-15","goal":"Add redacted diagnostics API and bundle","status":"NOT_STARTED","dependencies":["STATE-V2-14"],"primaryFiles":["lib/state-engine/diagnostics.js","server.js"],"acceptance":["why/status/evidence/source-health are inspectable without secrets/body"],"rollback":"Disable diagnostics route; core state remains."},
+  {"id":"STATE-V2-16","goal":"Add diagnostics UI and evidence timeline","status":"NOT_STARTED","dependencies":["STATE-V2-15"],"primaryFiles":["public/app.js","public/index.html"],"acceptance":["settings/developer flow renders and exports safely"],"rollback":"Hide diagnostics UI; API remains read-only."},
+  {"id":"STATE-V2-17","goal":"Verify bounded retention, coalescing and incremental performance","status":"NOT_STARTED","dependencies":["STATE-V2-08"],"primaryFiles":["lib/state-engine/","tools/"],"acceptance":["no unbounded queue or whole-file regression"],"rollback":"Disable optional batching; preserve correctness."},
+  {"id":"STATE-V2-18","goal":"Run real and browser acceptance","status":"NOT_STARTED","dependencies":["STATE-V2-16","STATE-V2-17"],"primaryFiles":["docs/evidence/"],"acceptance":["available real flows verified; user-only gaps explicitly labeled"],"rollback":"No code rollback; keep V2 off for unavailable environments."},
+  {"id":"STATE-V2-19","goal":"Document rollout, rollback, migration and release notes","status":"NOT_STARTED","dependencies":["STATE-V2-18"],"primaryFiles":["CHANGELOG.md","docs/"],"acceptance":["Definition of Done and rollback evidence are complete"],"rollback":"Keep STATE_ENGINE_V2=off."}
 ]
