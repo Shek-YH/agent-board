@@ -17,6 +17,8 @@ Close the post-matrix boundary found during real-data smoke: parsed WorkBuddy JS
 - TDD regression initially failed because `currentTurnId` was not exposed by the Store status path.
 - Focused adapter/bridge/Store suite — exit 0, 10 passed, 0 failed.
 - Full `npm test` — exit 0, 1387 tests, 1384 passed, 3 skipped, 0 failed.
+- Literal `main` worktree tracked-test run (`node --test` over 264 Git-tracked test files) — exit 0, 1371 tests, 1368 passed, 3 skipped, 0 failed.
+- Literal `main` ordinary `npm test` — exit 0, 1379 tests, 1376 passed, 3 skipped, 0 failed; the extra 8 tests come from the preserved untracked `dist-main-20260913/` package output.
 - `npm run lint` — exit 0.
 - `npm run check` — exit 0.
 - `git diff --check` — exit 0.

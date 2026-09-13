@@ -12,8 +12,10 @@ All implementable local PRD work is present on top of the `origin/main` baseline
 - Separate atomic V2 persistence, identity/generation restore, conservative non-active restart recovery, process liveness debounce and source health.
 - Deterministic completion IDs, notification dedupe, diagnostics API/bundle/UI and bounded high-frequency queue.
 - 32 named P0 scenario matrix, 8 golden fixture directories, full Store/UI synthetic smoke and GStack browser click flow.
-- Final `npm test`: exit 0, 1387 tests, 1384 passed, 3 skipped, 0 failed.
-- Final `npm run lint`, `npm run check`, `git diff --check`: exit 0.
+- Source worktree `npm test`: exit 0, 1387 tests, 1384 passed, 3 skipped, 0 failed.
+- Literal `main` tracked-test run: exit 0, 1371 tests, 1368 passed, 3 skipped, 0 failed.
+- Literal `main` ordinary `npm test`: exit 0, 1379 tests, 1376 passed, 3 skipped, 0 failed; the preserved untracked `dist-main-20260913/` adds 8 discovered tests.
+- Literal `main` `npm run lint`, `npm run check`, `git diff --check`: exit 0.
 - Read-only real-data adapter smoke: Codex 872 files / 33,229 parsed / 33,229 Evidence; WorkBuddy 267 files / 12,558 parsed / 12,383 Evidence.
 
 ## Not proven locally
