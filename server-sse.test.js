@@ -28,3 +28,12 @@ test('state engine diagnostics exposes read-only status and redacted bundle rout
   assert.match(source, /\/api\/state-engine\/diagnostics/);
   assert.match(source, /bundle/);
 });
+
+test('state engine exposes separate manual seen/turn-done/session-close mutation routes', () => {
+  assert.match(source, /markStateEngineSeen/);
+  assert.match(source, /markStateEngineTurnDone/);
+  assert.match(source, /closeStateEngineSession/);
+  assert.match(source, /state-engine\/mark-seen/);
+  assert.match(source, /state-engine\/mark-turn-done/);
+  assert.match(source, /state-engine\/close-session/);
+});

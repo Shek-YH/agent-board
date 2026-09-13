@@ -12,7 +12,7 @@ All implementable local PRD work is present on top of `origin/main` in commits `
 - Separate atomic V2 persistence, identity/generation restore, conservative non-active restart recovery, process liveness debounce and source health.
 - Deterministic completion IDs, notification dedupe, diagnostics API/bundle/UI and bounded high-frequency queue.
 - 32 named P0 scenario matrix, 8 golden fixture directories, full Store/UI synthetic smoke and GStack browser click flow.
-- Final `npm test`: exit 0, 1381 tests, 1378 passed, 3 skipped, 0 failed.
+- Final `npm test`: exit 0, 1386 tests, 1383 passed, 3 skipped, 0 failed.
 - Final `npm run lint`, `npm run check`, `git diff --check`: exit 0.
 
 ## Not proven locally

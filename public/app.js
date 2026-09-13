@@ -3033,9 +3033,36 @@ function renderStateEngineDiagnostic(pop, detail, onSelect) {
     <section class="diagnostic-section"><strong>Winning Evidence</strong>${winning}</section>
     <section class="diagnostic-section"><strong>Conflicts · ${esc(detail.conflictCount || 0)}</strong>${conflicts}</section>
     <section class="diagnostic-section"><strong>Evidence Timeline</strong><div class="diagnostic-timeline">${timeline}</div></section>
-    <div class="diagnostic-actions"><button type="button" class="btn" id="diagnostic-back">返回列表</button><button type="button" class="btn primary" id="diagnostic-export">导出诊断包</button></div>
+    <div class="diagnostic-actions"><button type="button" class="btn" id="diagnostic-seen">标记已读</button><button type="button" class="btn" id="diagnostic-turn-done"${detail.currentTurnId ? '' : ' disabled'}>标记本轮完成</button><button type="button" class="btn" id="diagnostic-close-session">关闭跟踪</button><button type="button" class="btn" id="diagnostic-back">返回列表</button><button type="button" class="btn primary" id="diagnostic-export">导出诊断包</button></div>
     <div class="diagnostic-id">Diagnostic ID：${esc(detail.diagnosticId || 'unknown')}</div>`;
   pop.querySelector('#diagnostic-back').onclick = onSelect;
+  const refresh = async () => {
+    const next = await requestJson(`/api/state-engine/diagnostics?sessionRef=${encodeURIComponent(detail.sessionRef)}&bundle=1`);
+    renderStateEngineDiagnostic(pop, next, onSelect);
+  };
+  const manualAction = async (endpoint, body, message, button) => {
+    button.disabled = true;
+    try {
+      await requestJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      toast(message);
+      await refresh();
+    } catch (error) {
+      button.disabled = false;
+      toast(`操作失败：${error.message || '请求失败'}`);
+    }
+  };
+  pop.querySelector('#diagnostic-seen').onclick = (event) => {
+    event.stopPropagation();
+    void manualAction('/api/state-engine/mark-seen', { sessionRef: detail.sessionRef }, '已标记为已读', event.currentTarget);
+  };
+  pop.querySelector('#diagnostic-turn-done').onclick = (event) => {
+    event.stopPropagation();
+    void manualAction('/api/state-engine/mark-turn-done', { sessionRef: detail.sessionRef, turnId: detail.currentTurnId }, '本轮已完成', event.currentTarget);
+  };
+  pop.querySelector('#diagnostic-close-session').onclick = (event) => {
+    event.stopPropagation();
+    void manualAction('/api/state-engine/close-session', { sessionRef: detail.sessionRef }, '已关闭 Session 跟踪', event.currentTarget);
+  };
   pop.querySelector('#diagnostic-export').onclick = () => {
     const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

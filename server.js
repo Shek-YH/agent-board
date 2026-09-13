@@ -2077,6 +2077,51 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // State Engine 手动语义：已读、本轮完成、关闭跟踪分别处理，不复用旧的 completed 开关。
+  if (pathname === '/api/state-engine/mark-seen' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionRef = String(body.sessionRef || '').trim();
+      const runtime = store.markStateEngineSeen(sessionRef);
+      if (!runtime) throw Object.assign(new Error('State Engine session not found'), { statusCode: 404 });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionRef, canonical_state: store.getStateEngineDiagnostics(sessionRef)?.canonical }));
+    } catch (error) {
+      res.writeHead(error.statusCode === 404 ? 404 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Unable to mark State Engine session seen' }));
+    }
+    return;
+  }
+  if (pathname === '/api/state-engine/mark-turn-done' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionRef = String(body.sessionRef || '').trim();
+      const turnId = String(body.turnId || '').trim();
+      const runtime = store.markStateEngineTurnDone(sessionRef, turnId);
+      if (!runtime) throw Object.assign(new Error('State Engine session not found'), { statusCode: 404 });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionRef, canonical_state: store.getStateEngineDiagnostics(sessionRef)?.canonical }));
+    } catch (error) {
+      res.writeHead(error.statusCode === 404 ? 404 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Unable to mark State Engine turn done' }));
+    }
+    return;
+  }
+  if (pathname === '/api/state-engine/close-session' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const sessionRef = String(body.sessionRef || '').trim();
+      const runtime = store.closeStateEngineSession(sessionRef);
+      if (!runtime) throw Object.assign(new Error('State Engine session not found'), { statusCode: 404 });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, sessionRef, canonical_state: store.getStateEngineDiagnostics(sessionRef)?.canonical }));
+    } catch (error) {
+      res.writeHead(error.statusCode === 404 ? 404 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Unable to close State Engine session' }));
+    }
+    return;
+  }
+
   if (pathname === '/api/capabilities' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items: AGENT_CAPABILITY_REGISTRY.report() }));

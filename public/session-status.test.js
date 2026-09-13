@@ -36,3 +36,11 @@ test('settings exposes the read-only State Engine diagnostics flow', () => {
   assert.match(source, /Evidence Timeline/);
   assert.match(source, /导出诊断包/);
 });
+
+test('diagnostics UI keeps mark-seen, mark-turn-done, and close-session actions separate', () => {
+  assert.match(source, /mark-seen/);
+  assert.match(source, /mark-turn-done/);
+  assert.match(source, /close-session/);
+  assert.match(source, /标记本轮完成/);
+  assert.match(source, /关闭跟踪/);
+});

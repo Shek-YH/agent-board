@@ -130,6 +130,10 @@ Create `lib/state-engine/adapter-contract.js` and tests. Validate the common ada
 
 Expand metadata-only fixtures for late hooks, duplicates, same-CWD identities, child completion, heartbeat loss, process debounce, restart recovery and failed/interrupted states; run the requirement matrix and leave real/manual checks explicitly gated.
 
+### Task 27 — `STATE-V2-27` Manual controls and live queue integration
+
+Expose separated mark-seen/mark-turn-done/close-session controls through Store/API/UI, connect bounded queue ingestion to the Engine, carry native session anchors through adapters and verify the full regression suite.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.
