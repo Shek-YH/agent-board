@@ -16,3 +16,9 @@ test('session 卡片展示 Codex 多状态标签并接收 runtimeStatuses', () =
   assert.match(source, /stale_active/);
   assert.match(source, /状态待确认/);
 });
+
+test('session card prefers authoritative lifecycle_state over legacy runtime state', () => {
+  assert.match(source, /lifecycle_state/);
+  assert.match(source, /runtimeStatusValue/);
+  assert.match(source, /runtimeStatusValue\(runtime\)/);
+});

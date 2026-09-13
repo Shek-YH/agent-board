@@ -1161,7 +1161,7 @@ function dismissAllRecent() {
 // 按最新状态刷新单张卡的流光装饰（SSE 逐卡差异更新 + 已读点击共用）
 function applyFlowDecor(el, ref, nowLive) {
   const runtime = state.runtimeStatuses.get(ref);
-  const recent = !nowLive && (!runtime || runtime.state === 'completed') && isRecentCompleted(ref);
+  const recent = !nowLive && (!runtime || runtimeStatusValue(runtime) === 'completed') && isRecentCompleted(ref);
   el.classList.toggle('flow-red', nowLive);
   el.classList.toggle('flow-green', recent);
   let btn = el.querySelector('.s-flow-dismiss');
@@ -1300,10 +1300,34 @@ const RUNTIME_STATUS_LABELS = {
   unknown: '状态未知',
 };
 
+const LIFECYCLE_RUNTIME_STATUS = {
+  UNKNOWN: 'unknown',
+  IDLE: 'idle',
+  ACTIVE: 'running',
+  WAITING_USER: 'waiting_user_input',
+  COMPLETION_CANDIDATE: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  INTERRUPTED: 'interrupted',
+};
+
+function runtimeStatusValue(runtime) {
+  const lifecycle = String(runtime?.lifecycle_state || '').toUpperCase();
+  return LIFECYCLE_RUNTIME_STATUS[lifecycle] || (runtime && runtime.state) || '';
+}
+
+function lifecycleLiveValue(runtime) {
+  const lifecycle = String(runtime?.lifecycle_state || '').toUpperCase();
+  if (lifecycle === 'ACTIVE' || lifecycle === 'COMPLETION_CANDIDATE') return true;
+  if (['IDLE', 'WAITING_USER', 'COMPLETED', 'FAILED', 'INTERRUPTED'].includes(lifecycle)) return false;
+  return null;
+}
+
 function runtimeStatusFor(s, live) {
   if (s?.manual_done === true) return 'completed';
   const runtime = state.runtimeStatuses.get(s.id) || s.runtime_status;
-  return runtime && runtime.state ? runtime.state : (live ? 'running' : 'completed');
+  const value = typeof runtimeStatusValue === 'function' ? runtimeStatusValue(runtime) : (runtime && runtime.state) || '';
+  return value || (live ? 'running' : 'completed');
 }
 
 function statusClass(status) {
@@ -2034,9 +2058,10 @@ function buildSessionCardGroup(group, colKey) {
 function buildCard(s, colKey, groupContext = null) {
   const meta = agentMeta(s.agent);
   const def = state.agentsDef[s.agent] || {};
-  // 状态唯一权威来源：liveRefs（SSE 实时维护），不用后端快照 s.status——
-  // 后端 status 在请求瞬间计算，心跳窗口边缘可能算成 done，重建时会把进行中闪回已完成
-  const live = state.liveRefs.has(s.id);
+  // Lifecycle runtime 是状态权威来源；旧 liveRefs 仅在没有 lifecycle_state 时兼容回退。
+  const runtime = state.runtimeStatuses.get(s.id) || s.runtime_status;
+  const lifecycleLive = typeof lifecycleLiveValue === 'function' ? lifecycleLiveValue(runtime) : null;
+  const live = lifecycleLive ?? state.liveRefs.has(s.id);
   const status = runtimeStatusFor(s, live);
   const recent = status === 'completed' && !live && isRecentCompleted(s.id);
   const card = document.createElement('div');
@@ -4216,7 +4241,7 @@ function connectSSE() {
         for (const ref of state._prevRefs) {
           const runtime = state.runtimeStatuses.get(ref);
           const isWorkBuddy = String(ref).startsWith('workbuddy:');
-          const confirmedDone = Boolean(runtime && runtime.state === 'completed');
+          const confirmedDone = Boolean(runtime && runtimeStatusValue(runtime) === 'completed');
           // 经 markCompletionOnce 去重：若该完成已由 completion SSE 权威路径处理过（ref@lastStopAt
           // 键一致）则不重复点亮/响铃；此路径是 completion 事件缺失（断流/非 WorkBuddy agent）时的兜底。
           if (!liveSet.has(ref) && (isWorkBuddy ? confirmedDone : (!runtime || confirmedDone))) {
@@ -4232,12 +4257,13 @@ function connectSSE() {
       document.querySelectorAll('#board .s-card').forEach((el) => {
         const ref = el.querySelector('.s-more')?.dataset.ref;
         if (!ref) return;
-        const nowLive = liveSet.has(ref);
-        const prevLive = el.dataset.live === '1';
         const runtime = state.runtimeStatuses.get(ref);
+        const lifecycleLive = typeof lifecycleLiveValue === 'function' ? lifecycleLiveValue(runtime) : null;
+        const nowLive = lifecycleLive ?? liveSet.has(ref);
+        const prevLive = el.dataset.live === '1';
         const status = el.dataset.manualDone === '1'
           ? 'completed'
-          : (runtime && runtime.state ? runtime.state : (nowLive ? 'running' : 'completed'));
+          : (runtimeStatusValue(runtime) || (nowLive ? 'running' : 'completed'));
         const prevStatus = el.dataset.runtimeStatus || (prevLive ? 'running' : 'completed');
         if (nowLive !== prevLive || status !== prevStatus) {
           // 状态变化：单独更新这一张卡
