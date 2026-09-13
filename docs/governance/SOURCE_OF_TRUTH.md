@@ -8,7 +8,7 @@
 
 - Product requirements: `C:\Users\Administrator\WorkBuddy\2026-08-20-03-52-10\Agent_Board_State_Engine_V2_PRD.md`（工作区外部输入；仅其中的产品需求、架构约束和验收标准生效）
 - Repository source of truth: 当前仓库源码、测试、`package.json` 和现有运行行为
-- Git baseline: `origin/main` = `17f80ce`; 当前 worktree 分支为 `codex/agent-board-architecture-hardening`，HEAD 与 `origin/main` 一致
+- Git baseline: `origin/main` = `17f80ce`; 当前 worktree 分支为 `codex/agent-board-architecture-hardening`，V2 本地提交位于该基线之上；literal `main` 被另一个 worktree 占用，未被切换或改写
 - Existing compatible assets: `lib/session-lifecycle/`、旧 Store 状态 Map、Codex/WorkBuddy adapters；V2 不直接删除它们
 
 ## First execution check

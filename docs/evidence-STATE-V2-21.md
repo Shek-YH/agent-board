@@ -11,7 +11,7 @@
 
 ## Automated verification
 
-- Final full `npm test` before the last browser-only interaction — exit 0, 1330 tests, 1327 passed, 3 skipped, 0 failed.
+- The earlier browser-acceptance full `npm test` — exit 0, 1330 tests, 1327 passed, 3 skipped, 0 failed; the latest post-hardening full regression is recorded in `STATE-V2-28`.
 - Final focused State Engine/adapter/bridge/UI suites — all green; latest counts and commands are in the per-Task evidence files.
 - `npm run lint`, `npm run check`, `git diff --check` passed before final browser acceptance.
 

@@ -134,6 +134,10 @@ Expand metadata-only fixtures for late hooks, duplicates, same-CWD identities, c
 
 Expose separated mark-seen/mark-turn-done/close-session controls through Store/API/UI, connect bounded queue ingestion to the Engine, carry native session anchors through adapters and verify the full regression suite.
 
+### Task 28 — `STATE-V2-28` WorkBuddy transcript turn identity hardening
+
+Map parsed WorkBuddy JSONL messages to metadata-only Evidence, carry the current turn ID through Store-generated hook Evidence and the public V2 projection, and verify with focused, full, lint, type-check, diff-check and read-only real-data smoke evidence.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.
