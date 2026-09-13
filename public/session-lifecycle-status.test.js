@@ -22,3 +22,16 @@ test('lifecycle status module maps public states and preserves legacy fallback',
   assert.equal(module.lifecycleLiveValue({ lifecycle_state: 'COMPLETED' }), false);
   assert.equal(module.lifecycleLiveValue({ state: 'running' }), null);
 });
+
+test('V2 on mode projects the canonical UI key and liveness without falling back to legacy state', () => {
+  const module = loadModule();
+  assert.equal(module.runtimeStatusValue({
+    state_engine_mode: 'on', ui_status: { key: 'running_command' }, state: 'completed', lifecycle_state: 'COMPLETED',
+  }), 'running_command');
+  assert.equal(module.lifecycleLiveValue({
+    state_engine_mode: 'on', ui_status: { key: 'waiting_approval', kind: 'waiting' }, state: 'running',
+  }), false);
+  assert.equal(module.lifecycleLiveValue({
+    state_engine_mode: 'on', ui_status: { key: 'running_subagent', kind: 'active' }, state: 'completed',
+  }), true);
+});

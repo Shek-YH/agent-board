@@ -2057,6 +2057,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // State Engine V2 只读诊断：默认返回当前状态与 winning evidence，bundle=1 返回脱敏时间线。
+  if (pathname === '/api/state-engine/diagnostics' && req.method === 'GET') {
+    const sessionRef = String(url.searchParams.get('sessionRef') || '').trim();
+    const bundle = url.searchParams.get('bundle') === '1';
+    if (!sessionRef) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ items: store.getStateEngineStatuses() }));
+      return;
+    }
+    const diagnostics = sessionRef ? store.getStateEngineDiagnostics(sessionRef, { bundle }) : null;
+    if (!diagnostics) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'State Engine session not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(diagnostics));
+    return;
+  }
+
   if (pathname === '/api/capabilities' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items: AGENT_CAPABILITY_REGISTRY.report() }));
@@ -3382,5 +3402,7 @@ server.listen(PORT, '127.0.0.1', () => {
   scanScheduler.start();
   // 先让后端可用，再后台扫描/维护；前端可以立即加载已有快照。
   // 全程用 Promise.resolve().catch 兜底，防止后台异常冒泡导致 process 退出。
-  Promise.resolve().then(runStartupTasks).catch((e) => console.error('[startup] 异步任务链失败:', e.message));
+  setImmediate(() => {
+    void runStartupTasks().catch((e) => console.error('[startup] 异步任务链失败:', e.message));
+  });
 });

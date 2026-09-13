@@ -102,6 +102,14 @@ Run replay, integration, browser and available Codex/WorkBuddy real-flow checks.
 
 Document `off|shadow|on`, migration/restart recovery, rollback and CHANGELOG. Only mark complete after Definition of Done, P0 acceptance and known manual gaps are closed.
 
+### Task 20 — `STATE-V2-20` State Engine persistence and restart recovery
+
+Create `lib/state-engine/persistence.js` and tests. Persist only versioned identity, generation, canonical dimensions, notification IDs, source watermarks and last strong evidence metadata in a separate atomic snapshot; omit recent raw values/transcript bodies and temporary process health. Add optional persistence to `createStateEngine`, validate corrupt snapshots without overwriting them, and restore terminal evidence without inferring ACTIVE from old ordinary events.
+
+### Task 21 — `STATE-V2-21` Final real/manual acceptance
+
+Run real Codex/WorkBuddy long-running, restart, same-CWD and browser click flows where available. Verify installed NSIS/security-software/manual acceptance only with user-controlled environment; keep unavailable checks explicitly unverified and keep the default rollout off.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.

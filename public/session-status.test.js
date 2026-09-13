@@ -22,3 +22,17 @@ test('session card prefers authoritative lifecycle_state over legacy runtime sta
   assert.match(source, /runtimeStatusValue/);
   assert.match(source, /runtimeStatusValue\(runtime\)/);
 });
+
+test('session card supports V2 fine-grained UI status keys', () => {
+  assert.match(source, /running_command/);
+  assert.match(source, /running_subagent/);
+  assert.match(source, /completion_candidate/);
+  assert.match(source, /等待外部/);
+});
+
+test('settings exposes the read-only State Engine diagnostics flow', () => {
+  assert.match(source, /状态监控诊断/);
+  assert.match(source, /state-engine\/diagnostics/);
+  assert.match(source, /Evidence Timeline/);
+  assert.match(source, /导出诊断包/);
+});

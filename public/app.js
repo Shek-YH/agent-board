@@ -1297,6 +1297,16 @@ const RUNTIME_STATUS_LABELS = {
   not_loaded: '未加载',
   system_error: '系统错误',
   idle: '空闲',
+  planning: '正在规划',
+  thinking: '正在思考',
+  using_tool: '正在使用工具',
+  running_command: '正在执行命令',
+  running_subagent: '子代理工作中',
+  completion_candidate: '正在确认完成',
+  waiting_external: '等待外部',
+  compacting_context: '正在整理上下文',
+  rate_limited: '已限流',
+  session_closed: '会话已关闭',
   unknown: '状态未知',
 };
 
@@ -1334,21 +1344,22 @@ function runtimeStatusFor(s, live) {
 }
 
 function statusClass(status) {
-  if (status === 'running') return 'active';
-  if (status === 'waiting_approval' || status === 'waiting_user_input') return 'waiting';
+  if (['running', 'planning', 'thinking', 'using_tool', 'running_command', 'running_subagent', 'completion_candidate', 'compacting_context'].includes(status)) return 'active';
+  if (status === 'waiting_approval' || status === 'waiting_user_input' || status === 'waiting_external') return 'waiting';
   if (status === 'failed' || status === 'system_error') return 'failed';
   if (status === 'interrupted') return 'interrupted';
+  if (status === 'rate_limited') return 'attention';
   if (status === 'stale_active' || status === 'not_loaded' || status === 'unknown') return 'attention';
   return 'done';
 }
 
 function statusMarkup(status) {
   const label = RUNTIME_STATUS_LABELS[status] || RUNTIME_STATUS_LABELS.unknown;
-  if (status === 'running') return '<span class="s-status on"><span class="pulse"></span>' + label + '</span>';
-  if (status === 'waiting_approval' || status === 'waiting_user_input') return '<span class="s-status wait">' + label + '</span>';
+  if (['running', 'planning', 'thinking', 'using_tool', 'running_command', 'running_subagent', 'completion_candidate', 'compacting_context'].includes(status)) return '<span class="s-status on"><span class="pulse"></span>' + label + '</span>';
+  if (status === 'waiting_approval' || status === 'waiting_user_input' || status === 'waiting_external') return '<span class="s-status wait">' + label + '</span>';
   if (status === 'failed' || status === 'system_error') return '<span class="s-status error">' + label + '</span>';
   if (status === 'interrupted') return '<span class="s-status interrupted">' + label + '</span>';
-  if (status === 'stale_active' || status === 'not_loaded' || status === 'unknown') return '<span class="s-status attention">' + label + '</span>';
+  if (status === 'stale_active' || status === 'not_loaded' || status === 'unknown' || status === 'rate_limited' || status === 'session_closed') return '<span class="s-status attention">' + label + '</span>';
   return '<span class="s-status">' + label + '</span>';
 }
 
@@ -2254,6 +2265,7 @@ function closePopover() {
   state.popoverFor = null;
 }
 document.addEventListener('click', (e) => {
+  if (state.popoverFor === 'state-engine-diagnostics') return;
   if (state.popoverFor && !e.target.closest('.popover') && !e.target.closest('.s-more') && !e.target.closest('#btn-hidden') && !e.target.closest('#btn-settings-hub') && !e.target.closest('#btn-agents') && !e.target.closest('#btn-logout')) closePopover();
 });
 
@@ -3008,6 +3020,70 @@ function openProviderSettings() {
   }
 }
 
+function renderStateEngineDiagnostic(pop, detail, onSelect) {
+  const canonical = detail.canonical || {};
+  const winning = Object.entries(detail.winningEvidence || {}).map(([dimension, item]) => `<div class="diagnostic-row"><span>${esc(dimension)}</span><b>${esc(item.signalType || item.evidenceId || 'unknown')}</b><small>${esc(item.source || '')} · ${esc(item.evidenceId || '')}</small></div>`).join('') || '<div class="diagnostic-empty">暂无 winning evidence</div>';
+  const conflicts = (detail.ignoredEvidence || []).map((item) => `<div class="diagnostic-row"><span>${esc(item.dimension)}</span><b>${esc(item.reason)}</b><small>${esc(item.evidenceId)}</small></div>`).join('') || '<div class="diagnostic-empty">无冲突</div>';
+  const timeline = (detail.timeline || []).map((item) => `<div class="diagnostic-timeline-item"><time>${esc(fmtDayFull(item.occurredAt))}</time><strong>${esc(item.signalType)}</strong><span>${esc(item.source)} · ${esc(item.evidenceId)}</span></div>`).join('') || '<div class="diagnostic-empty">暂无事件</div>';
+  pop.className = 'popover state-engine-diagnostics';
+  pop.style.minWidth = 'min(430px, calc(100vw - 24px))';
+  pop.innerHTML = `<div class="pop-head">状态监控诊断</div>
+    <div class="diagnostic-session-title">${esc(detail.sessionRef || 'State Engine')}</div>
+    <div class="diagnostic-grid">${Object.entries(canonical).map(([key, value]) => `<div><span>${esc(key)}</span><b>${esc(value)}</b></div>`).join('')}</div>
+    <section class="diagnostic-section"><strong>Winning Evidence</strong>${winning}</section>
+    <section class="diagnostic-section"><strong>Conflicts · ${esc(detail.conflictCount || 0)}</strong>${conflicts}</section>
+    <section class="diagnostic-section"><strong>Evidence Timeline</strong><div class="diagnostic-timeline">${timeline}</div></section>
+    <div class="diagnostic-actions"><button type="button" class="btn" id="diagnostic-back">返回列表</button><button type="button" class="btn primary" id="diagnostic-export">导出诊断包</button></div>
+    <div class="diagnostic-id">Diagnostic ID：${esc(detail.diagnosticId || 'unknown')}</div>`;
+  pop.querySelector('#diagnostic-back').onclick = onSelect;
+  pop.querySelector('#diagnostic-export').onclick = () => {
+    const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${detail.diagnosticId || 'agent-board-state-diagnostic'}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+}
+
+async function openStateEngineDiagnostics() {
+  closePopover();
+  state.popoverFor = 'state-engine-diagnostics';
+  const pop = document.createElement('div');
+  pop.className = 'popover state-engine-diagnostics';
+  pop.style.position = 'fixed'; pop.style.top = '70px'; pop.style.right = '16px'; pop.style.zIndex = 60;
+  pop.style.minWidth = 'min(360px, calc(100vw - 24px))';
+  pop.innerHTML = '<div class="pop-head">状态监控诊断</div><div class="diagnostic-empty">正在读取 State Engine sessions…</div>';
+  document.body.appendChild(pop);
+  const showList = async () => {
+    try {
+      const data = await requestJson('/api/state-engine/diagnostics');
+      const items = Object.entries(data.items || {});
+      if (!items.length) {
+        pop.innerHTML = '<div class="pop-head">状态监控诊断</div><div class="diagnostic-empty">当前没有 V2 runtime。请先将 STATE_ENGINE_V2 设为 shadow 或 on。</div>';
+        return;
+      }
+      pop.innerHTML = `<div class="pop-head">状态监控诊断</div><div class="diagnostic-list">${items.map(([ref, item]) => `<button type="button" class="diagnostic-session" data-ref="${esc(ref)}"><strong>${esc(ref)}</strong><span>${esc(item.ui_status?.label || item.canonical_state?.turnState || '状态未知')}</span></button>`).join('')}</div>`;
+      pop.querySelectorAll('.diagnostic-session').forEach((button) => {
+        button.onclick = async (event) => {
+          event.stopPropagation();
+          pop.innerHTML = '<div class="pop-head">状态监控诊断</div><div class="diagnostic-empty">正在读取 Evidence Timeline…</div>';
+          try {
+            const detail = await requestJson(`/api/state-engine/diagnostics?sessionRef=${encodeURIComponent(button.dataset.ref)}&bundle=1`);
+            renderStateEngineDiagnostic(pop, detail, () => { void showList(); });
+          } catch (error) {
+            pop.innerHTML = `<div class="pop-head">状态监控诊断</div><div class="diagnostic-empty">读取失败：${esc(error.message || '请求失败')}</div>`;
+          }
+        };
+      });
+    } catch (error) {
+      pop.innerHTML = `<div class="pop-head">状态监控诊断</div><div class="diagnostic-empty">读取失败：${esc(error.message || '请求失败')}</div>`;
+    }
+  };
+  await showList();
+}
+
 function openSettingsHub() {
   closePopover();
   state.popoverFor = 'settings';
@@ -3028,6 +3104,7 @@ function openSettingsHub() {
     <button class="pop-item" id="settings-provider">Provider 配置状态</button>
     <button class="pop-item" id="settings-autopilot-routing">AI 智能执行调度</button>
     <button class="pop-item" id="settings-routing-flywheel">历史路由数据</button>
+    <button class="pop-item" id="settings-state-engine">状态监控诊断</button>
     <button class="pop-item" id="settings-launch">模型端口设置</button>`;
   pop.querySelector('#settings-cols').onclick = openColManager;
   pop.querySelector('#settings-account').onclick = openAccountSettings;
@@ -3037,6 +3114,7 @@ function openSettingsHub() {
   pop.querySelector('#settings-provider').onclick = openProviderSettings;
   pop.querySelector('#settings-autopilot-routing').onclick = openRoutingSettings;
   pop.querySelector('#settings-routing-flywheel').onclick = openRoutingFlywheel;
+  pop.querySelector('#settings-state-engine').onclick = openStateEngineDiagnostics;
   // openLaunchOverridesManager 用箭头函数包一层再引用，而不是直接把裸标识符赋给 onclick——
   // 直接赋值在这一行执行的瞬间就会去解析这个标识符，Task 6 之前它还没定义，会立刻抛
   // ReferenceError（不是等真正点击才抛）；包一层可以把这个解析推迟到真正点击的那一刻。

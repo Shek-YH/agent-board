@@ -11,7 +11,7 @@
     "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
     "desktop:smoke": "node tools/electron-smoke.js",
     "desktop:verify": "node tools/verify-package.js",
-    "lint": "eslint lib/session-lifecycle lib/storage lib/codex-completion-history.js lib/diagnostics.js lib/runtime-auth.js lib/watcher.js",
+    "lint": "eslint lib/session-lifecycle lib/storage lib/state-engine lib/agent-adapters/codex-state-adapter.js lib/agent-adapters/workbuddy-state-adapter.js lib/codex-completion-history.js lib/diagnostics.js lib/runtime-auth.js lib/watcher.js",
     "check": "tsc -p jsconfig.json"
   },
   "license": "UNLICENSED",

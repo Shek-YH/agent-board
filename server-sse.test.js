@@ -22,3 +22,9 @@ test('health exposes only a bounded diagnostics summary', () => {
   assert.match(source, /diagnostics: runtimeDiagnostics\.summary\(\)/);
   assert.doesNotMatch(source, /diagnostics: runtimeDiagnostics\.snapshot\(\)/);
 });
+
+test('state engine diagnostics exposes read-only status and redacted bundle routes', () => {
+  assert.match(source, /getStateEngineDiagnostics/);
+  assert.match(source, /\/api\/state-engine\/diagnostics/);
+  assert.match(source, /bundle/);
+});

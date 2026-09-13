@@ -13,6 +13,9 @@
   "include": [
     "lib/session-lifecycle/**/*.js",
     "lib/storage/**/*.js",
+    "lib/state-engine/**/*.js",
+    "lib/agent-adapters/codex-state-adapter.js",
+    "lib/agent-adapters/workbuddy-state-adapter.js",
     "lib/codex-completion-history.js",
     "lib/runtime-auth.js",
     "lib/watcher.js"
