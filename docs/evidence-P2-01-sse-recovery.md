@@ -5,7 +5,8 @@
 - Focused verification: diagnostics, SSE protocol, server contract, client recovery, and Runtime Auth tests -> 11 passed.
 - Syntax/quality verification: `node --check server.js`, `node --check public/app.js`, `npm run lint`, and `npm run check` -> passed.
 - Electron smoke: `npm run desktop:smoke` -> passed. It launched an isolated Electron user-data profile, selected a dedicated local port, and verified `/api/ready`, `/api/state`, and `/api/health`; the temporary profile and process tree were cleaned up.
+- Package verification: `npm run desktop:prepare`, `npx electron-builder --win nsis --config.directories.output=dist-next`, and `node tools/verify-package.js dist-next/win-unpacked` -> passed. The unpacked packaged executable smoke also passed with `ELECTRON_BIN=dist-next/win-unpacked/Agent Board.exe`.
 - HTTP smoke: `AB_PORT=4888 node server.js` plus `curl --max-time 2 -N -H "Accept: text/event-stream" http://127.0.0.1:4888/api/events` returned consecutive `hello`/`active` events with `id`, `version`, and `seq`; the server was then stopped and port 4888 was confirmed clear.
 - Full regression: after making the timeout fixture deterministic, `npm test` -> 1256 passed, 3 skipped, 0 failed.
-- Remaining: wire transition/storage diagnostics into their owning modules, add UI click-flow coverage with Electron/Playwright, and run the smoke against a freshly rebuilt packaged installer.
+- Remaining: wire transition/storage diagnostics into their owning modules and add UI click-flow coverage with Electron/Playwright. The NSIS installer artifact was built but not installed over the current user installation.
 - Rollback: revert the P2-01 SSE checkpoint; legacy payload parsing remains supported during rollout.

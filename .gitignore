@@ -20,6 +20,7 @@ node_modules/
 runtime/node.exe
 tools/wf.dll
 dist/
+dist-next/
 
 # 构建、测试与增量缓存
 build/

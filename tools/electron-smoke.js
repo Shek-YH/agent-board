@@ -9,6 +9,7 @@ const { execFileSync, spawn } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const electronBinary = process.env.ELECTRON_BIN || require('electron');
+const packagedBinary = Boolean(process.env.ELECTRON_BIN);
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -93,7 +94,7 @@ async function main() {
   const preferredPort = await getFreePort();
   const args = [`--user-data-dir=${userDataDir}`];
   if (process.platform !== 'win32') args.push('--no-sandbox');
-  args.push(repoRoot);
+  if (!packagedBinary) args.push(repoRoot);
   const child = spawn(electronBinary, args, {
     cwd: repoRoot,
     env: { ...process.env, AB_SMOKE: '1', AB_PORT: String(preferredPort) },
