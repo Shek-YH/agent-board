@@ -79,7 +79,7 @@
     "goal": "Add SSE sequence recovery and available UI/Electron smoke coverage",
     "status": "IN_PROGRESS",
     "dependencies": ["P1-04", "P1-05"],
-    "primaryFiles": ["server.js", "public/app.js", ".github/workflows/ci.yml"],
+    "primaryFiles": ["server.js", "public/app.js", "desktop/main.js", "tools/electron-smoke.js", ".github/workflows/ci.yml"],
     "acceptance": ["sequence gaps trigger snapshot reconciliation", "critical UI flows have automated or explicitly manual coverage"],
     "rollback": "Revert the P2-01 commit.",
     "evidence": "docs/evidence-P2-01-sse-recovery.md"
