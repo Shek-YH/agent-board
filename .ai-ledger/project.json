@@ -4,7 +4,7 @@
   "name": "Agent Board State Engine V2",
   "executionMode": "constrained-single-agent",
   "activePrd": "C:\\Users\\Administrator\\WorkBuddy\\2026-08-20-03-52-10\\Agent_Board_State_Engine_V2_PRD.md",
-  "activeBranch": "codex/agent-board-architecture-hardening (based on origin/main)",
+  "activeBranch": "main (fast-forwarded from codex/agent-board-architecture-hardening; based on origin/main)",
   "baseHead": "17f80ce",
   "status": "IN_PROGRESS",
   "activeWorkItem": "STATE-V2-21",
