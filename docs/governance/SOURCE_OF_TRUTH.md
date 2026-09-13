@@ -23,7 +23,7 @@
 
 ## Decisions
 
-- Use small dependency-ordered Work Items from `docs/superpowers/plans/2026-09-13-state-engine-v2.md`; current item is `STATE-V2-21` (waiting on real/manual acceptance).
+- Use small dependency-ordered Work Items from `docs/superpowers/plans/2026-09-13-state-engine-v2.md`; current item is `STATE-V2-21` (real/manual acceptance gate).
 - Use constrained-single-agent execution for the critical implementation path; a read-only explorer separately checked existing call sites. Verification is labeled `SELF_VERIFIED` unless a real independent verifier runs.
 - Keep the existing `lib/session-lifecycle/` implementation as compatibility/reference code. The new `lib/state-engine/` owns V2 dimensions and Evidence semantics.
 - Start with `STATE_ENGINE_V2=off` by default, add `shadow` before `on`, and do not make UI or notifications consume V2 until replay and divergence evidence exist.

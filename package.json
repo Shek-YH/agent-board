@@ -37,9 +37,10 @@
       "package.json",
       "LICENSE"
     ],
-    "extraResources": [
+      "extraResources": [
       { "from": "server.js", "to": "backend/server.js" },
       { "from": "lib", "to": "backend/lib", "filter": ["**/*.js", "!**/*.test.js"] },
+      { "from": "lib/agent-manifests", "to": "backend/lib/agent-manifests", "filter": ["**/*.json"] },
       { "from": "public", "to": "backend/public", "filter": ["**/*", "!**/*.test.js"] },
       { "from": "marvis-launch.bat", "to": "backend/marvis-launch.bat" },
       { "from": "zcode-launch.bat", "to": "backend/zcode-launch.bat" },

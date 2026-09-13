@@ -23,3 +23,12 @@ test('runtime 准备脚本不依赖构建机的 WorkBuddy 私有目录', () => {
   assert.match(script, /AGENT_BOARD_NODE_SOURCE/i);
   assert.match(script, /runtime[\\/]node\.exe/i);
 });
+
+test('桌面包携带 State Engine agent manifests', () => {
+  const resource = packageJson.build.extraResources.find((item) => item.from === 'lib/agent-manifests');
+  assert.deepEqual(resource, {
+    from: 'lib/agent-manifests',
+    to: 'backend/lib/agent-manifests',
+    filter: ['**/*.json'],
+  });
+});

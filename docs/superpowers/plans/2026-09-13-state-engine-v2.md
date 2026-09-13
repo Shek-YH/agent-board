@@ -110,6 +110,26 @@ Create `lib/state-engine/persistence.js` and tests. Persist only versioned ident
 
 Run real Codex/WorkBuddy long-running, restart, same-CWD and browser click flows where available. Verify installed NSIS/security-software/manual acceptance only with user-controlled environment; keep unavailable checks explicitly unverified and keep the default rollout off.
 
+### Task 22 — `STATE-V2-22` Session Identity V2 and capability manifests
+
+Create `lib/state-engine/identity.js`, `identity.test.js`, `lib/agent-manifests/*.json` and `manifest.js` tests. Normalize host/native/transcript/process/terminal/workspace anchors, create generation-scoped runtime keys, compare identities without treating same CWD as identity, and load safe declarative capabilities/timeouts/authority for Codex and WorkBuddy plus explicit unsupported declarations for current agents.
+
+### Task 23 — `STATE-V2-23` Process liveness and source health
+
+Create a pure/injectable `ProcessLivenessService` with missing-process debounce and source health transitions. Test ALIVE/SUSPECT/DEAD without mapping process presence to RUNNING, and expose bounded health metadata to diagnostics.
+
+### Task 24 — `STATE-V2-24` Completion IDs and notification boundary
+
+Add deterministic completion ID generation, per-runtime notification dedupe and manual seen/turn-done separation. Integrate only after a reproducing test proves duplicate completion events do not notify twice.
+
+### Task 25 — `STATE-V2-25` Universal adapter contract and manifest-backed policies
+
+Create `lib/state-engine/adapter-contract.js` and tests. Validate the common adapter surface, bind Codex/WorkBuddy adapters to manifest IDs, and fail closed for adapters that attempt direct state/UI writes or unsupported capabilities.
+
+### Task 26 — `STATE-V2-26` Final P0 replay matrix and rollout audit
+
+Expand metadata-only fixtures for late hooks, duplicates, same-CWD identities, child completion, heartbeat loss, process debounce, restart recovery and failed/interrupted states; run the requirement matrix and leave real/manual checks explicitly gated.
+
 ## Verification commands
 
 Focused: `node --test <specific-file>`.
