@@ -2,9 +2,10 @@
 
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
+const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
-const { buildBackendLaunch, waitForBackend, stopBackend } = require('./backend-process');
+const { buildBackendLaunch, probeBackend, waitForBackend, stopBackend } = require('./backend-process');
 
 test('buildBackendLaunch 传递端口、数据目录和 desktop 标记', () => {
   const result = buildBackendLaunch({
@@ -32,6 +33,22 @@ test('waitForBackend 在探测成功前轮询，成功后停止', async () => {
   });
   assert.equal(ready, true);
   assert.equal(calls, 3);
+});
+
+test('probeBackend 使用轻量 readiness endpoint 并校验 runtime 身份', async () => {
+  const server = http.createServer((req, res) => {
+    assert.equal(req.url, '/api/ready');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ runtime: { serverEntry: 'C:\\App\\backend\\server.js', port: 49123, runtimeMode: 'desktop' } }));
+  });
+  await new Promise((resolve) => server.listen(49123, '127.0.0.1', resolve));
+  try {
+    assert.equal(await probeBackend(49123, '127.0.0.1', {
+      serverEntry: 'C:\\App\\backend\\server.js', port: 49123, runtimeMode: 'desktop',
+    }), true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('waitForBackend 在后端子进程提前退出时立即失败', async () => {

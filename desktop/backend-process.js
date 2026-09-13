@@ -30,7 +30,7 @@ function probeBackend(port, host = '127.0.0.1', expectedRuntime = null) {
       settled = true;
       resolve(value);
     };
-    const request = http.get({ host, port, path: '/api/state', timeout: 1000 }, (response) => {
+    const request = http.get({ host, port, path: '/api/ready', timeout: 3000 }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => {

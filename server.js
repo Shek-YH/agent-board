@@ -1995,6 +1995,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Electron 启动探测只需要确认当前 backend 身份，不应触发完整看板查询/序列化。
+  if (pathname === '/api/ready' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, runtime: RUNTIME_IDENTITY }));
+    return;
+  }
+
   // 运行/采集诊断：只返回身份、路径摘要和计数，不返回任何会话正文。
   if (pathname === '/api/health' && req.method === 'GET') {
     const scanState = scanScheduler.getState();
