@@ -44,3 +44,11 @@ test('diagnostics UI keeps mark-seen, mark-turn-done, and close-session actions 
   assert.match(source, /标记本轮完成/);
   assert.match(source, /关闭跟踪/);
 });
+
+test('health polling tolerates scan backlog and avoids overlapping requests', () => {
+  assert.match(source, /let healthRequest = null/);
+  assert.match(source, /requestJson\('\/api\/health', \{ timeoutMs: 15000 \}\)/);
+  assert.match(source, /后端忙 · 后台扫描中/);
+  assert.match(source, /const initialHealth = loadHealth\(\);/);
+  assert.match(source, /await initialHealth;/);
+});

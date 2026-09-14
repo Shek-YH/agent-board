@@ -44,6 +44,7 @@ const state = {
   orchestration: { workflows: [], capabilities: {}, agentCapabilities: [], allowedRoots: [], headlessEnabled: false, jarvisVoice: null, routingCatalog: null, routingCapabilities: {}, providerConfig: null, secureProvider: null },
 };
 let projectTodoDrawer = null;
+let healthRequest = null;
 
 // Agent 显示配置：localStorage 持久化（显示哪些 agent），null 表示用默认
 function loadColOrder() {
@@ -174,20 +175,30 @@ function setRuntimeHealth(text, state = '') {
   el.className = `runtime-health ${state}`.trim();
 }
 
-async function loadHealth() {
-  try {
-    const data = await requestJson('/api/health');
-    const collectors = Object.values(data.collectors || {});
-    const errors = collectors.filter((item) => item.lastError);
-    const available = collectors.filter((item) => item.rootExists).length;
-    if (errors.length) {
-      setRuntimeHealth(`后端已连接 · ${errors.length} 个采集器异常`, 'warning');
-      return;
+function loadHealth() {
+  if (healthRequest) return healthRequest;
+  healthRequest = (async () => {
+    try {
+      const data = await requestJson('/api/health', { timeoutMs: 15000 });
+      const collectors = Object.values(data.collectors || {});
+      const errors = collectors.filter((item) => item.lastError);
+      const available = collectors.filter((item) => item.rootExists).length;
+      if (errors.length) {
+        setRuntimeHealth(`后端已连接 · ${errors.length} 个采集器异常`, 'warning');
+        return;
+      }
+      setRuntimeHealth(`后端正常 · ${available} 个数据源${data.scanning ? ' · 后台扫描中' : ''}`, 'ok');
+    } catch (error) {
+      if (error?.message === '请求超时：/api/health') {
+        setRuntimeHealth('后端忙 · 后台扫描中', 'warning');
+        return;
+      }
+      setRuntimeHealth(`后端连接失败 · ${error.message || '请检查服务'}`, 'error');
     }
-    setRuntimeHealth(`后端正常 · ${available} 个数据源${data.scanning ? ' · 后台扫描中' : ''}`, 'ok');
-  } catch (error) {
-    setRuntimeHealth(`后端连接失败 · ${error.message || '请检查服务'}`, 'error');
-  }
+  })().finally(() => {
+    healthRequest = null;
+  });
+  return healthRequest;
 }
 
 async function loadState() {
@@ -4506,6 +4517,7 @@ registerDesktopJumpShortcut();
 registerDesktopTodoShortcut();
 (async () => {
   loadRecentDone();
+  const initialHealth = loadHealth();
   // 并行拉取首屏所需数据：任何单接口超时都不能让其它接口陪葬，
   // 旧实现是 4 个 await 串行，单接口 12 秒超时就会让整个首屏卡满 12s×4。
   await Promise.allSettled([
@@ -4515,7 +4527,7 @@ registerDesktopTodoShortcut();
     loadCompletionSounds(),
   ]);
   connectSSE();
-  // health 走独立通道：首屏不等它；后台扫描期偶尔超时也不会污染看板渲染
-  await loadHealth();
+  // health 已提前发起并独立收敛；后台扫描期不会阻塞首屏，也不会叠加轮询请求
+  await initialHealth;
   setInterval(loadHealth, 10000);
 })();
