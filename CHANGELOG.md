@@ -7,3 +7,4 @@
 - Added redacted State Engine diagnostics API, Settings Hub timeline/export UI and migration/rollback notes.
 - Added regression coverage for Turn vs Session separation, waiting/failed/interrupted states, child sessions, duplicate/late Evidence and heartbeat liveness.
 - Added generation-scoped Session Identity, manifest-backed adapter contract, debounced Process Liveness, completion ID dedupe and a 32-scenario P0 replay matrix.
+- Fixed false `/api/health` timeout errors during startup/background scans by prioritizing and coalescing health polling with a scan-aware warning.
