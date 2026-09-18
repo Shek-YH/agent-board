@@ -79,6 +79,9 @@ const {
   createScanScheduler,
 } = require('./lib/scan-scheduler');
 const { dispatchVerifiedMessage } = require('./lib/verified-dispatch');
+const boardDiag = require('./lib/board-diagnostics');
+boardDiag.init(getDataDir());
+let boardDiagErrorLogged = false;
 const { createCodexWriter, verifyCodexDraft, verifyCodexDesktopSession } = require('./lib/codex-desktop-uia');
 const { createHermesWriter, verifyHermesDraft, verifyHermesDesktopSession } = require('./lib/hermes-desktop-uia');
 const { createCodexDeliveryReader } = require('./lib/codex-delivery');
@@ -3028,11 +3031,34 @@ const server = http.createServer(async (req, res) => {
     // 没有缓存时先按已有数据返回，探测完成后由 SSE 触发一次轻量刷新。
     const probed = probeCache.data || {};
     const defaultAgentIds = [...agentIds].filter((id) => (probed[id] && probed[id].installed) || agentsWithData.has(id));
+    const liveRefList = store.getActive().map((a) => a.sessionRef);
+    // 帧诊断：一帧快照只做内存读取，不做 IO；是否落盘由 lib/board-diagnostics 内部判定。
+    // 无信号时几乎零开销（每个 session 只写一次「首次见到」记录）。AB_BOARD_DIAG=0 可整体关闭。
+    if (!boardDiag.DISABLED) {
+      try {
+        const frame = boardDiag.buildFrame({
+          source: 'api/board',
+          groups: Object.fromEntries(
+            Object.entries(groups).map(([k, list]) => [k, { items: list, truncated: list.length >= (qBase.limit || 80) }]),
+          ),
+          liveRefs: liveRefList,
+          limit: qBase.limit || 80,
+        });
+        boardDiag.record(frame);
+      } catch (error) {
+        // 诊断失败不得影响看板响应，但也不能完全静默——首次失败打印一次栈，
+        // 否则「诊断没生效」会被误判成「没有问题」。
+        if (!boardDiagErrorLogged) {
+          boardDiagErrorLogged = true;
+          console.error('[board-diag] 帧诊断失败（后续不再重复打印）:', error && error.stack || error);
+        }
+      }
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     // liveRefs：当前实时活跃的 session ref 集合（getActive 按 10 分钟窗口），供前端渲染状态用
     res.end(JSON.stringify({
       groups, agentIds: [...agentIds], defaultAgentIds,
-      liveRefs: store.getActive().map((a) => a.sessionRef),
+      liveRefs: liveRefList,
       runtimeStatuses: store.getRuntimeStatuses(),
     }));
     if (!probeCache.data && !probeInFlight) {

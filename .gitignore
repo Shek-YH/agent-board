@@ -40,6 +40,9 @@ src-tauri/target/
 __pycache__/
 *.py[cod]
 
+# PowerShell 把模块分析缓存误写到当前工作目录时产生的噪音
+Microsoft/
+
 # 临时、调试与编辑器文件
 *.tmp
 *.dmp

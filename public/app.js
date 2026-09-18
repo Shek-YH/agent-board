@@ -778,7 +778,7 @@ async function openZCodeSession(sessionId) {
 }
 async function openDeepSeekSession(sessionId) {
   if (!sessionId) {
-    toast('DeepSeek Harness：无效的会话 ID');
+    toast('DeepSeek Harness：会话数据尚未就绪，请稍候重试');
     return false;
   }
   toast('正在打开 DeepSeek Harness 桌面端会话…');
@@ -836,6 +836,23 @@ function jumpToAgentSession(s) {
   // card/session identity untouched and use a short-lived navigation view instead.
   const navigationId = sessionNavigationId(s);
   s = { ...s, session_id: navigationId };
+  // 卡片数据未读全时不带着残缺身份去跳转：先做一次权威单会话查询补全，
+  // 避免把「会话还没读进来」误报成「无效的会话 ID」。
+  if (s.is_read_complete === false) return jumpWithResolvedSession(s);
+  return dispatchAgentJump(s);
+}
+async function jumpWithResolvedSession(s) {
+  const ref = String(s.id || '');
+  try {
+    const fresh = await requestJson('/api/session/' + encodeURIComponent(ref));
+    if (fresh && fresh.session_id) {
+      // 服务端身份权威：历史畸形 ref（如 deepseek:server:<uid>:<uuid>）在此自愈。
+      return dispatchAgentJump({ ...s, ...fresh, id: ref });
+    }
+  } catch { /* 查询失败则退回原对象，由 dispatchAgentJump 给出准确提示 */ }
+  return dispatchAgentJump(s);
+}
+function dispatchAgentJump(s) {
   if (s.agent === 'claude') return openClaudeSession(s.session_id);
   if (s.agent === 'codex') return openCodexThread(s.session_id);
   if (s.agent === 'workbuddy') return openWorkBuddySession(s.session_id);
@@ -1341,6 +1358,9 @@ function runtimeStatusValue(runtime) {
 
 function lifecycleLiveValue(runtime) {
   if (typeof lifecycleStatusModule.lifecycleLiveValue === 'function') return lifecycleStatusModule.lifecycleLiveValue(runtime);
+  // 与 session-lifecycle-status.js 保持一致：终态优先，lifecycle_state 只能确认「活着」不能复活终态。
+  const state = String(runtime?.state || '').toLowerCase();
+  if (['completed', 'failed', 'interrupted', 'session_closed'].includes(state)) return false;
   const lifecycle = String(runtime?.lifecycle_state || '').toUpperCase();
   if (lifecycle === 'ACTIVE' || lifecycle === 'COMPLETION_CANDIDATE') return true;
   if (['IDLE', 'WAITING_USER', 'COMPLETED', 'FAILED', 'INTERRUPTED'].includes(lifecycle)) return false;
@@ -2101,7 +2121,13 @@ function buildCard(s, colKey, groupContext = null) {
   card.dataset.sessionId = sessionId || rawSessionId;
   card.dataset.boardSessionId = rawSessionId;
   const isAll = colKey === 'all';
-  const lastCmd = (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
+  // 数据未就绪（后端尚未读到该会话的任何真实消息）：project / msg_count / 末条用户消息
+  // 都还是初值。此时必须显示「读取中」占位——否则会把「还没读到」渲染成
+  // 「（无项目路径）」「N 条」「（暂无用户指令）」这类看似真实、实则自相矛盾的字段。
+  const readPending = s.is_read_complete === false;
+  const lastCmd = readPending
+    ? '数据读取中…'
+    : (s.last_user_text || '（暂无用户指令）').replace(/\s+/g, ' ').slice(0, 160);
   const titleHtml = `<span class="s-title" title="${esc(s.title)}">${esc(s.title || rawSessionId.slice(0, 12))}</span>`;
   const sessionIdLabel = displaySessionId(sessionId);
   const sessionIdHtml = sessionId
@@ -2135,10 +2161,10 @@ function buildCard(s, colKey, groupContext = null) {
         ${titleHtml}
       </div>
     </div>
-    <div class="s-proj" title="${esc(s.project)}">${esc(shortProj(s.project) || '（无项目路径）')}</div>
-    <div class="s-cmd" title="${esc(lastCmd)}">▸ ${esc(lastCmd)}</div>
+    <div class="s-proj" title="${esc(readPending ? '' : s.project)}">${readPending ? '读取中…' : esc(shortProj(s.project) || '（无项目路径）')}</div>
+    <div class="s-cmd" title="${esc(readPending ? '' : lastCmd)}">▸ ${esc(lastCmd)}</div>
     <div class="s-row2">
-      <span class="s-msg">${s.msg_count} 条</span>
+      <span class="s-msg">${readPending ? '读取中' : `${s.msg_count} 条`}</span>
       <span class="s-time">${fmtTimeLabel(s.last_seen)}</span>
       ${sessionIdHtml}
     </div>

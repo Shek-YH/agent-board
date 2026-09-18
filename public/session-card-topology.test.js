@@ -10,8 +10,11 @@ const appSource = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 const htmlSource = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
+  let start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `missing ${name}`);
+  // 保留 `async` 前缀：漏掉它会让 async 函数体里的 `await` 变成语法错误。
+  const prefixStart = start - 'async '.length;
+  if (prefixStart >= 0 && source.slice(prefixStart, start) === 'async ') start = prefixStart;
   const open = source.indexOf('{', start);
   let depth = 0;
   let quote = '';
@@ -38,7 +41,16 @@ function extractFunction(source, name) {
 
 function loadFunctions(names, extra = {}) {
   const script = names.map((name) => extractFunction(appSource, name)).join('\n');
-  return vm.runInNewContext(`${script}\n({${names.map((name) => `${name}`).join(',')}})`, extra);
+  // 被抽取的函数里有 async（如跳转前的权威补全），普通 vm.Script 遇到 `await` 会
+  // SyntaxError。vm 的模块加载是异步接口，这里改用「显式提供 async 运行环境」的
+  // 方式：把整个脚本包进一个 async IIFE 求值，返回其 Promise 解析出的导出对象。
+  const wrapped = `(async () => { ${script}\n; return {${names.join(',')}}; })()`;
+  const promise = vm.runInNewContext(wrapped, extra);
+  return { promise };
+}
+// 测试内同步使用导出对象时走这个取件器。
+async function loadFunctionsAsync(names, extra = {}) {
+  return loadFunctions(names, extra).promise;
 }
 
 class FakeElement {
@@ -85,7 +97,18 @@ test('session cards render explicit topology badges and relationships', () => {
 test('project labels use the final path segment while retaining the full title', () => {
   assert.match(appSource, /function shortProj\(p\)/);
   assert.equal(appSource.includes('const parts = trimmed.split(/[\\\\/]/).filter(Boolean);'), true);
-  assert.match(appSource, /class="s-proj" title="\$\{esc\(s\.project\)\}"/);
+  // 完整路径保留在 title 中；但数据未读全（is_read_complete === false）时不得展示残缺路径，
+  // 改为「读取中…」占位（见下一条断言）。
+  assert.match(appSource, /class="s-proj" title="\$\{esc\(readPending \? '' : s\.project\)\}"/);
+  assert.match(appSource, /readPending \? '读取中…' : esc\(shortProj\(s\.project\) \|\| '（无项目路径）'\)/);
+});
+
+test('unread sessions render placeholders instead of contradicted field values', () => {
+  // 会话仍在被读入时，msg_count / project / 末条用户消息都还是初值。
+  // 卡片必须把它们显示成「读取中」，而不是「（无项目路径）」「N 条」「（暂无用户指令）」。
+  assert.match(appSource, /const readPending = s\.is_read_complete === false/);
+  assert.match(appSource, /const lastCmd = readPending\s*\n?\s*\? '数据读取中…'/);
+  assert.match(appSource, /readPending \? '读取中' : `\$\{s\.msg_count\} 条`/);
 });
 
 test('topology badge styles are compact and accessible by text, not color alone', () => {
@@ -102,8 +125,8 @@ test('native jumps resolve synthetic Marvis and Hermes children through their du
   assert.match(appSource, /const navigationId = sessionNavigationId\(s\)/);
 });
 
-test('sessionNavigationId resolves only synthetic Marvis/Hermes children to parent IDs', () => {
-  const { sessionNavigationId } = loadFunctions(['sessionNavigationId']);
+test('sessionNavigationId resolves only synthetic Marvis/Hermes children to parent IDs', async () => {
+  const { sessionNavigationId } = await loadFunctionsAsync(['sessionNavigationId']);
   assert.equal(sessionNavigationId({ agent: 'marvis', session_role: 'child', session_id: 'conv:subagent:sa', parent_session_ref: 'marvis:conv' }), 'conv');
   assert.equal(sessionNavigationId({ agent: 'hermes', session_role: 'child', session_id: 'hm:subagent:call:0', parent_session_ref: 'hermes:hm' }), 'hm');
   assert.equal(sessionNavigationId({ agent: 'claude', session_role: 'child', session_id: 'c:subagent:1', parent_session_ref: 'claude:c' }), 'c:subagent:1');
@@ -113,8 +136,8 @@ test('sessionNavigationId resolves only synthetic Marvis/Hermes children to pare
   assert.equal(sessionNavigationId({ agent: 'marvis', session_role: 'child', session_id: 'conv:subagent:sa', parent_session_ref: 'hermes:conv' }), 'conv:subagent:sa');
 });
 
-test('topologyRoleMarkup renders the shared main, child, and unknown presentation', () => {
-  const { displaySessionId, topologyRoleMarkup } = loadFunctions(['displaySessionId', 'topologyRoleMarkup'], {
+test('topologyRoleMarkup renders the shared main, child, and unknown presentation', async () => {
+  const { displaySessionId, topologyRoleMarkup } = await loadFunctionsAsync(['displaySessionId', 'topologyRoleMarkup'], {
     esc: (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
   });
   assert.match(topologyRoleMarkup({ session_role: 'main', child_count: 2, active_child_count: 1 }), /◎ 主会话/);
@@ -125,7 +148,7 @@ test('topologyRoleMarkup renders the shared main, child, and unknown presentatio
   assert.equal(typeof displaySessionId, 'function');
 });
 
-test('buildCard preserves child identity while its jump uses the durable parent', () => {
+test('buildCard preserves child identity while its jump uses the durable parent', async () => {
   const state = {
     agentsDef: { marvis: { name: 'Marvis', color: '#123456' } },
     liveRefs: new Set(), runtimeStatuses: new Map(), recentDone: new Map(), dismissedRecent: new Set(),
@@ -144,10 +167,12 @@ test('buildCard preserves child identity while its jump uses the durable parent'
     openClaudeSession() {}, openCodexThread() {}, openWorkBuddySession() {}, openDeepSeekSession() {},
     openZCodeSession() {}, openPiAgentSession() {}, openHermesSession() {}, launchAgent() {},
     dismissRecent() {}, syncFlowDecor() {}, toast() {}, openPopover() {},
+    requestJson: async () => { throw new Error('offline'); },
   };
-  const { buildCard } = loadFunctions([
+  const { buildCard } = await loadFunctionsAsync([
     'displaySessionId', 'fmtTimeLabel', 'agentMeta', 'shortProj', 'topologyRoleMarkup', 'isRecentCompleted',
-    'runtimeStatusFor', 'statusClass', 'statusMarkup', 'sessionNavigationId', 'jumpToAgentSession', 'buildCard',
+    'runtimeStatusFor', 'statusClass', 'statusMarkup', 'sessionNavigationId', 'jumpToAgentSession',
+    'jumpWithResolvedSession', 'dispatchAgentJump', 'buildCard',
   ], context);
   const child = {
     id: 'marvis:conv:subagent:sa', agent: 'marvis', session_id: 'conv:subagent:sa',
@@ -162,11 +187,14 @@ test('buildCard preserves child identity while its jump uses the durable parent'
   card.listeners.click({ target: { closest: () => null } });
   assert.deepEqual(opened, [child.id]);
   card.querySelector('.s-jump').listeners.click({ stopPropagation() {} });
+  // 跳转链路自身是 promise（未读卡片会先做一次权威单会话补全）；本用例伪造的
+  // requestJson 必然 reject，因此最终仍走 dispatchAgentJump 的直连分支。
+  await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(jumped, ['conv']);
   assert.equal(child.session_id, 'conv:subagent:sa');
 });
 
-test('buildCard keeps a manually completed session completed despite a stale running runtime snapshot', () => {
+test('buildCard keeps a manually completed session completed despite a stale running runtime snapshot', async () => {
   const session = {
     id: 'codex:01a04ee4-4c26-7680-a583-42518889dee3',
     agent: 'codex', session_id: '01a04ee4-4c26-7680-a583-42518889dee3',
@@ -189,11 +217,10 @@ test('buildCard keeps a manually completed session completed despite a stale run
     openDeepSeekSession() {}, openZCodeSession() {}, openPiAgentSession() {}, openHermesSession() {},
     launchAgent() {}, dismissRecent() {}, syncFlowDecor() {}, toast() {}, openPopover() {},
   };
-  const { buildCard } = loadFunctions([
+  const { buildCard } = await loadFunctionsAsync([
     'displaySessionId', 'fmtTimeLabel', 'agentMeta', 'shortProj', 'topologyRoleMarkup', 'isRecentCompleted',
     'extractCodexThreadId', 'runtimeStatusFor', 'statusClass', 'statusMarkup', 'sessionNavigationId', 'jumpToAgentSession', 'buildCard',
   ], context);
-
   const card = buildCard(session, 'codex');
   assert.equal(card.dataset.manualDone, '1');
   assert.equal(card.dataset.runtimeStatus, 'completed');
