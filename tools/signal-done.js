@@ -15,14 +15,29 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { getDataDir } = require('../lib/runtime-paths');
 
-const BOARD = { host: '127.0.0.1', port: 4876, path: '/api/complete' };
+const DEFAULT_BOARD = { host: '127.0.0.1', port: 4876, path: '/api/complete', token: '' };
+const COMPLETE_HOOK_CONFIG_PATH = path.join(getDataDir(), 'hooks', 'complete-hook.json');
 const DEBUG_LOG = path.join(os.tmpdir(), 'codex-signal-done.log');
 
 function dlog(msg) {
   try { fs.appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`); } catch { /* ignore */ }
 }
 dlog(`--- 启动 argv=${JSON.stringify(process.argv.slice(2))}`);
+
+function loadBoardConfig(filePath = COMPLETE_HOOK_CONFIG_PATH) {
+  try {
+    const config = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const url = new URL(String(config?.url || ''));
+    if (!['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname) || url.pathname !== '/api/complete' || typeof config.token !== 'string' || !config.token.trim()) return DEFAULT_BOARD;
+    return { host: url.hostname, port: Number(url.port) || 80, path: url.pathname, token: config.token.trim() };
+  } catch {
+    return DEFAULT_BOARD;
+  }
+}
+
+const BOARD = loadBoardConfig();
 
 function parseArgs(argv) {
   const out = { agent: '', session: '', delay: 0 };
@@ -68,7 +83,7 @@ function post(agent, sessionId) {
     const req = http.request({
       host: BOARD.host, port: BOARD.port, path: BOARD.path,
       method: 'POST', timeout: 3000,
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...(BOARD.token ? { Authorization: `Bearer ${BOARD.token}` } : {}) },
     }, (res) => {
       dlog(`POST ${res.statusCode}`);
       res.resume();

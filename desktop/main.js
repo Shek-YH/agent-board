@@ -16,6 +16,7 @@ const {
 } = require('electron');
 const { resolveDesktopPaths } = require('./paths');
 const { findAvailablePort } = require('./port');
+const { isAllowedExternalUrl } = require('./external-url');
 const {
   buildBackendLaunch,
   startBackend,
@@ -155,6 +156,10 @@ function isLocalUrl(url) {
 }
 
 function openExternalSafely(url) {
+  if (!isAllowedExternalUrl(url)) {
+    writeDesktopLog('外部链接因不受支持的协议被拒绝');
+    return;
+  }
   Promise.resolve(shell.openExternal(url)).catch((error) => {
     writeDesktopLog(`外部链接打开失败：${url}：${error.message}`);
   });

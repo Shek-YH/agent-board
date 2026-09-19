@@ -99,6 +99,10 @@ node --test
 
 不要带路径参数（`node --test lib/` 在这套 Windows/Node 环境下会抛 `MODULE_NOT_FOUND`）。
 
+## 安全边界
+
+桌面模式的变更请求必须通过 loopback、受限 Host/Origin、JSON Content-Type 与 Runtime Bearer Token 校验；WorkBuddy 状态 Hook 和 Agent 完成 Hook 使用彼此独立的 Bearer Token。完成 Hook 的本机配置位于 `%LOCALAPPDATA%\AgentBoard\hooks\complete-hook.json`，由后端启动时生成，不能复制到前端、日志或版本库。更多兼容性与验证记录见 [SECURITY_FIX_2026-09.md](docs/security/SECURITY_FIX_2026-09.md)。
+
 ### 数据源路径配置
 
 默认路径会按当前运行用户和平台解析。若某个 Agent 把数据放在非默认位置，在配置目录创建 `source-paths.json`；Windows 默认配置目录为 `%USERPROFILE%\.agent-board`，也可用 `AB_CONFIG_DIR` 指定。

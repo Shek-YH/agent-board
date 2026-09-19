@@ -17,7 +17,7 @@ export async function bootstrap() {
   });
   app.use(requestIdMiddleware);
   app.use(createRateLimitMiddleware(app.get(RATE_LIMIT_SERVICE)));
-  await app.listen(config.port, '0.0.0.0');
+  await app.listen(config.port, config.apiHost);
   return app;
 }
 

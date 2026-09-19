@@ -20,6 +20,7 @@ test('loadConfig normalizes the cloud API environment', () => {
   assert.deepEqual(config, {
     nodeEnv: 'test',
     port: 3201,
+    apiHost: '127.0.0.1',
     databaseUrl: VALID_ENV.DATABASE_URL,
     betterAuthSecret: VALID_ENV.BETTER_AUTH_SECRET,
     betterAuthUrl: VALID_ENV.BETTER_AUTH_URL,
@@ -66,10 +67,16 @@ test('toSafeConfig excludes database and authentication secrets', () => {
   assert.deepEqual(safe, {
     nodeEnv: 'test',
     port: 3201,
+    apiHost: '127.0.0.1',
     betterAuthUrl: VALID_ENV.BETTER_AUTH_URL,
     adminOrigin: VALID_ENV.ADMIN_ORIGIN,
     trustedOrigins: ['http://127.0.0.1:3101', 'http://localhost:3101'],
   });
   assert.equal('databaseUrl' in safe, false);
   assert.equal('betterAuthSecret' in safe, false);
+});
+
+test('loadConfig defaults API_HOST to loopback and rejects unsafe host values', () => {
+  assert.equal(loadConfig({ ...VALID_ENV, API_HOST: '0.0.0.0' }).apiHost, '0.0.0.0');
+  assert.throws(() => loadConfig({ ...VALID_ENV, API_HOST: 'api.internal' }), /API_HOST/);
 });

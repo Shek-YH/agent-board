@@ -93,10 +93,12 @@ const AI_INSTALLABLE_IDS = new Set(Object.keys(getAgentInstallDefinitions()));
 
 const PORT = Number(process.env.AB_PORT || 4876);
 const WORKBUDDY_HTTP_AUTH = createHookAuth();
+const COMPLETE_HOOK_AUTH = createHookAuth({ envKey: 'AGENT_BOARD_COMPLETE_HOOK_TOKEN' });
 const UI_RUNTIME_AUTH = createRuntimeAuth();
 const UI_RUNTIME_AUTH_ENABLED = process.env.AB_RUNTIME === 'desktop';
 const runtimeDiagnostics = createDiagnostics();
 const WORKBUDDY_HTTP_CONFIG_PATH = path.join(getDataDir(), 'workbuddy', 'http-hook.json');
+const COMPLETE_HOOK_CONFIG_PATH = path.join(getDataDir(), 'hooks', 'complete-hook.json');
 const PUBLIC = path.join(__dirname, 'public');
 const HERMES_SCAN_INTERVAL_MS = 5 * 1000;
 const WORKBUDDY_STATUS_SCAN_INTERVAL_MS = 1000;
@@ -123,6 +125,12 @@ if (!writeHookConfig(WORKBUDDY_HTTP_CONFIG_PATH, {
   token: WORKBUDDY_HTTP_AUTH.token,
 })) {
   console.warn('[workbuddy] 无法写入 HTTP Hook 配置，command Hook 将回退 spool');
+}
+if (!writeHookConfig(COMPLETE_HOOK_CONFIG_PATH, {
+  url: createHookUrl({ port: PORT, path: '/api/complete' }),
+  token: COMPLETE_HOOK_AUTH.token,
+})) {
+  console.warn('[complete-hook] 无法写入完成 Hook 配置');
 }
 
 // ---------- Agent 可扩展配置表 ----------
@@ -1923,6 +1931,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Desktop renderer 的所有 mutation 在分发到敏感 handler 前统一建立信任边界。
+  // WorkBuddy 与完成 Hook 分别使用各自的 Bearer token，不能复用 UI Runtime Token。
+  if (UI_RUNTIME_AUTH_ENABLED && MUTATION_METHODS.has(req.method) && pathname !== '/api/complete' && pathname !== DEFAULT_HOOK_PATH) {
+    if (!authorizeUiMutation(req, UI_RUNTIME_AUTH.token, { port: PORT })) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized Agent Board UI request' }));
+      return;
+    }
+  }
+
   if (pathname === '/api/jarvis/readiness' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(jarvisVoice.readiness()));
@@ -2024,14 +2042,6 @@ const server = http.createServer(async (req, res) => {
     writeSseEvent(res, 'active', { active: store.getActive(), statuses: store.getRuntimeStatuses() });
     req.on('close', () => sseClients.delete(res));
     return;
-  }
-
-  if (UI_RUNTIME_AUTH_ENABLED && MUTATION_METHODS.has(req.method) && pathname !== '/api/complete') {
-    if (!authorizeUiMutation(req, UI_RUNTIME_AUTH.token, { port: PORT })) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized Agent Board UI request' }));
-      return;
-    }
   }
 
   // Electron 启动探测只需要确认当前 backend 身份，不应触发完整看板查询/序列化。
@@ -3153,8 +3163,13 @@ const server = http.createServer(async (req, res) => {
   // 完成本轮最后输出时静默调用 → 立即结束该会话的「进行中」（不再等 10 分钟窗口）。
   // 幂等：重复信号无害；新真实消息（ingest）会自动清除该停止标记，会话重新参与判定。
   if (pathname === '/api/complete' && req.method === 'POST') {
+    if (!authorizeHookRequest(req, COMPLETE_HOOK_AUTH.token)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized Agent completion hook' }));
+      return;
+    }
     try {
-      const body = await readBody(req);
+      const body = await readJsonBody(req);
       const agent = String(body.agent || '').trim();
       const sessionId = String(body.sessionId || '').trim();
       if (!agent) throw new Error('缺少 agent');

@@ -87,7 +87,13 @@ export class AgentController {
   }
 
   @Post('sub-agents')
-  createSubAgent(@Body() input: Record<string, unknown>, @Req() request: any) {
+  async createSubAgent(@Body() input: Record<string, unknown>, @Req() request: any) {
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
+    const profile = userId
+      ? await this.database.userProfile.findUnique({ where: { userId }, select: { agentId: true } })
+      : null;
+    if (!profile?.agentId) throw new ForbiddenException({ code: 'AGENT_USER_NOT_IN_SCOPE' });
+    await this.agents.assertInScope(request.agent.id, profile.agentId);
     return this.agents.create({ ...input, parentAgentId: request.agent.id }, context(request));
   }
 

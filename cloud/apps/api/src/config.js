@@ -21,6 +21,14 @@ function parsePort(value) {
   return port;
 }
 
+function parseApiHost(value) {
+  const host = nonBlank(value) || '127.0.0.1';
+  if (!['127.0.0.1', '::1', '0.0.0.0', '::'].includes(host)) {
+    throw new ConfigurationError('API_HOST must be a loopback or explicit wildcard address');
+  }
+  return host;
+}
+
 function validateUrl(value, name, { httpsOnly = false } = {}) {
   try {
     const url = new URL(value);
@@ -72,6 +80,7 @@ function loadConfig(env = process.env) {
   return {
     nodeEnv,
     port: parsePort(env.PORT),
+    apiHost: parseApiHost(env.API_HOST),
     databaseUrl: nonBlank(env.DATABASE_URL),
     betterAuthSecret,
     betterAuthUrl,
@@ -87,6 +96,7 @@ function toSafeConfig(config) {
   return {
     nodeEnv: config.nodeEnv,
     port: config.port,
+    apiHost: config.apiHost,
     betterAuthUrl: config.betterAuthUrl,
     adminOrigin: config.adminOrigin,
     trustedOrigins: [...config.trustedOrigins],
